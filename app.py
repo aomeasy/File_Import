@@ -139,50 +139,51 @@ def main():
             
             st.markdown("---")
             
-            # Quick actions
-            st.subheader("⚡ Quick Actions")
-            if st.button("🔄 Refresh Tables", use_container_width=True, key="refresh_sidebar"):
-                st.rerun()
-            
-            if st.button("📋 View All Tables", use_container_width=True, key="view_all_sidebar"):
-                if tables_info and len(tables_info) > 0:
-                    st.subheader("📊 All Tables Summary")
+            # Show recent table activity
+            if tables_info and len(tables_info) > 0:
+                st.subheader("🕒 Recent Table Activity")
+                
+                # Sort tables by update time (most recent first)
+                sorted_tables = sorted(
+                    [t for t in tables_info if t.get('UPDATE_TIME')], 
+                    key=lambda x: x.get('UPDATE_TIME', ''), 
+                    reverse=True
+                )
+                
+                # Show top 5 most recently updated tables
+                for table_info in sorted_tables[:5]:
+                    table_name = table_info.get('TABLE_NAME', 'Unknown')
+                    update_time = table_info.get('UPDATE_TIME')
+                    row_count = table_info.get('TABLE_ROWS', 0) or 0
                     
-                    # Create summary DataFrame
-                    summary_data = []
-                    for table_info in tables_info:
-                        update_time = table_info.get('UPDATE_TIME')
-                        table_name = table_info.get('TABLE_NAME', 'Unknown')
-                        row_count = table_info.get('TABLE_ROWS', 0) or 0
-                        
-                        if update_time:
-                            try:
-                                if isinstance(update_time, str):
-                                    update_str = update_time[:10] if len(update_time) > 10 else update_time
-                                else:
-                                    update_str = update_time.strftime("%Y-%m-%d")
-                            except:
-                                update_str = "Unknown"
-                        else:
-                            update_str = "No data"
-                        
-                        summary_data.append({
-                            "Table": table_name,
-                            "Rows": f"{row_count:,}",
-                            "Last Update": update_str
-                        })
-                    
-                    if summary_data:
-                        summary_df = pd.DataFrame(summary_data)
-                        st.dataframe(summary_df, use_container_width=True, hide_index=True)
-                    else:
-                        st.write("No table data available")
-                elif len(tables) > 0:
-                    st.write("**Available Tables:**")
-                    for table in tables:
-                        st.write(f"• {table}")
-                else:
-                    st.write("No tables found")
+                    if update_time:
+                        try:
+                            if isinstance(update_time, str):
+                                time_str = update_time[:16] if len(update_time) > 16 else update_time
+                            else:
+                                time_str = update_time.strftime("%Y-%m-%d %H:%M")
+                            
+                            with st.container():
+                                st.markdown(f"""
+                                <div style="
+                                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                    padding: 0.8rem;
+                                    border-radius: 8px;
+                                    margin: 0.3rem 0;
+                                    color: white;
+                                ">
+                                    <div style="font-weight: bold; font-size: 14px;">📄 {table_name}</div>
+                                    <div style="font-size: 12px; opacity: 0.9;">🕒 {time_str}</div>
+                                    <div style="font-size: 12px; opacity: 0.9;">📊 {row_count:,} rows</div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                        except:
+                            pass
+                
+                if len(sorted_tables) == 0:
+                    st.info("No timestamp data available")
+            else:
+                st.info("Table information not available")
 
         # Main content
         col1, col2 = st.columns([2, 1])
