@@ -213,7 +213,9 @@ def main():
                                         db_col = mapped_col.replace("🗄️ ", "")
                                         mapping[file_col] = db_col
                             
-                            # Show mapping summary
+                            # Show mapping summary and import button
+                            st.markdown("---")
+                            
                             if mapping:
                                 st.markdown("### 📋 **Mapping Summary:**")
                                 mapping_df = pd.DataFrame([
@@ -222,20 +224,20 @@ def main():
                                 ])
                                 st.dataframe(mapping_df, use_container_width=True, hide_index=True)
                                 
-                                # Import section
-                                st.markdown("---")
+                                # Import section - ALWAYS SHOW THIS
                                 st.markdown("### 🚀 **Ready to Import!**")
                                 
                                 col_import1, col_import2 = st.columns([2, 1])
                                 
                                 with col_import1:
-                                    st.info(f"✅ Ready to import **{len(df)}** rows with **{len(mapping)}** mapped columns")
+                                    st.info(f"✅ Ready to import **{len(df)}** rows with **{len(mapping)}** mapped columns into `{selected_table}` table")
                                 
                                 with col_import2:
                                     import_button = st.button(
                                         "🚀 Import Data Now!",
                                         type="primary",
-                                        use_container_width=True
+                                        use_container_width=True,
+                                        help="Click to start importing data to database"
                                     )
                                 
                                 # Import process
@@ -255,7 +257,7 @@ def main():
                                             updated_preview = db_manager.get_table_preview(selected_table)
                                             if not updated_preview.empty:
                                                 st.dataframe(updated_preview, use_container_width=True, hide_index=True)
-                                                st.success(f"📈 Table now contains updated data!")
+                                                st.success(f"📈 Table `{selected_table}` now contains updated data!")
                                             else:
                                                 st.warning("Could not load updated preview")
                                         else:
@@ -269,6 +271,15 @@ def main():
                             else:
                                 st.warning("⚠️ Please map at least one column to proceed with import")
                                 st.info("💡 **Tip:** Select database columns from the dropdowns above to map your file data")
+                                
+                                # Show empty import button (disabled state)
+                                st.markdown("### 🚀 **Import Section:**")
+                                st.button(
+                                    "🚫 No Mapping - Cannot Import",
+                                    disabled=True,
+                                    use_container_width=True,
+                                    help="Please map at least one column first"
+                                )
                         else:
                             st.error("❌ Could not fetch table structure")
                             
