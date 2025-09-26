@@ -43,8 +43,73 @@ class DatabaseManager:
             logging.error(f"Connection test failed: {e}")
         return False
     
-    def get_tables(self) -> List[str]:
-        """Get list of all tables in the database"""
+    def get_tables_with_info(self) -> List[Dict[str, Any]]:
+        """Get list of all tables with their information including last update"""
+        try:
+            conn = self.get_connection()
+            if not conn:
+                return []
+            
+            cursor = conn.cursor(dictionary=True)
+            
+            # Try different queries based on MySQL version
+            queries = [
+                # Modern MySQL (5.7+)
+                """
+                SELECT 
+                    TABLE_NAME,
+                    TABLE_ROWS,
+                    DATA_LENGTH,
+                    INDEX_LENGTH,
+                    CREATE_TIME,
+                    UPDATE_TIME
+                FROM INFORMATION_SCHEMA.TABLES 
+                WHERE TABLE_SCHEMA = %s 
+                AND TABLE_TYPE = 'BASE TABLE'
+                ORDER BY TABLE_NAME
+                """,
+                # Fallback query
+                """
+                SELECT 
+                    TABLE_NAME,
+                    TABLE_ROWS,
+                    DATA_LENGTH,
+                    INDEX_LENGTH,
+                    NULL as CREATE_TIME,
+                    NULL as UPDATE_TIME
+                FROM INFORMATION_SCHEMA.TABLES 
+                WHERE TABLE_SCHEMA = %s 
+                AND TABLE_TYPE = 'BASE TABLE'
+                ORDER BY TABLE_NAME
+                """
+            ]
+            
+            for query in queries:
+                try:
+                    cursor.execute(query, (self.connection_config['database'],))
+                    tables_info = cursor.fetchall()
+                    cursor.close()
+                    
+                    # If we got results, return them
+                    if tables_info:
+                        return tables_info
+                except Error as e:
+                    # Try next query
+                    continue
+            
+            cursor.close()
+            return []
+            
+        except Error as e:
+            # If INFORMATION_SCHEMA doesn't work, try basic table list with manual timestamp check
+            try:
+                return self._get_basic_table_info()
+            except:
+                st.warning(f"Could not get detailed table information: {e}")
+                return []
+    
+    def _get_basic_table_info(self) -> List[Dict[str, Any]]:
+        """Fallback method to get basic table info"""
         try:
             conn = self.get_connection()
             if not conn:
@@ -52,11 +117,33 @@ class DatabaseManager:
             
             cursor = conn.cursor()
             cursor.execute("SHOW TABLES")
-            tables = [table[0] for table in cursor.fetchall()]
+            table_names = [table[0] for table in cursor.fetchall()]
             cursor.close()
-            return sorted(tables)
+            
+            tables_info = []
+            for table_name in table_names:
+                try:
+                    # Get row count
+                    cursor = conn.cursor()
+                    cursor.execute(f"SELECT COUNT(*) FROM `{table_name}`")
+                    row_count = cursor.fetchone()[0]
+                    cursor.close()
+                    
+                    tables_info.append({
+                        'TABLE_NAME': table_name,
+                        'TABLE_ROWS': row_count,
+                        'DATA_LENGTH': None,
+                        'INDEX_LENGTH': None,
+                        'CREATE_TIME': None,
+                        'UPDATE_TIME': None
+                    })
+                except:
+                    # Skip problematic tables
+                    continue
+            
+            return tables_info
+            
         except Error as e:
-            st.error(f"Error fetching tables: {e}")
             return []
     
     def get_table_preview(self, table_name: str, limit: int = 5) -> pd.DataFrame:
@@ -183,7 +270,14 @@ class DatabaseManager:
             st.error(f"Query execution error: {e}")
             return pd.DataFrame()
     
-    def get_table_info(self, table_name: str) -> Dict[str, Any]:
+    def get_tables(self) -> List[str]:
+        """Get list of all tables in the database (for backward compatibility)"""
+        try:
+            tables_info = self.get_tables_with_info()
+            return [table['TABLE_NAME'] for table in tables_info]
+        except Exception as e:
+            logging.error(f"Error in get_tables: {e}")
+            return []
         """Get detailed table information"""
         try:
             conn = self.get_connection()
