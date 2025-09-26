@@ -43,106 +43,8 @@ class DatabaseManager:
             logging.error(f"Connection test failed: {e}")
         return False
     
-    def get_tables_with_info(self) -> List[Dict[str, Any]]:
-        """Get list of all tables with their information including last update"""
-        try:
-            conn = self.get_connection()
-            if not conn:
-                return []
-            
-            cursor = conn.cursor(dictionary=True)
-            
-            # Get basic table info from INFORMATION_SCHEMA
-            query = """
-            SELECT 
-                TABLE_NAME,
-                TABLE_ROWS,
-                DATA_LENGTH,
-                INDEX_LENGTH,
-                CREATE_TIME,
-                UPDATE_TIME
-            FROM INFORMATION_SCHEMA.TABLES 
-            WHERE TABLE_SCHEMA = %s 
-            AND TABLE_TYPE = 'BASE TABLE'
-            ORDER BY TABLE_NAME
-            """
-            
-            try:
-                cursor.execute(query, (self.connection_config['database'],))
-                tables_info = cursor.fetchall()
-                
-                # Enhance with actual timestamp data from each table
-                enhanced_tables = []
-                for table_info in tables_info:
-                    table_name = table_info['TABLE_NAME']
-                    
-                    # Try to get actual last timestamp from the table
-                    actual_timestamp = self._get_actual_last_timestamp(table_name)
-                    
-                    # Use actual timestamp if available, otherwise keep original
-                    if actual_timestamp:
-                        table_info['ACTUAL_LAST_UPDATE'] = actual_timestamp
-                        table_info['UPDATE_TIME'] = actual_timestamp
-                    
-                    enhanced_tables.append(table_info)
-                
-                cursor.close()
-                return enhanced_tables
-                
-            except Error as e:
-                cursor.close()
-                return self._get_basic_table_info()
-            
-        except Error as e:
-            return self._get_basic_table_info()
-    
-    def _get_actual_last_timestamp(self, table_name: str) -> Optional[str]:
-        """Get the actual last timestamp from table data"""
-        try:
-            conn = self.get_connection()
-            if not conn:
-                return None
-            
-            if not self._is_valid_table_name(table_name):
-                return None
-            
-            cursor = conn.cursor()
-            
-            # Common timestamp column names to check
-            timestamp_columns = ['timestamp', 'created_at', 'updated_at', 'date', 'datetime', 'time']
-            
-            # Get all columns for this table
-            cursor.execute(f"DESCRIBE `{table_name}`")
-            columns = cursor.fetchall()
-            
-            # Find timestamp-like columns
-            found_timestamp_col = None
-            for col in columns:
-                col_name = col[0].lower()
-                col_type = col[1].lower()
-                
-                # Check if it's a timestamp/datetime column
-                if ('timestamp' in col_type or 'datetime' in col_type or 
-                    any(ts_name in col_name for ts_name in timestamp_columns)):
-                    found_timestamp_col = col[0]
-                    break
-            
-            if found_timestamp_col:
-                # Get the latest timestamp from this column
-                cursor.execute(f"SELECT MAX(`{found_timestamp_col}`) FROM `{table_name}`")
-                result = cursor.fetchone()
-                if result and result[0]:
-                    cursor.close()
-                    return str(result[0])
-            
-            cursor.close()
-            return None
-            
-        except Exception as e:
-            return None
-    
-    def _get_basic_table_info(self) -> List[Dict[str, Any]]:
-        """Fallback method to get basic table info"""
+    def get_tables(self) -> List[str]:
+        """Get list of all tables in the database"""
         try:
             conn = self.get_connection()
             if not conn:
@@ -150,33 +52,11 @@ class DatabaseManager:
             
             cursor = conn.cursor()
             cursor.execute("SHOW TABLES")
-            table_names = [table[0] for table in cursor.fetchall()]
+            tables = [table[0] for table in cursor.fetchall()]
             cursor.close()
-            
-            tables_info = []
-            for table_name in table_names:
-                try:
-                    # Get row count
-                    cursor = conn.cursor()
-                    cursor.execute(f"SELECT COUNT(*) FROM `{table_name}`")
-                    row_count = cursor.fetchone()[0]
-                    cursor.close()
-                    
-                    tables_info.append({
-                        'TABLE_NAME': table_name,
-                        'TABLE_ROWS': row_count,
-                        'DATA_LENGTH': None,
-                        'INDEX_LENGTH': None,
-                        'CREATE_TIME': None,
-                        'UPDATE_TIME': None
-                    })
-                except:
-                    # Skip problematic tables
-                    continue
-            
-            return tables_info
-            
+            return sorted(tables)
         except Error as e:
+            st.error(f"Error fetching tables: {e}")
             return []
     
     def get_table_preview(self, table_name: str, limit: int = 5) -> pd.DataFrame:
@@ -303,14 +183,7 @@ class DatabaseManager:
             st.error(f"Query execution error: {e}")
             return pd.DataFrame()
     
-    def get_tables(self) -> List[str]:
-        """Get list of all tables in the database (for backward compatibility)"""
-        try:
-            tables_info = self.get_tables_with_info()
-            return [table['TABLE_NAME'] for table in tables_info]
-        except Exception as e:
-            logging.error(f"Error in get_tables: {e}")
-            return []
+    def get_table_info(self, table_name: str) -> Dict[str, Any]:
         """Get detailed table information"""
         try:
             conn = self.get_connection()
