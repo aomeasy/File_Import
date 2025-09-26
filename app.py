@@ -20,7 +20,7 @@ except ImportError as e:
 
 # Configure page
 st.set_page_config(
-    page_title="AI Data Import Hub",
+    page_title="Data Import Hub",
     page_icon="🚀",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -77,7 +77,7 @@ def main():
         # Header
         st.markdown("""
         <div class="main-header">
-            <h1>🚀 AI Data Import Hub</h1>
+            <h1>🚀 Data Import Hub</h1>
             <p>Modern file import system powered by AI-driven interface</p>
         </div>
         """, unsafe_allow_html=True)
