@@ -156,58 +156,119 @@ def main():
                         
                         # Column mapping section
                         st.subheader("🔗 Column Mapping")
+                        st.info("📌 Map your file columns to database table columns before importing")
                         
                         # Get table columns
                         table_columns = db_manager.get_table_columns(selected_table)
                         
                         if table_columns:
                             mapping = {}
+                            
+                            # Show column comparison
                             col_map1, col_map2 = st.columns(2)
                             
                             with col_map1:
-                                st.write("**File Columns:**")
-                                for col in df.columns:
-                                    st.write(f"• {col}")
+                                st.markdown("**📁 File Columns:**")
+                                for i, col in enumerate(df.columns):
+                                    st.write(f"**{i+1}.** {col}")
                             
                             with col_map2:
-                                st.write("**Table Columns:**")
-                                for col_info in table_columns:
+                                st.markdown("**🗄️ Database Table Columns:**")
+                                for i, col_info in enumerate(table_columns):
                                     col_name = col_info['COLUMN_NAME']
                                     col_type = col_info['DATA_TYPE']
                                     nullable = "NULL" if col_info['IS_NULLABLE'] == 'YES' else "NOT NULL"
-                                    st.write(f"• {col_name} ({col_type}) - {nullable}")
+                                    st.write(f"**{i+1}.** {col_name} `({col_type})` - {nullable}")
                             
-                            # Create mapping interface
-                            st.write("**Map File Columns to Table Columns:**")
-                            for file_col in df.columns:
-                                mapped_col = st.selectbox(
-                                    f"Map '{file_col}' to:",
-                                    options=["-- Skip --"] + [col['COLUMN_NAME'] for col in table_columns],
-                                    key=f"mapping_{file_col}"
-                                )
-                                if mapped_col != "-- Skip --":
-                                    mapping[file_col] = mapped_col
+                            st.markdown("---")
                             
-                            # Import button
-                            if mapping and st.button("🚀 Import Data", type="primary"):
-                                try:
-                                    with st.spinner("Importing data..."):
-                                        result = db_manager.import_data(selected_table, df, mapping)
+                            # Mapping interface
+                            st.markdown("### 🎯 **Map Your Columns:**")
+                            
+                            # Create two columns for mapping interface
+                            map_col1, map_col2 = st.columns([1, 1])
+                            
+                            with map_col1:
+                                st.markdown("**Choose File Column:**")
+                            with map_col2:
+                                st.markdown("**Maps to Database Column:**")
+                            
+                            # Create mapping dropdowns
+                            for i, file_col in enumerate(df.columns):
+                                map_col1, map_col2 = st.columns([1, 1])
+                                
+                                with map_col1:
+                                    st.write(f"📄 **{file_col}**")
+                                
+                                with map_col2:
+                                    mapped_col = st.selectbox(
+                                        f"Map to:",
+                                        options=["🚫 Skip this column"] + [f"🗄️ {col['COLUMN_NAME']}" for col in table_columns],
+                                        key=f"mapping_{file_col}_{i}",
+                                        label_visibility="collapsed"
+                                    )
+                                    
+                                    if mapped_col != "🚫 Skip this column":
+                                        # Extract actual column name
+                                        db_col = mapped_col.replace("🗄️ ", "")
+                                        mapping[file_col] = db_col
+                            
+                            # Show mapping summary
+                            if mapping:
+                                st.markdown("### 📋 **Mapping Summary:**")
+                                mapping_df = pd.DataFrame([
+                                    {"File Column": file_col, "→": "→", "Database Column": db_col}
+                                    for file_col, db_col in mapping.items()
+                                ])
+                                st.dataframe(mapping_df, use_container_width=True, hide_index=True)
+                                
+                                # Import section
+                                st.markdown("---")
+                                st.markdown("### 🚀 **Ready to Import!**")
+                                
+                                col_import1, col_import2 = st.columns([2, 1])
+                                
+                                with col_import1:
+                                    st.info(f"✅ Ready to import **{len(df)}** rows with **{len(mapping)}** mapped columns")
+                                
+                                with col_import2:
+                                    import_button = st.button(
+                                        "🚀 Import Data Now!",
+                                        type="primary",
+                                        use_container_width=True
+                                    )
+                                
+                                # Import process
+                                if import_button:
+                                    try:
+                                        with st.spinner("🔄 Importing data to database..."):
+                                            import time
+                                            time.sleep(1)  # Show spinner
+                                            result = db_manager.import_data(selected_table, df, mapping)
                                         
-                                    if result['success']:
-                                        st.success(f"🎉 Successfully imported {result['rows_affected']} rows!")
-                                        st.balloons()
-                                        
-                                        # Show updated table preview
-                                        st.subheader("📊 Updated Table Preview")
-                                        updated_preview = db_manager.get_table_preview(selected_table)
-                                        st.dataframe(updated_preview, use_container_width=True, hide_index=True)
-                                        
-                                    else:
-                                        st.error(f"❌ Import failed: {result['error']}")
-                                        
-                                except Exception as e:
-                                    st.error(f"❌ Import error: {str(e)}")
+                                        if result['success']:
+                                            st.success(f"🎉 **Import Successful!** \n\n✅ Imported **{result['rows_affected']}** rows into `{selected_table}` table")
+                                            st.balloons()
+                                            
+                                            # Show updated table preview
+                                            st.markdown("### 📊 **Updated Table Preview:**")
+                                            updated_preview = db_manager.get_table_preview(selected_table)
+                                            if not updated_preview.empty:
+                                                st.dataframe(updated_preview, use_container_width=True, hide_index=True)
+                                                st.success(f"📈 Table now contains updated data!")
+                                            else:
+                                                st.warning("Could not load updated preview")
+                                        else:
+                                            st.error(f"❌ **Import Failed:** {result['error']}")
+                                            st.error("Please check your data and column mapping, then try again.")
+                                    
+                                    except Exception as e:
+                                        st.error(f"❌ **Import Error:** {str(e)}")
+                                        st.error("Something went wrong during the import process.")
+                            
+                            else:
+                                st.warning("⚠️ Please map at least one column to proceed with import")
+                                st.info("💡 **Tip:** Select database columns from the dropdowns above to map your file data")
                         else:
                             st.error("❌ Could not fetch table structure")
                             
