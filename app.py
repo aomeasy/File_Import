@@ -138,6 +138,51 @@ def main():
         st.write(f"📊 Available Tables: {len(tables)}")
         
         st.markdown("---")
+        
+        # Quick actions
+        st.subheader("⚡ Quick Actions")
+        if st.button("🔄 Refresh Tables", use_container_width=True, key="refresh_sidebar"):
+            st.rerun()
+        
+        if st.button("📋 View All Tables", use_container_width=True, key="view_all_sidebar"):
+            if tables_info and len(tables_info) > 0:
+                st.subheader("📊 All Tables Summary")
+                
+                # Create summary DataFrame
+                summary_data = []
+                for table_info in tables_info:
+                    update_time = table_info.get('UPDATE_TIME')
+                    table_name = table_info.get('TABLE_NAME', 'Unknown')
+                    row_count = table_info.get('TABLE_ROWS', 0) or 0
+                    
+                    if update_time:
+                        try:
+                            if isinstance(update_time, str):
+                                update_str = update_time[:10] if len(update_time) > 10 else update_time
+                            else:
+                                update_str = update_time.strftime("%Y-%m-%d")
+                        except:
+                            update_str = "Unknown"
+                    else:
+                        update_str = "No data"
+                    
+                    summary_data.append({
+                        "Table": table_name,
+                        "Rows": f"{row_count:,}",
+                        "Last Update": update_str
+                    })
+                
+                if summary_data:
+                    summary_df = pd.DataFrame(summary_data)
+                    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+                else:
+                    st.write("No table data available")
+            elif len(tables) > 0:
+                st.write("**Available Tables:**")
+                for table in tables:
+                    st.write(f"• {table}")
+            else:
+                st.write("No tables found")
     
     # Main content
     col1, col2 = st.columns([2, 1])
