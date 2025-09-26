@@ -105,52 +105,6 @@ def main():
         
         st.write(f"📊 Available Tables: {len(tables)}")
         
-        # Show table information
-        if tables_info and len(tables_info) > 0:
-            st.subheader("📋 Tables Info")
-            
-            for table_info in tables_info[:5]:  # Show first 5 tables
-                table_name = table_info.get('TABLE_NAME', 'Unknown')
-                row_count = table_info.get('TABLE_ROWS', 0) or 0
-                update_time = table_info.get('UPDATE_TIME')
-                
-                with st.expander(f"📄 {table_name}", expanded=False):
-                    st.write(f"**Rows:** {row_count:,}")
-                    
-                    if update_time:
-                        try:
-                            # Format datetime
-                            if isinstance(update_time, str):
-                                st.write(f"**Last Update:** {update_time}")
-                            else:
-                                formatted_time = update_time.strftime("%Y-%m-%d %H:%M:%S")
-                                st.write(f"**Last Update:** {formatted_time}")
-                        except:
-                            st.write(f"**Last Update:** {str(update_time)}")
-                    else:
-                        st.write("**Last Update:** No data")
-                    
-                    # Show data size
-                    data_length = table_info.get('DATA_LENGTH', 0) or 0
-                    if data_length and data_length > 0:
-                        size_mb = data_length / (1024 * 1024)
-                        if size_mb > 1:
-                            st.write(f"**Size:** {size_mb:.1f} MB")
-                        else:
-                            size_kb = data_length / 1024
-                            st.write(f"**Size:** {size_kb:.1f} KB")
-                    else:
-                        st.write("**Size:** Unknown")
-            
-            if len(tables_info) > 5:
-                st.info(f"... and {len(tables_info) - 5} more tables")
-        elif len(tables) > 0:
-            st.subheader("📋 Tables")
-            for table in tables[:10]:
-                st.write(f"📄 {table}")
-            if len(tables) > 10:
-                st.info(f"... and {len(tables) - 10} more tables")
-        
         st.markdown("---")
     
     # Main content
@@ -177,38 +131,59 @@ def main():
                     break
             
             if table_details:
-                # Create info box
-                col_info1, col_info2 = st.columns(2)
+                # Show table information in a nice info box
+                st.markdown("### 📊 Table Information")
                 
-                with col_info1:
+                # Create metrics in columns
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
                     row_count = table_details.get('TABLE_ROWS', 0) or 0
-                    st.metric("📊 Rows", f"{row_count:,}")
+                    st.metric("📊 Total Rows", f"{row_count:,}")
                 
-                with col_info2:
+                with col2:
                     update_time = table_details.get('UPDATE_TIME')
                     if update_time:
                         try:
                             if isinstance(update_time, str):
-                                last_update = update_time[:10] if len(update_time) > 10 else update_time
+                                last_update = update_time[:19] if len(update_time) > 19 else update_time
                             else:
-                                last_update = update_time.strftime("%Y-%m-%d")
+                                last_update = update_time.strftime("%Y-%m-%d %H:%M:%S")
                             st.metric("🕒 Last Update", last_update)
                         except:
                             st.metric("🕒 Last Update", "Unknown")
                     else:
                         st.metric("🕒 Last Update", "No data")
                 
-                # Show size info
-                data_length = table_details.get('DATA_LENGTH', 0) or 0
-                if data_length and data_length > 0:
-                    size_mb = data_length / (1024 * 1024)
-                    if size_mb > 1:
-                        st.info(f"💾 Table Size: {size_mb:.1f} MB")
+                with col3:
+                    data_length = table_details.get('DATA_LENGTH', 0) or 0
+                    if data_length and data_length > 0:
+                        size_mb = data_length / (1024 * 1024)
+                        if size_mb > 1:
+                            st.metric("💾 Size", f"{size_mb:.1f} MB")
+                        else:
+                            size_kb = data_length / 1024
+                            st.metric("💾 Size", f"{size_kb:.1f} KB")
                     else:
-                        size_kb = data_length / 1024
-                        st.info(f"💾 Table Size: {size_kb:.1f} KB")
-                else:
-                    st.info("💾 Table Size: Unknown")
+                        st.metric("💾 Size", "Unknown")
+                
+                # Additional info box
+                create_time = table_details.get('CREATE_TIME')
+                if create_time:
+                    try:
+                        if isinstance(create_time, str):
+                            create_str = create_time[:19] if len(create_time) > 19 else create_time
+                        else:
+                            create_str = create_time.strftime("%Y-%m-%d %H:%M:%S")
+                        st.info(f"📅 **Table Created:** {create_str}")
+                    except:
+                        pass
+        
+        elif selected_table:
+            # Fallback info for when table_info is not available
+            st.markdown("### 📊 Table Information")
+            st.info(f"📄 Selected table: **{selected_table}**")
+            st.warning("⚠️ Detailed table information is not available")
         
         if selected_table:
             # Show table preview
