@@ -94,9 +94,48 @@ def main():
             st.error("Please check database configuration")
             return
         
-        # Get available tables
-        tables = db_manager.get_tables()
+        # Get available tables with info
+        tables_info = db_manager.get_tables_with_info()
+        tables = [table['TABLE_NAME'] for table in tables_info]
+        
         st.write(f"📊 Available Tables: {len(tables)}")
+        
+        # Show table information
+        if tables_info:
+            st.subheader("📋 Tables Info")
+            
+            for table_info in tables_info[:5]:  # Show first 5 tables
+                table_name = table_info['TABLE_NAME']
+                row_count = table_info.get('TABLE_ROWS', 0)
+                update_time = table_info.get('UPDATE_TIME')
+                
+                with st.expander(f"📄 {table_name}", expanded=False):
+                    st.write(f"**Rows:** {row_count:,}")
+                    
+                    if update_time:
+                        # Format datetime
+                        if isinstance(update_time, str):
+                            st.write(f"**Last Update:** {update_time}")
+                        else:
+                            formatted_time = update_time.strftime("%Y-%m-%d %H:%M:%S")
+                            st.write(f"**Last Update:** {formatted_time}")
+                    else:
+                        st.write("**Last Update:** No data")
+                    
+                    # Show data size
+                    data_length = table_info.get('DATA_LENGTH', 0)
+                    if data_length:
+                        size_mb = data_length / (1024 * 1024)
+                        if size_mb > 1:
+                            st.write(f"**Size:** {size_mb:.1f} MB")
+                        else:
+                            size_kb = data_length / 1024
+                            st.write(f"**Size:** {size_kb:.1f} KB")
+            
+            if len(tables_info) > 5:
+                st.info(f"... and {len(tables_info) - 5} more tables")
+        
+        st.markdown("---")
     
     # Main content
     col1, col2 = st.columns([2, 1])
@@ -104,12 +143,51 @@ def main():
     with col1:
         st.header("📁 File Import")
         
-        # Table selection
+        # Table selection with enhanced info
         selected_table = st.selectbox(
             "🎯 Select Target Table",
             options=[""] + tables,
-            help="Choose the table where you want to import your data"
+            help="Choose the table where you want to import your data",
+            format_func=lambda x: x if x == "" else f"📄 {x}"
         )
+        
+        # Show detailed table info when selected
+        if selected_table:
+            # Find table info
+            table_details = None
+            for table_info in tables_info:
+                if table_info['TABLE_NAME'] == selected_table:
+                    table_details = table_info
+                    break
+            
+            if table_details:
+                # Create info box
+                col_info1, col_info2 = st.columns(2)
+                
+                with col_info1:
+                    row_count = table_details.get('TABLE_ROWS', 0)
+                    st.metric("📊 Rows", f"{row_count:,}")
+                
+                with col_info2:
+                    update_time = table_details.get('UPDATE_TIME')
+                    if update_time:
+                        if isinstance(update_time, str):
+                            last_update = update_time
+                        else:
+                            last_update = update_time.strftime("%Y-%m-%d")
+                        st.metric("🕒 Last Update", last_update)
+                    else:
+                        st.metric("🕒 Last Update", "No data")
+                
+                # Show size info
+                data_length = table_details.get('DATA_LENGTH', 0)
+                if data_length:
+                    size_mb = data_length / (1024 * 1024)
+                    if size_mb > 1:
+                        st.info(f"💾 Table Size: {size_mb:.1f} MB")
+                    else:
+                        size_kb = data_length / 1024
+                        st.info(f"💾 Table Size: {size_kb:.1f} KB")
         
         if selected_table:
             # Show table preview
@@ -339,9 +417,26 @@ def main():
             st.rerun()
         
         if st.button("📋 View All Tables", use_container_width=True):
-            if tables:
-                for table in tables:
-                    st.write(f"• {table}")
+            if tables_info:
+                st.subheader("📊 All Tables Summary")
+                
+                # Create summary DataFrame
+                summary_data = []
+                for table_info in tables_info:
+                    update_time = table_info.get('UPDATE_TIME')
+                    if update_time and not isinstance(update_time, str):
+                        update_str = update_time.strftime("%Y-%m-%d")
+                    else:
+                        update_str = str(update_time) if update_time else "No data"
+                    
+                    summary_data.append({
+                        "Table": table_info['TABLE_NAME'],
+                        "Rows": f"{table_info.get('TABLE_ROWS', 0):,}",
+                        "Last Update": update_str
+                    })
+                
+                summary_df = pd.DataFrame(summary_data)
+                st.dataframe(summary_df, use_container_width=True, hide_index=True)
             else:
                 st.write("No tables found")
 
