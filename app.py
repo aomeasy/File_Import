@@ -185,15 +185,36 @@ def main():
                             # Mapping interface
                             st.markdown("### 🎯 **Map Your Columns:**")
                             
-                            # Create two columns for mapping interface
-                            map_col1, map_col2 = st.columns([1, 1])
+                            # Create auto-mapping logic
+                            def auto_map_columns(file_cols, db_cols):
+                                auto_mapping = {}
+                                db_col_names = [col['COLUMN_NAME'].lower() for col in db_cols]
+                                
+                                for file_col in file_cols:
+                                    file_col_clean = file_col.lower().strip()
+                                    
+                                    # Try exact match first
+                                    for db_col in db_cols:
+                                        if file_col_clean == db_col['COLUMN_NAME'].lower():
+                                            auto_mapping[file_col] = db_col['COLUMN_NAME']
+                                            break
+                                    
+                                    # If no exact match, try partial match
+                                    if file_col not in auto_mapping:
+                                        for db_col in db_cols:
+                                            db_col_name = db_col['COLUMN_NAME'].lower()
+                                            if (file_col_clean in db_col_name or 
+                                                db_col_name in file_col_clean or
+                                                file_col_clean.replace('_', '') == db_col_name.replace('_', '')):
+                                                auto_mapping[file_col] = db_col['COLUMN_NAME']
+                                                break
+                                
+                                return auto_mapping
                             
-                            with map_col1:
-                                st.markdown("**Choose File Column:**")
-                            with map_col2:
-                                st.markdown("**Maps to Database Column:**")
+                            # Get auto-mapping suggestions
+                            auto_mapping = auto_map_columns(df.columns, table_columns)
                             
-                            # Create mapping dropdowns
+                            # Create mapping dropdowns with auto-suggestions
                             for i, file_col in enumerate(df.columns):
                                 map_col1, map_col2 = st.columns([1, 1])
                                 
@@ -201,17 +222,27 @@ def main():
                                     st.write(f"📄 **{file_col}**")
                                 
                                 with map_col2:
+                                    # Prepare options
+                                    db_options = ["🚫 Skip this column"] + [col['COLUMN_NAME'] for col in table_columns]
+                                    
+                                    # Set default index based on auto-mapping
+                                    default_index = 0  # Skip by default
+                                    if file_col in auto_mapping:
+                                        suggested_col = auto_mapping[file_col]
+                                        if suggested_col in [col['COLUMN_NAME'] for col in table_columns]:
+                                            default_index = [col['COLUMN_NAME'] for col in table_columns].index(suggested_col) + 1
+                                    
                                     mapped_col = st.selectbox(
                                         f"Map to:",
-                                        options=["🚫 Skip this column"] + [f"🗄️ {col['COLUMN_NAME']}" for col in table_columns],
+                                        options=db_options,
+                                        index=default_index,
                                         key=f"mapping_{file_col}_{i}",
-                                        label_visibility="collapsed"
+                                        label_visibility="collapsed",
+                                        help=f"Auto-suggested: {auto_mapping.get(file_col, 'No suggestion')}" if file_col in auto_mapping else "No auto-suggestion available"
                                     )
                                     
                                     if mapped_col != "🚫 Skip this column":
-                                        # Extract actual column name
-                                        db_col = mapped_col.replace("🗄️ ", "")
-                                        mapping[file_col] = db_col
+                                        mapping[file_col] = mapped_col
                             
                             # Show mapping summary and import button
                             st.markdown("---")
