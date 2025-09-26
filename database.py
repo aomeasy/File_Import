@@ -52,61 +52,94 @@ class DatabaseManager:
             
             cursor = conn.cursor(dictionary=True)
             
-            # Try different queries based on MySQL version
-            queries = [
-                # Modern MySQL (5.7+)
-                """
-                SELECT 
-                    TABLE_NAME,
-                    TABLE_ROWS,
-                    DATA_LENGTH,
-                    INDEX_LENGTH,
-                    CREATE_TIME,
-                    UPDATE_TIME
-                FROM INFORMATION_SCHEMA.TABLES 
-                WHERE TABLE_SCHEMA = %s 
-                AND TABLE_TYPE = 'BASE TABLE'
-                ORDER BY TABLE_NAME
-                """,
-                # Fallback query
-                """
-                SELECT 
-                    TABLE_NAME,
-                    TABLE_ROWS,
-                    DATA_LENGTH,
-                    INDEX_LENGTH,
-                    NULL as CREATE_TIME,
-                    NULL as UPDATE_TIME
-                FROM INFORMATION_SCHEMA.TABLES 
-                WHERE TABLE_SCHEMA = %s 
-                AND TABLE_TYPE = 'BASE TABLE'
-                ORDER BY TABLE_NAME
-                """
-            ]
+            # Get basic table info from INFORMATION_SCHEMA
+            query = """
+            SELECT 
+                TABLE_NAME,
+                TABLE_ROWS,
+                DATA_LENGTH,
+                INDEX_LENGTH,
+                CREATE_TIME,
+                UPDATE_TIME
+            FROM INFORMATION_SCHEMA.TABLES 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_TYPE = 'BASE TABLE'
+            ORDER BY TABLE_NAME
+            """
             
-            for query in queries:
-                try:
-                    cursor.execute(query, (self.connection_config['database'],))
-                    tables_info = cursor.fetchall()
-                    cursor.close()
+            try:
+                cursor.execute(query, (self.connection_config['database'],))
+                tables_info = cursor.fetchall()
+                
+                # Enhance with actual timestamp data from each table
+                enhanced_tables = []
+                for table_info in tables_info:
+                    table_name = table_info['TABLE_NAME']
                     
-                    # If we got results, return them
-                    if tables_info:
-                        return tables_info
-                except Error as e:
-                    # Try next query
-                    continue
-            
-            cursor.close()
-            return []
+                    # Try to get actual last timestamp from the table
+                    actual_timestamp = self._get_actual_last_timestamp(table_name)
+                    
+                    # Use actual timestamp if available, otherwise keep original
+                    if actual_timestamp:
+                        table_info['ACTUAL_LAST_UPDATE'] = actual_timestamp
+                        table_info['UPDATE_TIME'] = actual_timestamp
+                    
+                    enhanced_tables.append(table_info)
+                
+                cursor.close()
+                return enhanced_tables
+                
+            except Error as e:
+                cursor.close()
+                return self._get_basic_table_info()
             
         except Error as e:
-            # If INFORMATION_SCHEMA doesn't work, try basic table list with manual timestamp check
-            try:
-                return self._get_basic_table_info()
-            except:
-                st.warning(f"Could not get detailed table information: {e}")
-                return []
+            return self._get_basic_table_info()
+    
+    def _get_actual_last_timestamp(self, table_name: str) -> Optional[str]:
+        """Get the actual last timestamp from table data"""
+        try:
+            conn = self.get_connection()
+            if not conn:
+                return None
+            
+            if not self._is_valid_table_name(table_name):
+                return None
+            
+            cursor = conn.cursor()
+            
+            # Common timestamp column names to check
+            timestamp_columns = ['timestamp', 'created_at', 'updated_at', 'date', 'datetime', 'time']
+            
+            # Get all columns for this table
+            cursor.execute(f"DESCRIBE `{table_name}`")
+            columns = cursor.fetchall()
+            
+            # Find timestamp-like columns
+            found_timestamp_col = None
+            for col in columns:
+                col_name = col[0].lower()
+                col_type = col[1].lower()
+                
+                # Check if it's a timestamp/datetime column
+                if ('timestamp' in col_type or 'datetime' in col_type or 
+                    any(ts_name in col_name for ts_name in timestamp_columns)):
+                    found_timestamp_col = col[0]
+                    break
+            
+            if found_timestamp_col:
+                # Get the latest timestamp from this column
+                cursor.execute(f"SELECT MAX(`{found_timestamp_col}`) FROM `{table_name}`")
+                result = cursor.fetchone()
+                if result and result[0]:
+                    cursor.close()
+                    return str(result[0])
+            
+            cursor.close()
+            return None
+            
+        except Exception as e:
+            return None
     
     def _get_basic_table_info(self) -> List[Dict[str, Any]]:
         """Fallback method to get basic table info"""
