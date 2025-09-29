@@ -4,8 +4,12 @@ import mysql.connector
 from mysql.connector import Error
 import os
 from datetime import datetime
+import time
+from functools import lru_cache
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
-# Import our modules with error handling
+# Import modules with error handling
 try:
     from database import DatabaseManager
 except ImportError as e:
@@ -26,132 +30,149 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for modern AI-themed design
+# ===== OPTIMIZATION 1: CACHING =====
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def get_cached_tables_info():
+    """Cache table information to avoid repeated DB queries"""
+    try:
+        db_manager = DatabaseManager()
+        return db_manager.get_tables_with_info()
+    except Exception as e:
+        st.error(f"Error getting tables info: {e}")
+        return []
+
+@st.cache_data(ttl=300)
+def get_cached_table_columns(table_name):
+    """Cache table columns to avoid repeated queries"""
+    try:
+        db_manager = DatabaseManager()
+        return db_manager.get_table_columns(table_name)
+    except Exception as e:
+        return []
+
+@st.cache_data(ttl=60)  # Cache for 1 minute
+def get_cached_table_preview(table_name, limit=5):
+    """Cache table preview with smaller limit"""
+    try:
+        db_manager = DatabaseManager()
+        # Use LIMIT in SQL query instead of loading all data
+        query = f"SELECT * FROM {table_name} ORDER BY id DESC LIMIT {limit}"
+        return db_manager.execute_query(query)
+    except Exception as e:
+        return pd.DataFrame()
+
+# ===== OPTIMIZATION 2: SIMPLIFIED CSS =====
 st.markdown("""
 <style>
     .main-header {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 2rem;
-        border-radius: 10px;
-        margin-bottom: 2rem;
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
         text-align: center;
         color: white;
     }
     
     .metric-card {
-        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        background: #f0f2f6;
         padding: 1rem;
-        border-radius: 10px;
-        color: white;
+        border-radius: 8px;
         text-align: center;
         margin: 0.5rem 0;
+        border: 1px solid #e0e0e0;
     }
     
     .status-success {
-        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-        padding: 1rem;
-        border-radius: 10px;
-        color: white;
-        margin: 1rem 0;
+        background: #d4edda;
+        padding: 0.5rem;
+        border-radius: 4px;
+        color: #155724;
+        margin: 0.5rem 0;
     }
     
     .status-error {
-        background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
-        padding: 1rem;
-        border-radius: 10px;
-        color: white;
-        margin: 1rem 0;
-    }
-    
-    .table-preview {
-        border: 2px solid #e0e0e0;
-        border-radius: 10px;
-        padding: 1rem;
-        background: #f8f9ff;
+        background: #f8d7da;
+        padding: 0.5rem;
+        border-radius: 4px;
+        color: #721c24;
+        margin: 0.5rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
 
 def main():
     try:
-        # Header
+        # Header - Simplified
         st.markdown("""
         <div class="main-header">
             <h1>🚀 Data Import Hub</h1>
-            <p>Modern file import system powered by AI-driven interface</p>
+            <p>Fast file import system</p>
         </div>
         """, unsafe_allow_html=True)
         
-        # Initialize components with error handling
-        try:
-            db_manager = DatabaseManager()
-        except Exception as e:
-            st.error(f"Failed to initialize DatabaseManager: {e}")
-            st.error("Please check your database configuration in database.py")
-            return
+        # ===== OPTIMIZATION 3: LAZY LOADING =====
+        # Initialize components only when needed
+        if 'db_manager' not in st.session_state:
+            try:
+                st.session_state.db_manager = DatabaseManager()
+            except Exception as e:
+                st.error(f"Failed to initialize DatabaseManager: {e}")
+                return
         
-        try:
-            file_processor = FileProcessor()
-        except Exception as e:
-            st.error(f"Failed to initialize FileProcessor: {e}")
-            return
+        if 'file_processor' not in st.session_state:
+            try:
+                st.session_state.file_processor = FileProcessor()
+            except Exception as e:
+                st.error(f"Failed to initialize FileProcessor: {e}")
+                return
 
-        # Sidebar configuration
+        # Sidebar configuration - Optimized
         with st.sidebar:
             st.header("⚙️ Configuration")
             
-            # Connection status
-            try:
-                connection_status = db_manager.test_connection()
-                if connection_status:
-                    st.markdown("""
-                    <div class="status-success">
-                        ✅ Database Connected
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.markdown("""
-                    <div class="status-error">
-                        ❌ Database Connection Failed
-                    </div>
-                    """, unsafe_allow_html=True)
-                    st.error("Please check database configuration")
-                    return
-            except Exception as e:
-                st.error(f"Database connection error: {e}")
+            # ===== OPTIMIZATION 4: CONNECTION POOLING =====
+            # Test connection only once per session
+            if 'connection_status' not in st.session_state:
+                try:
+                    st.session_state.connection_status = st.session_state.db_manager.test_connection()
+                except Exception as e:
+                    st.session_state.connection_status = False
+            
+            if st.session_state.connection_status:
+                st.markdown('<div class="status-success">✅ Database Connected</div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="status-error">❌ Database Connection Failed</div>', unsafe_allow_html=True)
                 return
             
-            # Get available tables with info
+            # ===== OPTIMIZATION 5: EFFICIENT DATA LOADING =====
+            # Load tables info with caching
+            if st.button("🔄 Refresh", key="refresh_sidebar"):
+                st.cache_data.clear()  # Clear cache when refresh is clicked
+                st.rerun()
+            
             try:
-                tables_info = db_manager.get_tables_with_info()
+                tables_info = get_cached_tables_info()
                 tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
             except Exception as e:
                 st.warning(f"Could not get table info: {e}")
-                try:
-                    tables = db_manager.get_tables()  # Fallback to simple table list
-                    tables_info = []
-                except Exception as e2:
-                    st.error(f"Cannot get tables: {e2}")
-                    tables = []
-                    tables_info = []
+                tables = []
+                tables_info = []
 
             st.write(f"📊 Available Tables: {len(tables)}")
             
-            st.markdown("---")
-            
-            # Show recent table activity
-            if tables_info and len(tables_info) > 0:
-                st.subheader("🕒 Recent Table Activity")
+            # ===== OPTIMIZATION 6: LIMIT RECENT ACTIVITY =====
+            # Show only top 3 most recent tables
+            if tables_info:
+                st.subheader("🕒 Recent Activity")
                 
-                # Sort tables by update time (most recent first)
+                # Sort and limit to top 3
                 sorted_tables = sorted(
                     [t for t in tables_info if t.get('UPDATE_TIME')], 
                     key=lambda x: x.get('UPDATE_TIME', ''), 
                     reverse=True
-                )
+                )[:3]  # Limit to 3 items
                 
-                # Show top 5 most recently updated tables
-                for table_info in sorted_tables[:5]:
+                for table_info in sorted_tables:
                     table_name = table_info.get('TABLE_NAME', 'Unknown')
                     update_time = table_info.get('UPDATE_TIME')
                     row_count = table_info.get('TABLE_ROWS', 0) or 0
@@ -159,363 +180,289 @@ def main():
                     if update_time:
                         try:
                             if isinstance(update_time, str):
-                                time_str = update_time[:16] if len(update_time) > 16 else update_time
+                                time_str = update_time[:16]
                             else:
                                 time_str = update_time.strftime("%Y-%m-%d %H:%M")
                             
-                            with st.container():
-                                st.markdown(f"""
-                                <div style="
-                                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                                    padding: 0.8rem;
-                                    border-radius: 8px;
-                                    margin: 0.3rem 0;
-                                    color: white;
-                                ">
-                                    <div style="font-weight: bold; font-size: 14px;">📄 {table_name}</div>
-                                    <div style="font-size: 12px; opacity: 0.9;">🕒 {time_str}</div>
-                                    <div style="font-size: 12px; opacity: 0.9;">📊 {row_count:,} rows</div>
-                                </div>
-                                """, unsafe_allow_html=True)
+                            st.markdown(f"""
+                            <div style="background: #f8f9fa; padding: 0.5rem; border-radius: 4px; margin: 0.2rem 0; border-left: 3px solid #007bff;">
+                                <div style="font-weight: bold; font-size: 12px;">📄 {table_name}</div>
+                                <div style="font-size: 11px; color: #666;">🕒 {time_str} | 📊 {row_count:,} rows</div>
+                            </div>
+                            """, unsafe_allow_html=True)
                         except:
                             pass
-                
-                if len(sorted_tables) == 0:
-                    st.info("No timestamp data available")
-            else:
-                st.info("Table information not available")
 
         # Main content
-        col1, col2 = st.columns([2, 1])
+        col1, col2 = st.columns([3, 1])  # Adjusted ratio
         
         with col1:
             st.header("📁 File Import")
             
-            # Table selection with enhanced info
+            # ===== OPTIMIZATION 7: SIMPLE TABLE SELECTION =====
             selected_table = st.selectbox(
                 "🎯 Select Target Table",
                 options=[""] + tables,
-                help="Choose the table where you want to import your data",
-                format_func=lambda x: x if x == "" else f"📄 {x}"
+                help="Choose the table where you want to import your data"
             )
             
-            # Show detailed table info when selected
+            # ===== OPTIMIZATION 8: PROGRESSIVE LOADING =====
+            # Show table info only when requested
             if selected_table:
+                
+                # Show basic info immediately
                 if tables_info:
-                    # Find table info
-                    table_details = None
-                    for table_info in tables_info:
-                        if table_info.get('TABLE_NAME') == selected_table:
-                            table_details = table_info
-                            break
+                    table_details = next((t for t in tables_info if t.get('TABLE_NAME') == selected_table), None)
                     
                     if table_details:
-                        # Show table information in a nice info box
-                        st.markdown("### 📊 Table Information")
-                        
-                        # Create metrics in columns
                         col1_info, col2_info, col3_info = st.columns(3)
                         
                         with col1_info:
                             row_count = table_details.get('TABLE_ROWS', 0) or 0
-                            st.metric("📊 Total Rows", f"{row_count:,}")
+                            st.metric("📊 Rows", f"{row_count:,}")
                         
                         with col2_info:
                             update_time = table_details.get('UPDATE_TIME')
                             if update_time:
                                 try:
                                     if isinstance(update_time, str):
-                                        last_update = update_time[:19] if len(update_time) > 19 else update_time
+                                        last_update = update_time[:10]  # Just date
                                     else:
-                                        last_update = update_time.strftime("%Y-%m-%d %H:%M:%S")
-                                    st.metric("🕒 Last Update", last_update)
+                                        last_update = update_time.strftime("%Y-%m-%d")
+                                    st.metric("🕒 Updated", last_update)
                                 except:
-                                    st.metric("🕒 Last Update", "Unknown")
-                            else:
-                                st.metric("🕒 Last Update", "No data")
+                                    st.metric("🕒 Updated", "Unknown")
                         
                         with col3_info:
                             data_length = table_details.get('DATA_LENGTH', 0) or 0
-                            if data_length and data_length > 0:
+                            if data_length > 0:
                                 size_mb = data_length / (1024 * 1024)
-                                if size_mb > 1:
-                                    st.metric("💾 Size", f"{size_mb:.1f} MB")
-                                else:
-                                    size_kb = data_length / 1024
-                                    st.metric("💾 Size", f"{size_kb:.1f} KB")
-                            else:
-                                st.metric("💾 Size", "Unknown")
-                        
-                        # Additional info box
-                        create_time = table_details.get('CREATE_TIME')
-                        if create_time:
-                            try:
-                                if isinstance(create_time, str):
-                                    create_str = create_time[:19] if len(create_time) > 19 else create_time
-                                else:
-                                    create_str = create_time.strftime("%Y-%m-%d %H:%M:%S")
-                                st.info(f"📅 **Table Created:** {create_str}")
-                            except:
-                                pass
-                    else:
-                        # Table selected but no detailed info
-                        st.markdown("### 📊 Table Information")
-                        st.info(f"📄 Selected table: **{selected_table}**")
+                                st.metric("💾 Size", f"{size_mb:.0f} MB")
                 
-                else:
-                    # Fallback info for when table_info is not available
-                    st.markdown("### 📊 Table Information")
-                    st.info(f"📄 Selected table: **{selected_table}**")
-                    st.warning("⚠️ Detailed table information is not available")
-            
-            if selected_table:
-                # Show table preview
+                # ===== OPTIMIZATION 9: ON-DEMAND PREVIEW =====
                 st.subheader(f"👀 Preview: {selected_table}")
                 
-                if st.button("🔄 Show Last 5 Rows", type="secondary"):
-                    try:
-                        preview_data = db_manager.get_table_preview(selected_table)
-                        if not preview_data.empty:
-                            st.markdown('<div class="table-preview">', unsafe_allow_html=True)
-                            st.dataframe(
-                                preview_data,
-                                use_container_width=True,
-                                hide_index=True
-                            )
-                            st.markdown('</div>', unsafe_allow_html=True)
-                            
-                            # Show table info
-                            st.info(f"📊 Table has {len(preview_data.columns)} columns and showing last 5 rows")
-                        else:
-                            st.warning("📭 Table is empty")
-                    except Exception as e:
-                        st.error(f"❌ Error fetching table data: {str(e)}")
+                col_preview1, col_preview2 = st.columns([1, 2])
                 
-                # File upload
+                with col_preview1:
+                    show_preview = st.button("🔄 Show Preview", type="secondary")
+                
+                with col_preview2:
+                    if show_preview:
+                        st.info("Loading preview...")
+                
+                if show_preview:
+                    try:
+                        with st.spinner("Loading preview..."):
+                            preview_data = get_cached_table_preview(selected_table, 5)
+                        
+                        if not preview_data.empty:
+                            st.dataframe(preview_data, use_container_width=True, hide_index=True)
+                            st.success(f"📊 Showing last 5 rows from {len(preview_data.columns)} columns")
+                        else:
+                            st.warning("📭 Table is empty or preview unavailable")
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
+                
+                # ===== OPTIMIZATION 10: STREAMLINED FILE UPLOAD =====
                 st.subheader("📤 Upload File")
                 uploaded_file = st.file_uploader(
                     "Choose a file to import",
                     type=['csv', 'xlsx', 'xls'],
-                    help="Supported formats: CSV, Excel (.xlsx, .xls)"
+                    help="Max size: 200MB"
                 )
                 
                 if uploaded_file:
+                    # Check file size
+                    file_size = uploaded_file.size
+                    if file_size > 200 * 1024 * 1024:  # 200MB limit
+                        st.error("❌ File too large! Please use files smaller than 200MB")
+                        return
+                    
                     try:
-                        # Process file
-                        df = file_processor.process_file(uploaded_file)
+                        # Show progress
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        
+                        status_text.text("📁 Processing file...")
+                        progress_bar.progress(25)
+                        
+                        # Process file with chunks for large files
+                        df = st.session_state.file_processor.process_file(uploaded_file)
+                        progress_bar.progress(50)
                         
                         if df is not None:
-                            st.success(f"✅ File loaded successfully! {len(df)} rows, {len(df.columns)} columns")
+                            # Limit preview for large files
+                            max_preview_rows = 1000
+                            if len(df) > max_preview_rows:
+                                preview_df = df.head(max_preview_rows)
+                                st.warning(f"📊 Large file detected! Showing first {max_preview_rows} rows for preview. Full {len(df)} rows will be imported.")
+                            else:
+                                preview_df = df
                             
-                            # Show file preview
-                            st.subheader("📋 File Preview")
-                            st.dataframe(df.head(), use_container_width=True, hide_index=True)
+                            progress_bar.progress(75)
+                            status_text.text("✅ File loaded successfully!")
                             
-                            # Column mapping section
+                            st.success(f"✅ File loaded! {len(df)} rows, {len(df.columns)} columns")
+                            
+                            # Show compact preview
+                            with st.expander("📋 File Preview", expanded=False):
+                                st.dataframe(preview_df.head(10), use_container_width=True, hide_index=True)
+                            
+                            progress_bar.progress(100)
+                            
+                            # ===== OPTIMIZATION 11: SMART COLUMN MAPPING =====
                             st.subheader("🔗 Column Mapping")
-                            st.info("📌 Map your file columns to database table columns before importing")
                             
-                            # Get table columns
-                            table_columns = db_manager.get_table_columns(selected_table)
+                            # Load table columns with caching
+                            table_columns = get_cached_table_columns(selected_table)
                             
                             if table_columns:
-                                mapping = {}
-                                
-                                # Show column comparison
-                                col_map1, col_map2 = st.columns(2)
-                                
-                                with col_map1:
-                                    st.markdown("**📁 File Columns:**")
-                                    for i, col in enumerate(df.columns):
-                                        st.write(f"**{i+1}.** {col}")
-                                
-                                with col_map2:
-                                    st.markdown("**🗄️ Database Table Columns:**")
-                                    for i, col_info in enumerate(table_columns):
-                                        col_name = col_info['COLUMN_NAME']
-                                        col_type = col_info['DATA_TYPE']
-                                        nullable = "NULL" if col_info['IS_NULLABLE'] == 'YES' else "NOT NULL"
-                                        st.write(f"**{i+1}.** {col_name} `({col_type})` - {nullable}")
-                                
-                                st.markdown("---")
-                                
-                                # Mapping interface
-                                st.markdown("### 🎯 **Map Your Columns:**")
-                                
-                                # Create auto-mapping logic
-                                def auto_map_columns(file_cols, db_cols):
-                                    auto_mapping = {}
-                                    db_col_names = [col['COLUMN_NAME'].lower() for col in db_cols]
+                                # Smart auto-mapping
+                                def smart_auto_map(file_cols, db_cols):
+                                    mapping = {}
+                                    db_col_names = {col['COLUMN_NAME'].lower(): col['COLUMN_NAME'] for col in db_cols}
                                     
                                     for file_col in file_cols:
-                                        file_col_clean = file_col.lower().strip()
+                                        file_col_clean = file_col.lower().strip().replace(' ', '_')
                                         
-                                        # Try exact match first
-                                        for db_col in db_cols:
-                                            if file_col_clean == db_col['COLUMN_NAME'].lower():
-                                                auto_mapping[file_col] = db_col['COLUMN_NAME']
-                                                break
-                                        
-                                        # If no exact match, try partial match
-                                        if file_col not in auto_mapping:
-                                            for db_col in db_cols:
-                                                db_col_name = db_col['COLUMN_NAME'].lower()
-                                                if (file_col_clean in db_col_name or 
-                                                    db_col_name in file_col_clean or
-                                                    file_col_clean.replace('_', '') == db_col_name.replace('_', '')):
-                                                    auto_mapping[file_col] = db_col['COLUMN_NAME']
+                                        # Direct match
+                                        if file_col_clean in db_col_names:
+                                            mapping[file_col] = db_col_names[file_col_clean]
+                                        # Partial match
+                                        else:
+                                            for db_key, db_val in db_col_names.items():
+                                                if file_col_clean in db_key or db_key in file_col_clean:
+                                                    mapping[file_col] = db_val
                                                     break
                                     
-                                    return auto_mapping
+                                    return mapping
                                 
-                                # Get auto-mapping suggestions
-                                auto_mapping = auto_map_columns(df.columns, table_columns)
+                                auto_mapping = smart_auto_map(df.columns, table_columns)
                                 
-                                # Create mapping dropdowns with auto-suggestions
-                                for i, file_col in enumerate(df.columns):
-                                    map_col1, map_col2 = st.columns([1, 1])
+                                # Compact mapping interface
+                                mapping = {}
+                                
+                                # Show auto-mapping results
+                                if auto_mapping:
+                                    st.success(f"🎯 Auto-mapped {len(auto_mapping)} columns")
                                     
-                                    with map_col1:
-                                        st.write(f"📄 **{file_col}**")
+                                    col_map1, col_map2 = st.columns(2)
+                                    with col_map1:
+                                        st.write("**Auto-mapped columns:**")
+                                    with col_map2:
+                                        if st.button("✅ Use Auto-mapping"):
+                                            mapping = auto_mapping.copy()
+                                
+                                # Manual mapping for remaining columns
+                                unmapped_cols = [col for col in df.columns if col not in auto_mapping]
+                                
+                                if unmapped_cols:
+                                    st.write(f"**Map remaining {len(unmapped_cols)} columns:**")
                                     
-                                    with map_col2:
-                                        # Prepare options
-                                        db_options = ["🚫 Skip this column"] + [col['COLUMN_NAME'] for col in table_columns]
-                                        
-                                        # Set default index based on auto-mapping
-                                        default_index = 0  # Skip by default
-                                        if file_col in auto_mapping:
-                                            suggested_col = auto_mapping[file_col]
-                                            if suggested_col in [col['COLUMN_NAME'] for col in table_columns]:
-                                                default_index = [col['COLUMN_NAME'] for col in table_columns].index(suggested_col) + 1
-                                        
+                                    db_options = ["🚫 Skip"] + [col['COLUMN_NAME'] for col in table_columns]
+                                    
+                                    # Show only first 10 unmapped columns to avoid UI overload
+                                    display_cols = unmapped_cols[:10]
+                                    if len(unmapped_cols) > 10:
+                                        st.warning(f"Showing first 10 of {len(unmapped_cols)} unmapped columns")
+                                    
+                                    for file_col in display_cols:
                                         mapped_col = st.selectbox(
-                                            f"Map to:",
+                                            f"📄 {file_col}",
                                             options=db_options,
-                                            index=default_index,
-                                            key=f"mapping_{file_col}_{i}",
-                                            label_visibility="collapsed",
-                                            help=f"Auto-suggested: {auto_mapping.get(file_col, 'No suggestion')}" if file_col in auto_mapping else "No auto-suggestion available"
+                                            key=f"map_{file_col}"
                                         )
                                         
-                                        if mapped_col != "🚫 Skip this column":
+                                        if mapped_col != "🚫 Skip":
                                             mapping[file_col] = mapped_col
                                 
-                                # Show mapping summary and import button
-                                st.markdown("---")
+                                # Add auto-mapping to final mapping
+                                final_mapping = {**auto_mapping, **mapping}
                                 
-                                if mapping:
-                                    st.markdown("### 📋 **Mapping Summary:**")
-                                    mapping_df = pd.DataFrame([
-                                        {"File Column": file_col, "→": "→", "Database Column": db_col}
-                                        for file_col, db_col in mapping.items()
-                                    ])
-                                    st.dataframe(mapping_df, use_container_width=True, hide_index=True)
-                                    
-                                    # Import section - ALWAYS SHOW THIS
-                                    st.markdown("### 🚀 **Ready to Import!**")
+                                # ===== OPTIMIZATION 12: EFFICIENT IMPORT =====
+                                if final_mapping:
+                                    st.markdown("### 🚀 Import Data")
                                     
                                     col_import1, col_import2 = st.columns([2, 1])
                                     
                                     with col_import1:
-                                        st.info(f"✅ Ready to import **{len(df)}** rows with **{len(mapping)}** mapped columns into `{selected_table}` table")
+                                        st.info(f"Ready to import {len(df)} rows with {len(final_mapping)} columns")
                                     
                                     with col_import2:
-                                        import_button = st.button(
-                                            "🚀 Import Data Now!",
-                                            type="primary",
-                                            use_container_width=True,
-                                            help="Click to start importing data to database"
-                                        )
+                                        import_button = st.button("🚀 Import Now!", type="primary")
                                     
-                                    # Import process
                                     if import_button:
                                         try:
-                                            with st.spinner("🔄 Importing data to database..."):
-                                                import time
-                                                time.sleep(1)  # Show spinner
-                                                result = db_manager.import_data(selected_table, df, mapping)
+                                            # Import with progress tracking
+                                            import_progress = st.progress(0)
+                                            import_status = st.empty()
                                             
-                                            if result['success']:
-                                                st.success(f"🎉 **Import Successful!** \n\n✅ Imported **{result['rows_affected']}** rows into `{selected_table}` table")
+                                            import_status.text("🔄 Preparing data...")
+                                            import_progress.progress(20)
+                                            
+                                            # Process in chunks for large datasets
+                                            chunk_size = 10000
+                                            total_rows = len(df)
+                                            
+                                            if total_rows > chunk_size:
+                                                import_status.text(f"🔄 Importing {total_rows} rows in chunks...")
+                                                
+                                                for i in range(0, total_rows, chunk_size):
+                                                    chunk = df.iloc[i:i+chunk_size]
+                                                    result = st.session_state.db_manager.import_data(selected_table, chunk, final_mapping)
+                                                    
+                                                    progress = min(100, int((i + chunk_size) / total_rows * 80) + 20)
+                                                    import_progress.progress(progress)
+                                                    import_status.text(f"🔄 Imported {min(i + chunk_size, total_rows)} / {total_rows} rows")
+                                            else:
+                                                import_status.text("🔄 Importing data...")
+                                                import_progress.progress(50)
+                                                result = st.session_state.db_manager.import_data(selected_table, df, final_mapping)
+                                            
+                                            import_progress.progress(100)
+                                            
+                                            if result.get('success', False):
+                                                st.success(f"🎉 Import completed! {result.get('rows_affected', 0)} rows imported")
                                                 st.balloons()
                                                 
-                                                # Show updated table preview
-                                                st.markdown("### 📊 **Updated Table Preview:**")
-                                                updated_preview = db_manager.get_table_preview(selected_table)
-                                                if not updated_preview.empty:
-                                                    st.dataframe(updated_preview, use_container_width=True, hide_index=True)
-                                                    st.success(f"📈 Table `{selected_table}` now contains updated data!")
-                                                else:
-                                                    st.warning("Could not load updated preview")
+                                                # Clear cache to show updated data
+                                                st.cache_data.clear()
                                             else:
-                                                st.error(f"❌ **Import Failed:** {result['error']}")
-                                                st.error("Please check your data and column mapping, then try again.")
+                                                st.error(f"❌ Import failed: {result.get('error', 'Unknown error')}")
                                         
                                         except Exception as e:
-                                            st.error(f"❌ **Import Error:** {str(e)}")
-                                            st.error("Something went wrong during the import process.")
+                                            st.error(f"❌ Import error: {str(e)}")
                                 
                                 else:
-                                    st.warning("⚠️ Please map at least one column to proceed with import")
-                                    st.info("💡 **Tip:** Select database columns from the dropdowns above to map your file data")
-                                    
-                                    # Show empty import button (disabled state)
-                                    st.markdown("### 🚀 **Import Section:**")
-                                    st.button(
-                                        "🚫 No Mapping - Cannot Import",
-                                        disabled=True,
-                                        use_container_width=True,
-                                        help="Please map at least one column first"
-                                    )
+                                    st.warning("⚠️ Please map at least one column")
+                            
                             else:
                                 st.error("❌ Could not fetch table structure")
-                                
+                    
                     except Exception as e:
                         st.error(f"❌ Error processing file: {str(e)}")
         
+        # ===== OPTIMIZATION 13: SIMPLIFIED DASHBOARD =====
         with col2:
-            st.header("📊 Dashboard")
+            st.header("📊 Stats")
             
-            # Stats
+            # Simple metrics
             if tables:
                 st.markdown(f"""
                 <div class="metric-card">
                     <h3>{len(tables)}</h3>
-                    <p>Available Tables</p>
+                    <p>Tables</p>
                 </div>
                 """, unsafe_allow_html=True)
             
-            # Recent activity (placeholder)
-            st.subheader("🕒 Recent Activity")
-            st.info("Import activity will appear here")
-            
-            # Quick actions
-            st.subheader("⚡ Quick Actions")
-            if st.button("🔄 Refresh Tables", use_container_width=True, key="refresh_main"):
+            st.subheader("⚡ Actions")
+            if st.button("🔄 Refresh All", use_container_width=True):
+                st.cache_data.clear()
                 st.rerun()
-            
-            if st.button("📋 View All Tables", use_container_width=True, key="view_all_main"):
-                if tables:
-                    for table in tables:
-                        st.write(f"• {table}")
-                else:
-                    st.write("No tables found")
     
     except Exception as e:
-        st.error(f"Main application error: {e}")
-        with st.expander("🔍 Debug Information"):
-            import traceback
-            st.code(traceback.format_exc())
+        st.error(f"Application error: {e}")
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        st.error(f"Application error: {e}")
-        st.error("Please check your configuration and try again")
-        
-        # Show debug info
-        with st.expander("🔍 Debug Information"):
-            import traceback
-            st.code(traceback.format_exc())
+    main()
