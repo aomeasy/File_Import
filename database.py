@@ -147,24 +147,103 @@ class DatabaseManager:
             return []
     
     def get_table_preview(self, table_name: str, limit: int = 5) -> pd.DataFrame:
-        """Get preview of table data (last N rows)"""
+        """Get preview of table data (last N rows) - FIXED VERSION"""
         try:
             conn = self.get_connection()
             if not conn:
+                st.warning("No database connection available")
                 return pd.DataFrame()
             
             # Sanitize table name to prevent SQL injection
             if not self._is_valid_table_name(table_name):
                 raise ValueError("Invalid table name")
             
-            query = f"SELECT * FROM `{table_name}` ORDER BY 1 DESC LIMIT %s"
-            df = pd.read_sql(query, conn, params=[limit])
-            return df
+            # Try different query strategies for large tables
+            queries_to_try = [
+                # Strategy 1: Check if table has a primary key first
+                None,  # Will be determined dynamically
+                # Strategy 2: Simple LIMIT without ORDER BY (fastest for large tables)
+                f"SELECT * FROM `{table_name}` LIMIT %s",
+                # Strategy 3: Random sample
+                f"SELECT * FROM `{table_name}` ORDER BY RAND() LIMIT %s"
+            ]
+            
+            # First, try to find primary key for optimal ordering
+            try:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute("""
+                    SELECT COLUMN_NAME 
+                    FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE 
+                    WHERE TABLE_SCHEMA = %s 
+                    AND TABLE_NAME = %s 
+                    AND CONSTRAINT_NAME = 'PRIMARY'
+                    ORDER BY ORDINAL_POSITION
+                    LIMIT 1
+                """, (self.connection_config['database'], table_name))
+                
+                primary_key = cursor.fetchone()
+                cursor.close()
+                
+                if primary_key:
+                    pk_column = primary_key['COLUMN_NAME']
+                    queries_to_try[0] = f"SELECT * FROM `{table_name}` ORDER BY `{pk_column}` DESC LIMIT %s"
+                else:
+                    # Try to find any indexed column
+                    cursor = conn.cursor(dictionary=True)
+                    cursor.execute(f"SHOW INDEX FROM `{table_name}` WHERE Key_name != 'PRIMARY' LIMIT 1")
+                    index_info = cursor.fetchone()
+                    cursor.close()
+                    
+                    if index_info:
+                        idx_column = index_info['Column_name']
+                        queries_to_try[0] = f"SELECT * FROM `{table_name}` ORDER BY `{idx_column}` DESC LIMIT %s"
+                    
+            except Error:
+                # If we can't get key info, skip the first strategy
+                pass
+            
+            # Remove None entries
+            queries_to_try = [q for q in queries_to_try if q is not None]
+            
+            last_error = None
+            
+            for i, query in enumerate(queries_to_try):
+                try:
+                    # Set timeout for large tables
+                    cursor = conn.cursor()
+                    cursor.execute("SET SESSION max_execution_time = 8000")  # 8 seconds timeout
+                    cursor.close()
+                    
+                    df = pd.read_sql(query, conn, params=[limit])
+                    
+                    if not df.empty:
+                        return df
+                    else:
+                        continue
+                        
+                except Error as e:
+                    last_error = str(e)
+                    if "timeout" in str(e).lower() or "execution time" in str(e).lower():
+                        # If timeout, try next strategy
+                        continue
+                    else:
+                        # For other errors, also try next strategy
+                        continue
+                except Exception as e:
+                    last_error = str(e)
+                    continue
+            
+            # If all queries failed, return empty DataFrame
+            if last_error:
+                st.error(f"Could not fetch table preview: {last_error}")
+            
+            return pd.DataFrame()
+            
         except Error as e:
-            st.error(f"Error fetching table preview: {e}")
+            st.error(f"Database error in table preview: {e}")
             return pd.DataFrame()
         except Exception as e:
-            st.error(f"Unexpected error: {e}")
+            st.error(f"Unexpected error in table preview: {e}")
             return pd.DataFrame()
     
     def get_table_columns(self, table_name: str) -> List[Dict[str, Any]]:
@@ -278,6 +357,8 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"Error in get_tables: {e}")
             return []
+    
+    def get_table_info(self, table_name: str) -> Dict[str, Any]:
         """Get detailed table information"""
         try:
             conn = self.get_connection()
