@@ -269,10 +269,10 @@ def main():
             return
         
         # Main content (Full width without col2 dashboard)
-        st.header("📁 File Import")
+            st.header("📁 File Import")
             
             # Table selection
-                selected_table = st.selectbox(
+            selected_table = st.selectbox(
                 "🎯 Select Target Table",
                 options=[""] + tables,
                 help="Choose the table where you want to import your data",
