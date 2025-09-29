@@ -8,11 +8,11 @@ import logging
 class DatabaseManager:
     def __init__(self):
         self.connection_config = {
-            'host': '182.53.230.50',
-            'port': 33306,
-            'database': 'ntdatabase',
-            'user': 'mysqldb',
-            'password': 'h5DHtZ5TtssikBd',
+            'host': os.getenv('DB_HOST'),
+            'port': int(os.getenv('DB_PORT', '33306')),
+            'database': os.getenv('DB_NAME'),
+            'user': os.getenv('DB_USER'),
+            'password': os.getenv('DB_PASSWORD'),
             'charset': 'utf8mb4',
             'autocommit': True,
             'connection_timeout': 10
