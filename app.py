@@ -4,6 +4,7 @@ import mysql.connector
 from mysql.connector import Error
 import os
 from datetime import datetime
+import re
 
 # Import our modules with error handling
 try:
@@ -80,6 +81,127 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+def auto_map_columns(file_cols, db_cols):
+    """Auto-map columns with support for Thai characters and fuzzy matching"""
+    
+    auto_mapping = {}
+    
+    # สร้าง dictionary ของ database columns
+    db_col_dict = {col['COLUMN_NAME']: col['COLUMN_NAME'] for col in db_cols}
+    
+    def normalize_text(text):
+        """Normalize text for better matching"""
+        if not text:
+            return ""
+        
+        # แปลงเป็น lowercase
+        text = text.lower().strip()
+        
+        # ลบช่องว่าง underscore และเครื่องหมายพิเศษ
+        text = text.replace('_', '').replace(' ', '').replace('-', '')
+        
+        # ลบสระและวรรณยุกต์บางตัวที่อาจแตกต่าง (สำหรับภาษาไทย)
+        text = text.replace('ำ', 'า').replace('ั', '').replace('์', '').replace('่', '').replace('้', '').replace('๊', '').replace('๋', '')
+        
+        return text
+    
+    def calculate_similarity(str1, str2):
+        """Calculate similarity between two strings (0-1)"""
+        str1_norm = normalize_text(str1)
+        str2_norm = normalize_text(str2)
+        
+        if str1_norm == str2_norm:
+            return 1.0
+        
+        # Check if one contains the other
+        if str1_norm in str2_norm or str2_norm in str1_norm:
+            return 0.8
+        
+        # Calculate character overlap
+        set1 = set(str1_norm)
+        set2 = set(str2_norm)
+        
+        if not set1 or not set2:
+            return 0.0
+        
+        intersection = len(set1 & set2)
+        union = len(set1 | set2)
+        
+        return intersection / union if union > 0 else 0.0
+    
+    # Manual mapping rules สำหรับ columns ที่รู้จัก
+    manual_rules = {
+        'ลำดมท': 'ลำดับที่',
+        'ลาดมท': 'ลำดับที่',
+        'ลําดับที่': 'ลำดับที่',
+        'ip_address': 'IP Address',
+        'ipaddress': 'IP Address',
+        'source_file': None,  # Skip this column
+        'ระยะเวลาคนล_ddhhmm': 'ระยะเวลาคืนลี dd:hh:mm',
+        'ระยะเวลาคนล': 'ระยะเวลาคืนลี dd:hh:mm',
+        'ศนยบรการ': 'ศูนย์บริการ',
+        'ศูนยบริการ': 'ศูนย์บริการ'
+    }
+    
+    for file_col in file_cols:
+        file_col_lower = file_col.lower().strip()
+        file_col_norm = normalize_text(file_col)
+        
+        mapped = False
+        
+        # 1. Check manual rules first
+        if file_col_lower in manual_rules:
+            mapped_value = manual_rules[file_col_lower]
+            if mapped_value and mapped_value in db_col_dict:
+                auto_mapping[file_col] = mapped_value
+                mapped = True
+                continue
+            elif mapped_value is None:
+                # Skip this column
+                continue
+        
+        # 2. Try exact match (case-insensitive)
+        for db_col in db_cols:
+            db_col_name = db_col['COLUMN_NAME']
+            if file_col_lower == db_col_name.lower():
+                auto_mapping[file_col] = db_col_name
+                mapped = True
+                break
+        
+        if mapped:
+            continue
+        
+        # 3. Try normalized match
+        best_match = None
+        best_similarity = 0.0
+        
+        for db_col in db_cols:
+            db_col_name = db_col['COLUMN_NAME']
+            similarity = calculate_similarity(file_col, db_col_name)
+            
+            # Consider it a match if similarity > 0.7
+            if similarity > best_similarity and similarity >= 0.7:
+                best_similarity = similarity
+                best_match = db_col_name
+        
+        if best_match:
+            auto_mapping[file_col] = best_match
+            mapped = True
+        
+        # 4. Try substring match
+        if not mapped:
+            for db_col in db_cols:
+                db_col_name = db_col['COLUMN_NAME']
+                db_col_norm = normalize_text(db_col_name)
+                
+                if len(file_col_norm) >= 3 and len(db_col_norm) >= 3:
+                    if file_col_norm in db_col_norm or db_col_norm in file_col_norm:
+                        auto_mapping[file_col] = db_col_name
+                        mapped = True
+                        break
+    
+    return auto_mapping
+
 def main():
     try:
         # Header
@@ -136,7 +258,7 @@ def main():
             except Exception as e:
                 st.warning(f"Could not get table info: {e}")
                 try:
-                    tables = db_manager.get_tables()  # Fallback to simple table list
+                    tables = db_manager.get_tables()
                     tables_info = []
                 except Exception as e2:
                     st.error(f"Cannot get tables: {e2}")
@@ -151,14 +273,12 @@ def main():
             if tables_info and len(tables_info) > 0:
                 st.subheader("🕒 Recent Table Activity")
                 
-                # Sort tables by update time (most recent first)
                 sorted_tables = sorted(
                     [t for t in tables_info if t.get('UPDATE_TIME')], 
                     key=lambda x: x.get('UPDATE_TIME', ''), 
                     reverse=True
                 )
                 
-                # Show top 5 most recently updated tables
                 for table_info in sorted_tables[:5]:
                     table_name = table_info.get('TABLE_NAME', 'Unknown')
                     update_time = table_info.get('UPDATE_TIME')
@@ -199,7 +319,7 @@ def main():
         with col1:
             st.header("📁 File Import")
             
-            # Table selection with enhanced info
+            # Table selection
             selected_table = st.selectbox(
                 "🎯 Select Target Table",
                 options=[""] + tables,
@@ -207,10 +327,9 @@ def main():
                 format_func=lambda x: x if x == "" else f"📄 {x}"
             )
             
-            # Show detailed table info when selected
+            # Show table info when selected
             if selected_table:
                 if tables_info:
-                    # Find table info
                     table_details = None
                     for table_info in tables_info:
                         if table_info.get('TABLE_NAME') == selected_table:
@@ -218,10 +337,8 @@ def main():
                             break
                     
                     if table_details:
-                        # Show table information in a nice info box
                         st.markdown("### 📊 Table Information")
                         
-                        # Create metrics in columns
                         col1_info, col2_info, col3_info = st.columns(3)
                         
                         with col1_info:
@@ -254,7 +371,6 @@ def main():
                             else:
                                 st.metric("💾 Size", "Unknown")
                         
-                        # Additional info box
                         create_time = table_details.get('CREATE_TIME')
                         if create_time:
                             try:
@@ -266,21 +382,18 @@ def main():
                             except:
                                 pass
                     else:
-                        # Table selected but no detailed info
                         st.markdown("### 📊 Table Information")
                         st.info(f"📄 Selected table: **{selected_table}**")
                 
                 else:
-                    # Fallback info for when table_info is not available
                     st.markdown("### 📊 Table Information")
                     st.info(f"📄 Selected table: **{selected_table}**")
                     st.warning("⚠️ Detailed table information is not available")
             
             if selected_table:
-                # Show table preview with improved handling
+                # Table preview section
                 st.subheader(f"👀 Preview: {selected_table}")
                 
-                # Add debug option for troubleshooting
                 col_preview1, col_preview2, col_preview3 = st.columns([2, 1, 1])
                 
                 with col_preview1:
@@ -295,7 +408,7 @@ def main():
                             columns = db_manager.get_table_columns(selected_table)
                             if columns:
                                 st.write(f"**Table has {len(columns)} columns:**")
-                                col_names = [col['COLUMN_NAME'] for col in columns[:10]]  # Show first 10
+                                col_names = [col['COLUMN_NAME'] for col in columns[:10]]
                                 st.write(", ".join(col_names))
                                 if len(columns) > 10:
                                     st.write(f"... and {len(columns) - 10} more columns")
@@ -304,20 +417,18 @@ def main():
                         except Exception as e:
                             st.error(f"Error fetching columns: {e}")
                 
-                # Debug table functionality
+                # Debug functionality
                 if debug_table_btn:
                     st.markdown("### 🔍 Table Debug Information")
                     
                     with st.container():
                         st.markdown('<div class="debug-info">', unsafe_allow_html=True)
                         
-                        # Test 1: Connection
                         st.write("**1. Connection Test:**")
                         conn_test = db_manager.test_connection()
                         st.write(f"   Connection Status: {'✅ Connected' if conn_test else '❌ Failed'}")
                         
                         if conn_test:
-                            # Test 2: Table existence
                             st.write("**2. Table Existence:**")
                             try:
                                 test_query = f"SELECT 1 FROM `{selected_table}` LIMIT 1"
@@ -326,7 +437,6 @@ def main():
                                 st.write(f"   Table Exists: {'✅ Yes' if exists else '❌ No'}")
                                 
                                 if exists:
-                                    # Test 3: Row count
                                     st.write("**3. Row Count Test:**")
                                     try:
                                         count_query = f"SELECT COUNT(*) as count FROM `{selected_table}`"
@@ -339,7 +449,6 @@ def main():
                                     except Exception as e:
                                         st.write(f"   Row Count Error: {e}")
                                     
-                                    # Test 4: Column info
                                     st.write("**4. Column Information:**")
                                     try:
                                         columns = db_manager.get_table_columns(selected_table)
@@ -351,7 +460,6 @@ def main():
                                     except Exception as e:
                                         st.write(f"   Column Error: {e}")
                                     
-                                    # Test 5: Sample query
                                     st.write("**5. Sample Query Test:**")
                                     try:
                                         sample_query = f"SELECT * FROM `{selected_table}` LIMIT 1"
@@ -384,7 +492,6 @@ def main():
                             )
                             st.markdown('</div>', unsafe_allow_html=True)
                             
-                            # Show table info
                             st.success(f"📊 Table has {len(preview_data.columns)} columns and showing last 5 rows")
                         else:
                             st.warning("📭 Table is empty or preview unavailable")
@@ -403,27 +510,24 @@ def main():
                 
                 if uploaded_file:
                     try:
-                        # Process file
                         df = file_processor.process_file(uploaded_file)
                         
                         if df is not None:
                             st.success(f"✅ File loaded successfully! {len(df)} rows, {len(df.columns)} columns")
                             
-                            # Show file preview
                             st.subheader("📋 File Preview")
                             st.dataframe(df.head(), use_container_width=True, hide_index=True)
                             
-                            # Column mapping section
+                            # Column mapping
                             st.subheader("🔗 Column Mapping")
                             st.info("📌 Map your file columns to database table columns before importing")
                             
-                            # Get table columns
                             table_columns = db_manager.get_table_columns(selected_table)
                             
                             if table_columns:
                                 mapping = {}
                                 
-                                # Show column comparison
+                                # Column comparison
                                 col_map1, col_map2 = st.columns(2)
                                 
                                 with col_map1:
@@ -441,139 +545,15 @@ def main():
                                 
                                 st.markdown("---")
                                 
-                                # Mapping interface
                                 st.markdown("### 🎯 **Map Your Columns:**")
                                 
-                                   # แทนที่ function auto_map_columns ในไฟล์ app.py
-                                
-                                def auto_map_columns(file_cols, db_cols):
-                                    """Auto-map columns with support for Thai characters and fuzzy matching"""
-                                    import re
-                                    
-                                    auto_mapping = {}
-                                    
-                                    # สร้าง dictionary ของ database columns
-                                    db_col_dict = {col['COLUMN_NAME']: col['COLUMN_NAME'] for col in db_cols}
-                                    
-                                    def normalize_text(text):
-                                        """Normalize text for better matching"""
-                                        if not text:
-                                            return ""
-                                        
-                                        # แปลงเป็น lowercase
-                                        text = text.lower().strip()
-                                        
-                                        # ลบช่องว่าง underscore และเครื่องหมายพิเศษ
-                                        text = text.replace('_', '').replace(' ', '').replace('-', '')
-                                        
-                                        # ลบสระและวรรณยุกต์บางตัวที่อาจแตกต่าง (สำหรับภาษาไทย)
-                                        # เช่น ลำดมท -> ลาดมท, ลำดับที่ -> ลาดบท
-                                        text = text.replace('ำ', 'า').replace('ั', '').replace('์', '').replace('่', '').replace('้', '').replace('๊', '').replace('๋', '')
-                                        
-                                        return text
-                                    
-                                    def calculate_similarity(str1, str2):
-                                        """Calculate similarity between two strings (0-1)"""
-                                        str1_norm = normalize_text(str1)
-                                        str2_norm = normalize_text(str2)
-                                        
-                                        if str1_norm == str2_norm:
-                                            return 1.0
-                                        
-                                        # Check if one contains the other
-                                        if str1_norm in str2_norm or str2_norm in str1_norm:
-                                            return 0.8
-                                        
-                                        # Calculate character overlap
-                                        set1 = set(str1_norm)
-                                        set2 = set(str2_norm)
-                                        
-                                        if not set1 or not set2:
-                                            return 0.0
-                                        
-                                        intersection = len(set1 & set2)
-                                        union = len(set1 | set2)
-                                        
-                                        return intersection / union if union > 0 else 0.0
-                                    
-                                    # Manual mapping rules สำหรับ columns ที่รู้จัก
-                                    manual_rules = {
-                                        'ลำดมท': 'ลำดับที่',
-                                        'ลาดมท': 'ลำดับที่',
-                                        'ลําดับที่': 'ลำดับที่',
-                                        'ip_address': 'IP Address',
-                                        'ipaddress': 'IP Address',
-                                        'source_file': None,  # Skip this column
-                                        'ระยะเวลาคนล_ddhhmm': 'ระยะเวลาคืนลี dd:hh:mm',
-                                        'ระยะเวลาคนล': 'ระยะเวลาคืนลี dd:hh:mm'
-                                    }
-                                    
-                                    for file_col in file_cols:
-                                        file_col_lower = file_col.lower().strip()
-                                        file_col_norm = normalize_text(file_col)
-                                        
-                                        mapped = False
-                                        
-                                        # 1. Check manual rules first
-                                        if file_col_lower in manual_rules:
-                                            mapped_value = manual_rules[file_col_lower]
-                                            if mapped_value and mapped_value in db_col_dict:
-                                                auto_mapping[file_col] = mapped_value
-                                                mapped = True
-                                                continue
-                                            elif mapped_value is None:
-                                                # Skip this column
-                                                continue
-                                        
-                                        # 2. Try exact match (case-insensitive)
-                                        for db_col in db_cols:
-                                            db_col_name = db_col['COLUMN_NAME']
-                                            if file_col_lower == db_col_name.lower():
-                                                auto_mapping[file_col] = db_col_name
-                                                mapped = True
-                                                break
-                                        
-                                        if mapped:
-                                            continue
-                                        
-                                        # 3. Try normalized match
-                                        best_match = None
-                                        best_similarity = 0.0
-                                        
-                                        for db_col in db_cols:
-                                            db_col_name = db_col['COLUMN_NAME']
-                                            similarity = calculate_similarity(file_col, db_col_name)
-                                            
-                                            # Consider it a match if similarity > 0.7
-                                            if similarity > best_similarity and similarity >= 0.7:
-                                                best_similarity = similarity
-                                                best_match = db_col_name
-                                        
-                                        if best_match:
-                                            auto_mapping[file_col] = best_match
-                                            mapped = True
-                                        
-                                        # 4. Try substring match
-                                        if not mapped:
-                                            for db_col in db_cols:
-                                                db_col_name = db_col['COLUMN_NAME']
-                                                db_col_norm = normalize_text(db_col_name)
-                                                
-                                                if len(file_col_norm) >= 3 and len(db_col_norm) >= 3:
-                                                    if file_col_norm in db_col_norm or db_col_norm in file_col_norm:
-                                                        auto_mapping[file_col] = db_col_name
-                                                        mapped = True
-                                                        break
-                                    
-                                    return auto_mapping
-                                
-                                # ตัวอย่างการใช้งาน:
-                                # auto_mapping = auto_map_columns(df.columns, table_columns)
-                                                                
-                                # Get auto-mapping suggestions
+                                # Auto-mapping with improved Thai support
                                 auto_mapping = auto_map_columns(df.columns, table_columns)
                                 
-                                # Create mapping dropdowns with auto-suggestions
+                                if auto_mapping:
+                                    st.success(f"✨ Auto-mapped {len(auto_mapping)} columns successfully!")
+                                
+                                # Mapping dropdowns
                                 for i, file_col in enumerate(df.columns):
                                     map_col1, map_col2 = st.columns([1, 1])
                                     
@@ -581,11 +561,9 @@ def main():
                                         st.write(f"📄 **{file_col}**")
                                     
                                     with map_col2:
-                                        # Prepare options
                                         db_options = ["🚫 Skip this column"] + [col['COLUMN_NAME'] for col in table_columns]
                                         
-                                        # Set default index based on auto-mapping
-                                        default_index = 0  # Skip by default
+                                        default_index = 0
                                         if file_col in auto_mapping:
                                             suggested_col = auto_mapping[file_col]
                                             if suggested_col in [col['COLUMN_NAME'] for col in table_columns]:
@@ -603,7 +581,6 @@ def main():
                                         if mapped_col != "🚫 Skip this column":
                                             mapping[file_col] = mapped_col
                                 
-                                # Show mapping summary and import button
                                 st.markdown("---")
                                 
                                 if mapping:
@@ -614,7 +591,6 @@ def main():
                                     ])
                                     st.dataframe(mapping_df, use_container_width=True, hide_index=True)
                                     
-                                    # Import section - ALWAYS SHOW THIS
                                     st.markdown("### 🚀 **Ready to Import!**")
                                     
                                     col_import1, col_import2 = st.columns([2, 1])
@@ -630,19 +606,17 @@ def main():
                                             help="Click to start importing data to database"
                                         )
                                     
-                                    # Import process
                                     if import_button:
                                         try:
                                             with st.spinner("🔄 Importing data to database..."):
                                                 import time
-                                                time.sleep(1)  # Show spinner
+                                                time.sleep(1)
                                                 result = db_manager.import_data(selected_table, df, mapping)
                                             
                                             if result['success']:
                                                 st.success(f"🎉 **Import Successful!** \n\n✅ Imported **{result['rows_affected']}** rows into `{selected_table}` table")
                                                 st.balloons()
                                                 
-                                                # Show updated table preview
                                                 st.markdown("### 📊 **Updated Table Preview:**")
                                                 updated_preview = db_manager.get_table_preview(selected_table)
                                                 if not updated_preview.empty:
@@ -662,7 +636,6 @@ def main():
                                     st.warning("⚠️ Please map at least one column to proceed with import")
                                     st.info("💡 **Tip:** Select database columns from the dropdowns above to map your file data")
                                     
-                                    # Show empty import button (disabled state)
                                     st.markdown("### 🚀 **Import Section:**")
                                     st.button(
                                         "🚫 No Mapping - Cannot Import",
@@ -679,7 +652,6 @@ def main():
         with col2:
             st.header("📊 Dashboard")
             
-            # Stats
             if tables:
                 st.markdown(f"""
                 <div class="metric-card">
@@ -688,11 +660,9 @@ def main():
                 </div>
                 """, unsafe_allow_html=True)
             
-            # Recent activity (placeholder)
             st.subheader("🕒 Recent Activity")
             st.info("Import activity will appear here")
             
-            # Quick actions
             st.subheader("⚡ Quick Actions")
             if st.button("🔄 Refresh Tables", use_container_width=True, key="refresh_main"):
                 st.rerun()
@@ -717,7 +687,6 @@ if __name__ == "__main__":
         st.error(f"Application error: {e}")
         st.error("Please check your configuration and try again")
         
-        # Show debug info
         with st.expander("🔍 Debug Information"):
             import traceback
             st.code(traceback.format_exc())
