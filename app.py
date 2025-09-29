@@ -444,132 +444,132 @@ def main():
                                 # Mapping interface
                                 st.markdown("### 🎯 **Map Your Columns:**")
                                 
-   # แทนที่ function auto_map_columns ในไฟล์ app.py
-
-def auto_map_columns(file_cols, db_cols):
-    """Auto-map columns with support for Thai characters and fuzzy matching"""
-    import re
-    
-    auto_mapping = {}
-    
-    # สร้าง dictionary ของ database columns
-    db_col_dict = {col['COLUMN_NAME']: col['COLUMN_NAME'] for col in db_cols}
-    
-    def normalize_text(text):
-        """Normalize text for better matching"""
-        if not text:
-            return ""
-        
-        # แปลงเป็น lowercase
-        text = text.lower().strip()
-        
-        # ลบช่องว่าง underscore และเครื่องหมายพิเศษ
-        text = text.replace('_', '').replace(' ', '').replace('-', '')
-        
-        # ลบสระและวรรณยุกต์บางตัวที่อาจแตกต่าง (สำหรับภาษาไทย)
-        # เช่น ลำดมท -> ลาดมท, ลำดับที่ -> ลาดบท
-        text = text.replace('ำ', 'า').replace('ั', '').replace('์', '').replace('่', '').replace('้', '').replace('๊', '').replace('๋', '')
-        
-        return text
-    
-    def calculate_similarity(str1, str2):
-        """Calculate similarity between two strings (0-1)"""
-        str1_norm = normalize_text(str1)
-        str2_norm = normalize_text(str2)
-        
-        if str1_norm == str2_norm:
-            return 1.0
-        
-        # Check if one contains the other
-        if str1_norm in str2_norm or str2_norm in str1_norm:
-            return 0.8
-        
-        # Calculate character overlap
-        set1 = set(str1_norm)
-        set2 = set(str2_norm)
-        
-        if not set1 or not set2:
-            return 0.0
-        
-        intersection = len(set1 & set2)
-        union = len(set1 | set2)
-        
-        return intersection / union if union > 0 else 0.0
-    
-    # Manual mapping rules สำหรับ columns ที่รู้จัก
-    manual_rules = {
-        'ลำดมท': 'ลำดับที่',
-        'ลาดมท': 'ลำดับที่',
-        'ลําดับที่': 'ลำดับที่',
-        'ip_address': 'IP Address',
-        'ipaddress': 'IP Address',
-        'source_file': None,  # Skip this column
-        'ระยะเวลาคนล_ddhhmm': 'ระยะเวลาคืนลี dd:hh:mm',
-        'ระยะเวลาคนล': 'ระยะเวลาคืนลี dd:hh:mm'
-    }
-    
-    for file_col in file_cols:
-        file_col_lower = file_col.lower().strip()
-        file_col_norm = normalize_text(file_col)
-        
-        mapped = False
-        
-        # 1. Check manual rules first
-        if file_col_lower in manual_rules:
-            mapped_value = manual_rules[file_col_lower]
-            if mapped_value and mapped_value in db_col_dict:
-                auto_mapping[file_col] = mapped_value
-                mapped = True
-                continue
-            elif mapped_value is None:
-                # Skip this column
-                continue
-        
-        # 2. Try exact match (case-insensitive)
-        for db_col in db_cols:
-            db_col_name = db_col['COLUMN_NAME']
-            if file_col_lower == db_col_name.lower():
-                auto_mapping[file_col] = db_col_name
-                mapped = True
-                break
-        
-        if mapped:
-            continue
-        
-        # 3. Try normalized match
-        best_match = None
-        best_similarity = 0.0
-        
-        for db_col in db_cols:
-            db_col_name = db_col['COLUMN_NAME']
-            similarity = calculate_similarity(file_col, db_col_name)
-            
-            # Consider it a match if similarity > 0.7
-            if similarity > best_similarity and similarity >= 0.7:
-                best_similarity = similarity
-                best_match = db_col_name
-        
-        if best_match:
-            auto_mapping[file_col] = best_match
-            mapped = True
-        
-        # 4. Try substring match
-        if not mapped:
-            for db_col in db_cols:
-                db_col_name = db_col['COLUMN_NAME']
-                db_col_norm = normalize_text(db_col_name)
-                
-                if len(file_col_norm) >= 3 and len(db_col_norm) >= 3:
-                    if file_col_norm in db_col_norm or db_col_norm in file_col_norm:
-                        auto_mapping[file_col] = db_col_name
-                        mapped = True
-                        break
-    
-    return auto_mapping
-
-# ตัวอย่างการใช้งาน:
-# auto_mapping = auto_map_columns(df.columns, table_columns)
+                                   # แทนที่ function auto_map_columns ในไฟล์ app.py
                                 
+                                def auto_map_columns(file_cols, db_cols):
+                                    """Auto-map columns with support for Thai characters and fuzzy matching"""
+                                    import re
+                                    
+                                    auto_mapping = {}
+                                    
+                                    # สร้าง dictionary ของ database columns
+                                    db_col_dict = {col['COLUMN_NAME']: col['COLUMN_NAME'] for col in db_cols}
+                                    
+                                    def normalize_text(text):
+                                        """Normalize text for better matching"""
+                                        if not text:
+                                            return ""
+                                        
+                                        # แปลงเป็น lowercase
+                                        text = text.lower().strip()
+                                        
+                                        # ลบช่องว่าง underscore และเครื่องหมายพิเศษ
+                                        text = text.replace('_', '').replace(' ', '').replace('-', '')
+                                        
+                                        # ลบสระและวรรณยุกต์บางตัวที่อาจแตกต่าง (สำหรับภาษาไทย)
+                                        # เช่น ลำดมท -> ลาดมท, ลำดับที่ -> ลาดบท
+                                        text = text.replace('ำ', 'า').replace('ั', '').replace('์', '').replace('่', '').replace('้', '').replace('๊', '').replace('๋', '')
+                                        
+                                        return text
+                                    
+                                    def calculate_similarity(str1, str2):
+                                        """Calculate similarity between two strings (0-1)"""
+                                        str1_norm = normalize_text(str1)
+                                        str2_norm = normalize_text(str2)
+                                        
+                                        if str1_norm == str2_norm:
+                                            return 1.0
+                                        
+                                        # Check if one contains the other
+                                        if str1_norm in str2_norm or str2_norm in str1_norm:
+                                            return 0.8
+                                        
+                                        # Calculate character overlap
+                                        set1 = set(str1_norm)
+                                        set2 = set(str2_norm)
+                                        
+                                        if not set1 or not set2:
+                                            return 0.0
+                                        
+                                        intersection = len(set1 & set2)
+                                        union = len(set1 | set2)
+                                        
+                                        return intersection / union if union > 0 else 0.0
+                                    
+                                    # Manual mapping rules สำหรับ columns ที่รู้จัก
+                                    manual_rules = {
+                                        'ลำดมท': 'ลำดับที่',
+                                        'ลาดมท': 'ลำดับที่',
+                                        'ลําดับที่': 'ลำดับที่',
+                                        'ip_address': 'IP Address',
+                                        'ipaddress': 'IP Address',
+                                        'source_file': None,  # Skip this column
+                                        'ระยะเวลาคนล_ddhhmm': 'ระยะเวลาคืนลี dd:hh:mm',
+                                        'ระยะเวลาคนล': 'ระยะเวลาคืนลี dd:hh:mm'
+                                    }
+                                    
+                                    for file_col in file_cols:
+                                        file_col_lower = file_col.lower().strip()
+                                        file_col_norm = normalize_text(file_col)
+                                        
+                                        mapped = False
+                                        
+                                        # 1. Check manual rules first
+                                        if file_col_lower in manual_rules:
+                                            mapped_value = manual_rules[file_col_lower]
+                                            if mapped_value and mapped_value in db_col_dict:
+                                                auto_mapping[file_col] = mapped_value
+                                                mapped = True
+                                                continue
+                                            elif mapped_value is None:
+                                                # Skip this column
+                                                continue
+                                        
+                                        # 2. Try exact match (case-insensitive)
+                                        for db_col in db_cols:
+                                            db_col_name = db_col['COLUMN_NAME']
+                                            if file_col_lower == db_col_name.lower():
+                                                auto_mapping[file_col] = db_col_name
+                                                mapped = True
+                                                break
+                                        
+                                        if mapped:
+                                            continue
+                                        
+                                        # 3. Try normalized match
+                                        best_match = None
+                                        best_similarity = 0.0
+                                        
+                                        for db_col in db_cols:
+                                            db_col_name = db_col['COLUMN_NAME']
+                                            similarity = calculate_similarity(file_col, db_col_name)
+                                            
+                                            # Consider it a match if similarity > 0.7
+                                            if similarity > best_similarity and similarity >= 0.7:
+                                                best_similarity = similarity
+                                                best_match = db_col_name
+                                        
+                                        if best_match:
+                                            auto_mapping[file_col] = best_match
+                                            mapped = True
+                                        
+                                        # 4. Try substring match
+                                        if not mapped:
+                                            for db_col in db_cols:
+                                                db_col_name = db_col['COLUMN_NAME']
+                                                db_col_norm = normalize_text(db_col_name)
+                                                
+                                                if len(file_col_norm) >= 3 and len(db_col_norm) >= 3:
+                                                    if file_col_norm in db_col_norm or db_col_norm in file_col_norm:
+                                                        auto_mapping[file_col] = db_col_name
+                                                        mapped = True
+                                                        break
+                                    
+                                    return auto_mapping
+                                
+                                # ตัวอย่างการใช้งาน:
+                                # auto_mapping = auto_map_columns(df.columns, table_columns)
+                                                                
                                 # Get auto-mapping suggestions
                                 auto_mapping = auto_map_columns(df.columns, table_columns)
                                 
