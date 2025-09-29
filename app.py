@@ -24,7 +24,7 @@ st.set_page_config(
     page_title="Data Import Hub",
     page_icon="🚀",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"  # ซ่อน sidebar
 )
 
 # Custom CSS for modern AI-themed design
@@ -226,98 +226,50 @@ def main():
             st.error(f"Failed to initialize FileProcessor: {e}")
             return
 
-        # Sidebar configuration
-        with st.sidebar:
-            st.header("⚙️ Configuration")
+        # Connection status bar (แทน sidebar)
+        try:
+            connection_status = db_manager.test_connection()
             
-            # Connection status
-            try:
-                connection_status = db_manager.test_connection()
-                if connection_status:
-                    st.markdown("""
-                    <div class="status-success">
-                        ✅ Database Connected
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.markdown("""
-                    <div class="status-error">
-                        ❌ Database Connection Failed
-                    </div>
-                    """, unsafe_allow_html=True)
-                    st.error("Please check database configuration")
-                    return
-            except Exception as e:
-                st.error(f"Database connection error: {e}")
-                return
-            
-            # Get available tables with info
-            try:
-                tables_info = db_manager.get_tables_with_info()
-                tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
-            except Exception as e:
-                st.warning(f"Could not get table info: {e}")
+            if connection_status:
+                # Get tables count
                 try:
-                    tables = db_manager.get_tables()
-                    tables_info = []
-                except Exception as e2:
-                    st.error(f"Cannot get tables: {e2}")
+                    tables_info = db_manager.get_tables_with_info()
+                    tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
+                    tables_count = len(tables)
+                except:
+                    tables_count = 0
                     tables = []
                     tables_info = []
-
-            st.write(f"📊 Available Tables: {len(tables)}")
-            
-            st.markdown("---")
-            
-            # Show recent table activity
-            if tables_info and len(tables_info) > 0:
-                st.subheader("🕒 Recent Table Activity")
                 
-                sorted_tables = sorted(
-                    [t for t in tables_info if t.get('UPDATE_TIME')], 
-                    key=lambda x: x.get('UPDATE_TIME', ''), 
-                    reverse=True
-                )
-                
-                for table_info in sorted_tables[:5]:
-                    table_name = table_info.get('TABLE_NAME', 'Unknown')
-                    update_time = table_info.get('UPDATE_TIME')
-                    row_count = table_info.get('TABLE_ROWS', 0) or 0
-                    
-                    if update_time:
-                        try:
-                            if isinstance(update_time, str):
-                                time_str = update_time[:16] if len(update_time) > 16 else update_time
-                            else:
-                                time_str = update_time.strftime("%Y-%m-%d %H:%M")
-                            
-                            with st.container():
-                                st.markdown(f"""
-                                <div style="
-                                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                                    padding: 0.8rem;
-                                    border-radius: 8px;
-                                    margin: 0.3rem 0;
-                                    color: white;
-                                ">
-                                    <div style="font-weight: bold; font-size: 14px;">📄 {table_name}</div>
-                                    <div style="font-size: 12px; opacity: 0.9;">🕒 {time_str}</div>
-                                    <div style="font-size: 12px; opacity: 0.9;">📊 {row_count:,} rows</div>
-                                </div>
-                                """, unsafe_allow_html=True)
-                        except:
-                            pass
-                
-                if len(sorted_tables) == 0:
-                    st.info("No timestamp data available")
+                st.markdown(f"""
+                <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); 
+                            padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; 
+                            display: flex; justify-content: space-between; align-items: center;">
+                    <div style="color: white; font-weight: bold;">
+                        <span style="font-size: 18px;">✅ Database Connected</span>
+                    </div>
+                    <div style="color: white; font-weight: bold;">
+                        <span style="font-size: 16px;">📊 Available Tables: {tables_count}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
             else:
-                st.info("Table information not available")
-
-        # Main content
-        col1, col2 = st.columns([2, 1])
+                st.markdown("""
+                <div style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); 
+                            padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                    <span style="color: white; font-weight: bold; font-size: 18px;">
+                        ❌ Database Connection Failed
+                    </span>
+                </div>
+                """, unsafe_allow_html=True)
+                st.error("Please check database configuration")
+                return
+        except Exception as e:
+            st.error(f"Database connection error: {e}")
+            return
         
-        with col1:
-            st.header("📁 File Import")
+        # Main content (Full width without col2 dashboard)
+        st.header("📁 File Import")
             
             # Table selection
             selected_table = st.selectbox(
@@ -648,31 +600,6 @@ def main():
                                 
                     except Exception as e:
                         st.error(f"❌ Error processing file: {str(e)}")
-        
-        with col2:
-            st.header("📊 Dashboard")
-            
-            if tables:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3>{len(tables)}</h3>
-                    <p>Available Tables</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            st.subheader("🕒 Recent Activity")
-            st.info("Import activity will appear here")
-            
-            st.subheader("⚡ Quick Actions")
-            if st.button("🔄 Refresh Tables", use_container_width=True, key="refresh_main"):
-                st.rerun()
-            
-            if st.button("📋 View All Tables", use_container_width=True, key="view_all_main"):
-                if tables:
-                    for table in tables:
-                        st.write(f"• {table}")
-                else:
-                    st.write("No tables found")
     
     except Exception as e:
         st.error(f"Main application error: {e}")
