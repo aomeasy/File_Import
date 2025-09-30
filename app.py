@@ -3,8 +3,10 @@ import pandas as pd
 import mysql.connector
 from mysql.connector import Error
 import os
+import time
 from datetime import datetime
 import re
+import traceback
 
 # Import our modules with error handling
 try:
@@ -552,7 +554,6 @@ def main():
                                 if import_button:
                                     try:
                                         with st.spinner("🔄 Importing data to database..."):
-                                            import time
                                             time.sleep(1)
                                             result = db_manager.import_data(selected_table, df, mapping)
                                         
@@ -595,7 +596,6 @@ def main():
     except Exception as e:
         st.error(f"Main application error: {e}")
         with st.expander("🔍 Debug Information"):
-            import traceback
             st.code(traceback.format_exc())
 
 if __name__ == "__main__":
@@ -606,5 +606,4 @@ if __name__ == "__main__":
         st.error("Please check your configuration and try again")
         
         with st.expander("🔍 Debug Information"):
-            import traceback
             st.code(traceback.format_exc())
