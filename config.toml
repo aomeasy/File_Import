@@ -20,3 +20,22 @@ font = "sans serif"
 
 [logger]
 level = "info"
+
+# ==== เดิมของคุณคงมีค่าพวก DB ไว้อยู่แล้ว ====
+
+# ====== เพิ่มส่วนนี้เข้าไป ======
+[dashboards]
+# key = ชื่อ Dashboard ที่จะโชว์ใน UI
+# value = รายการ Stored Procedure (เรียงลำดับรัน)
+"คุณภาพบริการ รบ." = ["proc_refresh_quality_base", "proc_build_quality_summary"]
+"Broadband Daily Report" = ["proc_bb_daily_collect", "proc_bb_daily_aggregate"]
+"Out task Section C" = ["proc_outtask_collect", "proc_outtask_kpi"]
+"MC 2025" = ["proc_mc_collect", "proc_mc_score"]
+"OLT" = ["proc_olt_collect", "proc_olt_port_health"]
+"ONU" = ["proc_onu_collect", "proc_onu_health"]
+"Switch" = ["proc_sw_collect", "proc_sw_health"]
+"Port Active" = ["proc_port_active_collect"]
+"วงจรลูกค้า Datacom" = ["proc_datacom_circuit_collect", "proc_datacom_kpi"]
+"Incident Broadband" = ["proc_inc_bb_collect", "proc_inc_bb_sla"]
+"Incident Datacom" = ["proc_inc_dc_collect", "proc_inc_dc_sla"]
+"Transfer Price" = ["proc_tp_collect", "proc_tp_calculate"]
