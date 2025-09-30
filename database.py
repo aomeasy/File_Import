@@ -16,7 +16,7 @@ class DatabaseManager:
         try:
             self.connection_config = {
                 'host': st.secrets.get("DB_HOST") or os.getenv('DB_HOST'),
-                'port': int(st.secrets.get("DB_PORT", 3306) or os.getenv('DB_PORT', '3306')),
+                'port': int(st.secrets.get("DB_PORT", 33306) or os.getenv('DB_PORT', '33306')),
                 'database': st.secrets.get("DB_NAME") or os.getenv('DB_NAME'),
                 'user': st.secrets.get("DB_USER") or os.getenv('DB_USER'),
                 'password': st.secrets.get("DB_PASSWORD") or os.getenv('DB_PASSWORD'),
