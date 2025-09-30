@@ -435,7 +435,7 @@ def render_procedures_tab():
         # Stats logic (keeping original code)
         pass
 
-# ===== TAB 3: FILE MERGER WITH DOWNLOAD FORMAT SELECTION =====
+# ===== TAB 3: FILE MERGER COMPLETE =====
 def render_merger_tab():
     """Render the File Merger tab with download format selection"""
     st.header("📁 File Merger")
@@ -465,15 +465,136 @@ def render_merger_tab():
     
     if uploaded_files:
         if len(uploaded_files) != len(st.session_state.get('merger_last_uploaded', [])):
-            st.session_state.merger_processed_data = merger.process_uploaded_files(uploaded_files)
-            st.session_state.merger_last_uploaded = uploaded_files
-            st.session_state.merger_merged_df = None
-            st.session_state.merger_selected_files = {f.name: True for f in uploaded_files}
+            with st.spinner("กำลังประมวลผลไฟล์..."):
+                st.session_state.merger_processed_data = merger.process_uploaded_files(uploaded_files)
+                st.session_state.merger_last_uploaded = uploaded_files
+                st.session_state.merger_merged_df = None
+                st.session_state.merger_selected_files = {f.name: True for f in uploaded_files}
     
-    # Main merger content
+    # ===== MAIN CONTENT AFTER UPLOAD =====
     if st.session_state.merger_processed_data:
-        # ... (keep all existing code for file selection, header analysis, etc.)
-        # ... (ใส่โค้ดส่วนอื่นที่มีอยู่แล้วตามเดิม)
+        # File selection
+        if len(st.session_state.merger_processed_data) > 1:
+            st.subheader("🎯 เลือกไฟล์สำหรับการรวม")
+            
+            cols = st.columns(min(len(st.session_state.merger_processed_data), 3))
+            
+            for i, (filename, file_info) in enumerate(st.session_state.merger_processed_data.items()):
+                with cols[i % 3]:
+                    selected = st.checkbox(
+                        filename,
+                        value=st.session_state.merger_selected_files.get(filename, True),
+                        key=f"merger_select_{filename}",
+                        help=f"ขนาด: {file_info['size']/1024:.1f} KB"
+                    )
+                    st.session_state.merger_selected_files[filename] = selected
+            
+            selected_count = sum(st.session_state.merger_selected_files.values())
+            
+            if selected_count == 0:
+                st.error("⚠️ กรุณาเลือกไฟล์อย่างน้อย 1 ไฟล์")
+                return
+        else:
+            filename = list(st.session_state.merger_processed_data.keys())[0]
+            st.session_state.merger_selected_files = {filename: True}
+        
+        # File information
+        st.subheader("📋 ไฟล์ที่อัปโหลด")
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            selected_sheets = {}
+            
+            for filename, file_info in st.session_state.merger_processed_data.items():
+                is_selected = st.session_state.merger_selected_files.get(filename, True)
+                
+                with st.expander(f"{'✅' if is_selected else '❌'} {filename}", expanded=is_selected):
+                    col_info, col_sheet = st.columns([2, 1])
+                    
+                    with col_info:
+                        st.markdown(f"""
+                        **ขนาด:** {file_info['size']/1024:.2f} KB  
+                        **ประเภท:** {file_info['type'].upper()}  
+                        **จำนวน Sheets:** {len(file_info['sheets'])}
+                        """)
+                    
+                    with col_sheet:
+                        if len(file_info['sheets']) > 1:
+                            selected_sheet = st.selectbox(
+                                "เลือก Sheet:",
+                                file_info['sheets'],
+                                key=f"merger_sheet_{filename}",
+                                disabled=not is_selected
+                            )
+                            selected_sheets[filename] = selected_sheet
+                        else:
+                            selected_sheets[filename] = file_info['sheets'][0]
+                            st.info(f"Sheet: {file_info['sheets'][0]}")
+                    
+                    if is_selected:
+                        sheet_name = selected_sheets[filename]
+                        if sheet_name in file_info['data']:
+                            df = file_info['data'][sheet_name]
+                            st.write(f"**Preview ({len(df)} แถว, {len(df.columns)} คอลัมน์):**")
+                            st.dataframe(df.head(5), use_container_width=True)
+        
+        with col2:
+            # Statistics
+            selected_files_data = {k: v for k, v in st.session_state.merger_processed_data.items() 
+                                 if st.session_state.merger_selected_files.get(k, True)}
+            
+            total_files = len(selected_files_data)
+            total_records = sum([
+                len(file_info['data'][selected_sheets.get(filename, file_info['sheets'][0])]) 
+                for filename, file_info in selected_files_data.items()
+                if selected_sheets.get(filename, file_info['sheets'][0]) in file_info['data']
+            ]) if selected_files_data else 0
+            
+            st.markdown(f"""
+            <div class="metric-card">
+                <h3>📊 สถิติ</h3>
+                <p><strong>ไฟล์ที่เลือก:</strong> {total_files}</p>
+                <p><strong>จำนวนแถวรวม:</strong> {total_records:,}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Header analysis
+        st.header("🔍 การวิเคราะห์ Headers")
+        
+        all_headers, has_mismatch, file_headers = merger.analyze_headers(
+            st.session_state.merger_processed_data,
+            selected_sheets,
+            st.session_state.merger_selected_files
+        )
+        
+        if has_mismatch and len(file_headers) > 1:
+            st.warning("⚠️ พบความไม่สอดคล้องของ Headers")
+            
+            # Show comparison
+            for filename, headers in file_headers.items():
+                with st.expander(f"Headers ของ {filename}"):
+                    st.write(f"**จำนวน:** {len(headers)} headers")
+                    st.write(", ".join(headers))
+            
+            st.info("💡 คุณสามารถรวมไฟล์ได้ทันที Headers ที่ไม่ตรงกันจะเป็นค่าว่าง")
+        
+        elif len(file_headers) > 1:
+            st.success("✅ Headers ทั้งหมดสอดคล้องกัน")
+        
+        # Merge button
+        st.header("⚙️ การรวมไฟล์")
+        
+        if st.button("🚀 เริ่มรวมไฟล์", type="primary", use_container_width=True, key="merge_files_btn"):
+            with st.spinner("กำลังรวมไฟล์..."):
+                merged_df = merger.merge_files(
+                    st.session_state.merger_processed_data,
+                    selected_sheets,
+                    st.session_state.merger_selected_files
+                )
+                
+                st.session_state.merger_merged_df = merged_df
+                st.success(f"✅ รวมไฟล์สำเร็จ! {len(merged_df):,} แถว")
         
         # Show results
         if st.session_state.merger_merged_df is not None:
@@ -493,29 +614,26 @@ def render_merger_tab():
             st.subheader("ตัวอย่างข้อมูล")
             st.dataframe(merged_df.head(100), use_container_width=True)
             
-            # ===== DOWNLOAD SECTION WITH FORMAT SELECTION =====
+            # ===== DOWNLOAD SECTION =====
             st.header("⬇️ ดาวน์โหลด")
             
             col1, col2 = st.columns([1, 2])
             
             with col1:
-                # Format selection
                 download_format = st.radio(
                     "เลือกรูปแบบไฟล์:",
                     options=["CSV", "Excel (XLSX)"],
                     index=0,
-                    key="download_format",
-                    help="เลือกรูปแบบที่ต้องการดาวน์โหลด"
+                    key="download_format"
                 )
             
             with col2:
                 if download_format == "CSV":
-                    # CSV Download
                     filename = f"merged_file_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
                     csv_data = merged_df.to_csv(index=False, encoding='utf-8-sig')
                     file_size = len(csv_data.encode('utf-8')) / 1024
                     
-                    st.info(f"📄 รูปแบบ: CSV | ขนาด: {file_size:.2f} KB")
+                    st.info(f"📄 CSV | ขนาด: {file_size:.2f} KB")
                     
                     st.download_button(
                         label="📥 ดาวน์โหลดไฟล์ CSV",
@@ -526,27 +644,19 @@ def render_merger_tab():
                         use_container_width=True,
                         key="download_merged_csv"
                     )
-                    
-                    st.caption("✓ รองรับภาษาไทย (UTF-8)")
-                    st.caption("✓ เปิดได้ด้วย Excel, Google Sheets")
-                    st.caption("✓ ขนาดไฟล์เล็ก")
                 
-                else:  # Excel
-                    # Excel Download
+                else:
                     filename = f"merged_file_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
                     
-                    # Create Excel file in memory
                     from io import BytesIO
-                    
                     output = BytesIO()
+                    
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
                         merged_df.to_excel(writer, index=False, sheet_name='Merged Data')
                         
-                        # Get workbook and worksheet
                         workbook = writer.book
                         worksheet = writer.sheets['Merged Data']
                         
-                        # Auto-adjust column width
                         for column in worksheet.columns:
                             max_length = 0
                             column_letter = column[0].column_letter
@@ -561,13 +671,12 @@ def render_merger_tab():
                             adjusted_width = min(max_length + 2, 50)
                             worksheet.column_dimensions[column_letter].width = adjusted_width
                         
-                        # Add filters
                         worksheet.auto_filter.ref = worksheet.dimensions
                     
                     excel_data = output.getvalue()
                     file_size = len(excel_data) / 1024
                     
-                    st.info(f"📊 รูปแบบ: Excel | ขนาด: {file_size:.2f} KB")
+                    st.info(f"📊 Excel | ขนาด: {file_size:.2f} KB")
                     
                     st.download_button(
                         label="📥 ดาวน์โหลดไฟล์ Excel",
@@ -578,105 +687,9 @@ def render_merger_tab():
                         use_container_width=True,
                         key="download_merged_excel"
                     )
-                    
-                    st.caption("✓ รองรับภาษาไทย")
-                    st.caption("✓ มี Auto-filter")
-                    st.caption("✓ ปรับความกว้างคอลัมน์อัตโนมัติ")
-            
-            # File format comparison
-            with st.expander("ℹ️ เปรียบเทียบรูปแบบไฟล์", expanded=False):
-                comparison_df = pd.DataFrame({
-                    'คุณสมบัติ': [
-                        'ขนาดไฟล์',
-                        'ความเร็วในการเปิด',
-                        'รองรับภาษาไทย',
-                        'สูตรและการจัด format',
-                        'เปิดด้วยโปรแกรม',
-                        'ความเหมาะสม'
-                    ],
-                    'CSV': [
-                        'เล็กกว่า',
-                        'เร็วกว่า',
-                        'รองรับ (UTF-8)',
-                        'ไม่รองรับ',
-                        'Excel, Text Editor, Database',
-                        'ข้อมูลขนาดใหญ่, นำเข้าระบบ'
-                    ],
-                    'Excel (XLSX)': [
-                        'ใหญ่กว่า',
-                        'ช้ากว่า',
-                        'รองรับ',
-                        'รองรับเต็มรูปแบบ',
-                        'Excel, Google Sheets',
-                        'รายงาน, การนำเสนอ, วิเคราะห์'
-                    ]
-                })
-                
-                st.dataframe(comparison_df, use_container_width=True, hide_index=True)
-            
-            # Data distribution chart
-            if '_source_file' in merged_df.columns:
-                st.subheader("📈 การกระจายข้อมูลตามไฟล์ต้นทาง")
-                
-                import plotly.express as px
-                
-                source_counts = merged_df['_source_file'].value_counts()
-                
-                fig = px.pie(
-                    values=source_counts.values,
-                    names=source_counts.index,
-                    title="สัดส่วนข้อมูลจากแต่ละไฟล์"
-                )
-                fig.update_traces(
-                    textposition='inside',
-                    textinfo='percent+label'
-                )
-                fig.update_layout(
-                    showlegend=True,
-                    height=400
-                )
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Source file statistics table
-                st.subheader("📋 สถิติรายละเอียดตามไฟล์")
-                stats_df = pd.DataFrame({
-                    'ไฟล์': source_counts.index,
-                    'จำนวนแถว': source_counts.values,
-                    'สัดส่วน (%)': (source_counts.values / len(merged_df) * 100).round(2)
-                })
-                st.dataframe(stats_df, use_container_width=True, hide_index=True)
     
     else:
-        st.info("กรุณาอัปโหลดไฟล์เพื่อเริ่มต้นใช้งาน")
-        
-        # Feature showcase
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.markdown("""
-            ### รองรับหลายรูปแบบ
-            - ไฟล์ CSV
-            - Excel (.xlsx, .xls)
-            - หลาย Sheet
-            - เลือกไฟล์ที่ต้องการ
-            """)
-        
-        with col2:
-            st.markdown("""
-            ### ตรวจสอบอัตโนมัติ
-            - เช็ค Header consistency
-            - แสดงสี Headers ที่ไม่ match
-            - ตัวอย่างข้อมูล
-            """)
-        
-        with col3:
-            st.markdown("""
-            ### ดาวน์โหลดได้ 2 รูปแบบ
-            - **CSV** - เล็ก เร็ว
-            - **Excel** - มี format
-            - รองรับภาษาไทย
-            - Auto-adjust columns
-            """)
+        st.info("👆 กรุณาอัปโหลดไฟล์เพื่อเริ่มต้นใช้งาน")
 # ===== MAIN APPLICATION =====
 def main():
     try:
