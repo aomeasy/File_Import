@@ -4,37 +4,19 @@ import pandas as pd
 import streamlit as st
 from typing import Dict, List, Optional, Any
 import logging
-import os  # <--- เพิ่มบรรทัดนี้
-from dotenv import load_dotenv  # <-- เพิ่มบรรทัดนี้
-
-# Load environment variables
-load_dotenv()  # <-- เพิ่มบรรทัดนี้
 
 class DatabaseManager:
     def __init__(self):
-        # Try Streamlit secrets first, then environment variables
-        try:
-            self.connection_config = {
-                'host': st.secrets.get("DB_HOST") or os.getenv('DB_HOST'),
-                'port': int(st.secrets.get("DB_PORT", 33306) or os.getenv('DB_PORT', '33306')),
-                'database': st.secrets.get("DB_NAME") or os.getenv('DB_NAME'),
-                'user': st.secrets.get("DB_USER") or os.getenv('DB_USER'),
-                'password': st.secrets.get("DB_PASSWORD") or os.getenv('DB_PASSWORD'),
-                'charset': 'utf8mb4',
-                'autocommit': True,
-                'connection_timeout': 10
-            }
-        except:
-            self.connection_config = {
-                'host': os.getenv('DB_HOST'),
-                'port': int(os.getenv('DB_PORT', '33306')),
-                'database': os.getenv('DB_NAME'),
-                'user': os.getenv('DB_USER'),
-                'password': os.getenv('DB_PASSWORD'),
-                'charset': 'utf8mb4',
-                'autocommit': True,
-                'connection_timeout': 10
-            }
+        self.connection_config = {
+            'host': '182.53.230.50',
+            'port': 33306,
+            'database': 'ntdatabase',
+            'user': 'mysqldb',
+            'password': 'h5DHtZ5TtssikBd',
+            'charset': 'utf8mb4',
+            'autocommit': True,
+            'connection_timeout': 10
+        }
         self.connection = None
     
     def get_connection(self):
