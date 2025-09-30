@@ -5,6 +5,7 @@ from mysql.connector import Error
 import os
 from datetime import datetime
 import time
+import base64
 from functools import lru_cache
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -24,14 +25,14 @@ except ImportError as e:
 
 # Configure page
 st.set_page_config(
-    page_title="Data Import Hub",
+    page_title="Data Management Hub",
     page_icon="🚀",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ===== OPTIMIZATION 1: CACHING =====
-@st.cache_data(ttl=300)  # Cache for 5 minutes
+# ===== CACHING FUNCTIONS =====
+@st.cache_data(ttl=300)
 def get_cached_tables_info():
     """Cache table information to avoid repeated DB queries"""
     try:
@@ -50,18 +51,20 @@ def get_cached_table_columns(table_name):
     except Exception as e:
         return []
 
-@st.cache_data(ttl=60)  # Cache for 1 minute
+@st.cache_data(ttl=60)
 def get_cached_table_preview(table_name, limit=5):
     """Cache table preview with smaller limit"""
     try:
-        db_manager = DatabaseManager()
-        # Use LIMIT in SQL query instead of loading all data
-        query = f"SELECT * FROM {table_name} ORDER BY id DESC LIMIT {limit}"
-        return db_manager.execute_query(query)
+        # ใช้ instance ที่มีอยู่ใน session_state
+        if 'db_manager' in st.session_state:
+            return st.session_state.db_manager.get_table_preview(table_name, limit)
+        else:
+            db_manager = DatabaseManager()
+            return db_manager.get_table_preview(table_name, limit)
     except Exception as e:
+        st.error(f"Preview error: {str(e)}")
         return pd.DataFrame()
 
-# ===== NEW: PROCEDURES FUNCTIONS =====
 @st.cache_data(ttl=300)
 def get_stored_procedures():
     """Get list of stored procedures from database"""
@@ -166,7 +169,7 @@ def execute_procedure(procedure_name, parameters=None):
         return {'success': False, 'error': str(e)}
 
 
-# ===== OPTIMIZATION 2: SIMPLIFIED CSS =====
+# ===== CSS STYLING =====
 st.markdown("""
 <style>
     .main-header {
@@ -203,286 +206,365 @@ st.markdown("""
         margin: 0.5rem 0;
     }
     
-    .procedure-card {
+    .file-info {
         background: white;
-        border: 1px solid #e0e0e0;
-        border-radius: 8px;
         padding: 1rem;
-        margin: 0.5rem 0;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        border-radius: 8px;
+        border-left: 4px solid #9CAF88;
+        box-shadow: 0 2px 8px rgba(139, 69, 19, 0.1);
+        margin: 1rem 0;
     }
     
-    .procedure-card:hover {
-        border-color: #667eea;
-        box-shadow: 0 4px 8px rgba(102,126,234,0.1);
+    .header-match {
+        background: #d4edda;
+        color: #155724;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        margin: 0.1rem;
+        display: inline-block;
+        font-size: 0.85rem;
+        font-weight: bold;
+    }
+    
+    .header-no-match {
+        background: #f8d7da;
+        color: #721c24;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        margin: 0.1rem;
+        display: inline-block;
+        font-size: 0.85rem;
+        font-weight: bold;
     }
 </style>
 """, unsafe_allow_html=True)
 
+# ===== FILE MERGER CLASS =====
+class FileMerger:
+    def __init__(self):
+        self.uploaded_files = []
+        self.processed_data = {}
+        self.merged_df = None
+        self.header_mapping = {}
+        
+    def process_uploaded_files(self, files):
+        """Process uploaded files and extract data"""
+        processed = {}
+        
+        for file in files:
+            file_info = {
+                'name': file.name,
+                'size': file.size,
+                'type': self.get_file_type(file.name)
+            }
+            
+            try:
+                if file_info['type'] == 'csv':
+                    df = pd.read_csv(file)
+                    file_info['sheets'] = ['Sheet1']
+                    file_info['data'] = {'Sheet1': df}
+                    
+                elif file_info['type'] == 'excel':
+                    excel_file = pd.ExcelFile(file)
+                    file_info['sheets'] = excel_file.sheet_names
+                    file_info['data'] = {}
+                    
+                    for sheet in excel_file.sheet_names:
+                        df = pd.read_excel(file, sheet_name=sheet)
+                        file_info['data'][sheet] = df
+                        
+                processed[file.name] = file_info
+                
+            except Exception as e:
+                st.error(f"Error processing {file.name}: {str(e)}")
+                
+        return processed
+    
+    def get_file_type(self, filename):
+        """Determine file type from filename"""
+        if filename.lower().endswith('.csv'):
+            return 'csv'
+        elif filename.lower().endswith(('.xlsx', '.xls')):
+            return 'excel'
+        return 'unknown'
+    
+    def analyze_headers(self, processed_data, selected_sheets, selected_files):
+        """Analyze headers across all selected sheets"""
+        all_headers = set()
+        file_headers = {}
+        
+        for filename, file_info in processed_data.items():
+            if selected_files.get(filename, True):
+                sheet_name = selected_sheets.get(filename, file_info['sheets'][0])
+                if sheet_name in file_info['data']:
+                    df = file_info['data'][sheet_name]
+                    headers = list(df.columns)
+                    file_headers[filename] = headers
+                    all_headers.update(headers)
+        
+        all_headers_list = list(all_headers)
+        has_mismatch = False
+        
+        if len(file_headers) > 1:
+            reference_headers = set(next(iter(file_headers.values())))
+            for filename, headers in file_headers.items():
+                if set(headers) != reference_headers:
+                    has_mismatch = True
+                    break
+                    
+        return all_headers_list, has_mismatch, file_headers
+    
+    def merge_files(self, processed_data, selected_sheets, selected_files, header_mapping=None, excluded_headers=None):
+        """Merge all files into a single DataFrame"""
+        merged_dfs = []
+        
+        for filename, file_info in processed_data.items():
+            if selected_files.get(filename, True):
+                sheet_name = selected_sheets.get(filename, file_info['sheets'][0])
+                if sheet_name in file_info['data']:
+                    df = file_info['data'][sheet_name].copy()
+                    
+                    if excluded_headers and filename in excluded_headers:
+                        columns_to_keep = [col for col in df.columns if col not in excluded_headers[filename]]
+                        df = df[columns_to_keep]
+                    
+                    if header_mapping and filename in header_mapping:
+                        df.rename(columns=header_mapping[filename], inplace=True)
+                    
+                    df['_source_file'] = filename
+                    merged_dfs.append(df)
+        
+        if merged_dfs:
+            return pd.concat(merged_dfs, ignore_index=True, sort=False)
+        return pd.DataFrame()
+
+# ===== TAB 1: IMPORT DATA =====
 def render_import_tab():
-    """Render the Import tab (original functionality)"""
-    col1, col2 = st.columns([3, 1])
+    """Render the Import tab"""
     
-    with col1:
-        st.header("📁 File Import")
-        
-        # Initialize session state
-        if 'db_manager' not in st.session_state:
-            st.session_state.db_manager = DatabaseManager()
-        if 'file_processor' not in st.session_state:
-            st.session_state.file_processor = FileProcessor()
-        
-        # Get tables
+    # ===== STATS SECTION AT TOP =====
+    st.subheader("📊 Quick Stats")
+    
+    col_stat1, col_stat2, col_stat3 = st.columns(3)
+    
+    with col_stat1:
         try:
             tables_info = get_cached_tables_info()
             tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
-        except Exception as e:
-            st.warning(f"Could not get table info: {e}")
-            tables = []
-            tables_info = []
-        
-        selected_table = st.selectbox(
-            "🎯 Select Target Table",
-            options=[""] + tables,
-            help="Choose the table where you want to import your data"
-        )
-        
-        if selected_table:
-            # Show basic info immediately
-            if tables_info:
-                table_details = next((t for t in tables_info if t.get('TABLE_NAME') == selected_table), None)
-                
-                if table_details:
-                    col1_info, col2_info, col3_info = st.columns(3)
-                    
-                    with col1_info:
-                        row_count = table_details.get('TABLE_ROWS', 0) or 0
-                        st.metric("📊 Rows", f"{row_count:,}")
-                    
-                    with col2_info:
-                        update_time = table_details.get('UPDATE_TIME')
-                        if update_time:
-                            try:
-                                if isinstance(update_time, str):
-                                    last_update = update_time[:10]
-                                else:
-                                    last_update = update_time.strftime("%Y-%m-%d")
-                                st.metric("🕒 Updated", last_update)
-                            except:
-                                st.metric("🕒 Updated", "Unknown")
-                    
-                    with col3_info:
-                        data_length = table_details.get('DATA_LENGTH', 0) or 0
-                        if data_length > 0:
-                            size_mb = data_length / (1024 * 1024)
-                            st.metric("💾 Size", f"{size_mb:.0f} MB")
-            
-            st.subheader(f"👀 Preview: {selected_table}")
-            
-            col_preview1, col_preview2 = st.columns([1, 2])
-            
-            with col_preview1:
-                show_preview = st.button("🔄 Show Preview", type="secondary")
-            
-            with col_preview2:
-                if show_preview:
-                    st.info("Loading preview...")
-            
-            if show_preview:
-                try:
-                    with st.spinner("Loading preview..."):
-                        preview_data = get_cached_table_preview(selected_table, 5)
-                    
-                    if not preview_data.empty:
-                        st.dataframe(preview_data, use_container_width=True, hide_index=True)
-                        st.success(f"📊 Showing last 5 rows from {len(preview_data.columns)} columns")
-                    else:
-                        st.warning("📭 Table is empty or preview unavailable")
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
-            
-            st.subheader("📤 Upload File")
-            uploaded_file = st.file_uploader(
-                "Choose a file to import",
-                type=['csv', 'xlsx', 'xls'],
-                help="Max size: 200MB"
-            )
-            
-            if uploaded_file:
-                file_size = uploaded_file.size
-                if file_size > 200 * 1024 * 1024:
-                    st.error("❌ File too large! Please use files smaller than 200MB")
-                    return
-                
-                try:
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    status_text.text("📁 Processing file...")
-                    progress_bar.progress(25)
-                    
-                    df = st.session_state.file_processor.process_file(uploaded_file)
-                    progress_bar.progress(50)
-                    
-                    if df is not None:
-                        max_preview_rows = 1000
-                        if len(df) > max_preview_rows:
-                            preview_df = df.head(max_preview_rows)
-                            st.warning(f"📊 Large file detected! Showing first {max_preview_rows} rows for preview. Full {len(df)} rows will be imported.")
-                        else:
-                            preview_df = df
-                        
-                        progress_bar.progress(75)
-                        status_text.text("✅ File loaded successfully!")
-                        
-                        st.success(f"✅ File loaded! {len(df)} rows, {len(df.columns)} columns")
-                        
-                        with st.expander("📋 File Preview", expanded=False):
-                            st.dataframe(preview_df.head(10), use_container_width=True, hide_index=True)
-                        
-                        progress_bar.progress(100)
-                        
-                        st.subheader("🔗 Column Mapping")
-                        
-                        table_columns = get_cached_table_columns(selected_table)
-                        
-                        if table_columns:
-                            def smart_auto_map(file_cols, db_cols):
-                                mapping = {}
-                                db_col_names = {col['COLUMN_NAME'].lower(): col['COLUMN_NAME'] for col in db_cols}
-                                
-                                for file_col in file_cols:
-                                    file_col_clean = file_col.lower().strip().replace(' ', '_')
-                                    
-                                    if file_col_clean in db_col_names:
-                                        mapping[file_col] = db_col_names[file_col_clean]
-                                    else:
-                                        for db_key, db_val in db_col_names.items():
-                                            if file_col_clean in db_key or db_key in file_col_clean:
-                                                mapping[file_col] = db_val
-                                                break
-                                
-                                return mapping
-                            
-                            auto_mapping = smart_auto_map(df.columns, table_columns)
-                            
-                            mapping = {}
-                            
-                            if auto_mapping:
-                                st.success(f"🎯 Auto-mapped {len(auto_mapping)} columns")
-                                
-                                col_map1, col_map2 = st.columns(2)
-                                with col_map1:
-                                    st.write("**Auto-mapped columns:**")
-                                with col_map2:
-                                    if st.button("✅ Use Auto-mapping"):
-                                        mapping = auto_mapping.copy()
-                            
-                            unmapped_cols = [col for col in df.columns if col not in auto_mapping]
-                            
-                            if unmapped_cols:
-                                st.write(f"**Map remaining {len(unmapped_cols)} columns:**")
-                                
-                                db_options = ["🚫 Skip"] + [col['COLUMN_NAME'] for col in table_columns]
-                                
-                                display_cols = unmapped_cols[:10]
-                                if len(unmapped_cols) > 10:
-                                    st.warning(f"Showing first 10 of {len(unmapped_cols)} unmapped columns")
-                                
-                                for file_col in display_cols:
-                                    mapped_col = st.selectbox(
-                                        f"📄 {file_col}",
-                                        options=db_options,
-                                        key=f"map_{file_col}"
-                                    )
-                                    
-                                    if mapped_col != "🚫 Skip":
-                                        mapping[file_col] = mapped_col
-                            
-                            final_mapping = {**auto_mapping, **mapping}
-                            
-                            if final_mapping:
-                                st.markdown("### 🚀 Import Data")
-                                
-                                col_import1, col_import2 = st.columns([2, 1])
-                                
-                                with col_import1:
-                                    st.info(f"Ready to import {len(df)} rows with {len(final_mapping)} columns")
-                                
-                                with col_import2:
-                                    import_button = st.button("🚀 Import Now!", type="primary")
-                                
-                                if import_button:
-                                    try:
-                                        import_progress = st.progress(0)
-                                        import_status = st.empty()
-                                        
-                                        import_status.text("🔄 Preparing data...")
-                                        import_progress.progress(20)
-                                        
-                                        chunk_size = 10000
-                                        total_rows = len(df)
-                                        
-                                        if total_rows > chunk_size:
-                                            import_status.text(f"🔄 Importing {total_rows} rows in chunks...")
-                                            
-                                            for i in range(0, total_rows, chunk_size):
-                                                chunk = df.iloc[i:i+chunk_size]
-                                                result = st.session_state.db_manager.import_data(selected_table, chunk, final_mapping)
-                                                
-                                                progress = min(100, int((i + chunk_size) / total_rows * 80) + 20)
-                                                import_progress.progress(progress)
-                                                import_status.text(f"🔄 Imported {min(i + chunk_size, total_rows)} / {total_rows} rows")
-                                        else:
-                                            import_status.text("🔄 Importing data...")
-                                            import_progress.progress(50)
-                                            result = st.session_state.db_manager.import_data(selected_table, df, final_mapping)
-                                        
-                                        import_progress.progress(100)
-                                        
-                                        if result.get('success', False):
-                                            st.success(f"🎉 Import completed! {result.get('rows_affected', 0)} rows imported")
-                                            st.balloons()
-                                            st.cache_data.clear()
-                                        else:
-                                            st.error(f"❌ Import failed: {result.get('error', 'Unknown error')}")
-                                    
-                                    except Exception as e:
-                                        st.error(f"❌ Import error: {str(e)}")
-                            
-                            else:
-                                st.warning("⚠️ Please map at least one column")
-                        
-                        else:
-                            st.error("❌ Could not fetch table structure")
-                
-                except Exception as e:
-                    st.error(f"❌ Error processing file: {str(e)}")
-    
-    with col2:
-        st.header("📊 Stats")
-        
-        try:
-            tables_info = get_cached_tables_info()
-            tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
-            
-            if tables:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3>{len(tables)}</h3>
-                    <p>Tables</p>
-                </div>
-                """, unsafe_allow_html=True)
+            st.metric("📁 Total Tables", len(tables))
         except:
-            pass
-        
-        st.subheader("⚡ Actions")
-        if st.button("🔄 Refresh All", use_container_width=True):
+            st.metric("📁 Total Tables", "N/A")
+    
+    with col_stat2:
+        if 'connection_status' in st.session_state and st.session_state.connection_status:
+            st.metric("🔌 Database Status", "Connected", delta="Online", delta_color="normal")
+        else:
+            st.metric("🔌 Database Status", "Disconnected", delta="Offline", delta_color="inverse")
+    
+    with col_stat3:
+        if st.button("🔄 Refresh All", use_container_width=True, key="refresh_import_top"):
             st.cache_data.clear()
             st.rerun()
+    
+    st.divider()
+    
+    # ===== MAIN IMPORT SECTION (FULL WIDTH) =====
+    st.header("📁 File Import to Database")
+    
+    if 'db_manager' not in st.session_state:
+        st.session_state.db_manager = DatabaseManager()
+    if 'file_processor' not in st.session_state:
+        st.session_state.file_processor = FileProcessor()
+    
+    try:
+        tables_info = get_cached_tables_info()
+        tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
+    except Exception as e:
+        st.warning(f"Could not get table info: {e}")
+        tables = []
+        tables_info = []
+    
+    selected_table = st.selectbox(
+        "🎯 Select Target Table",
+        options=[""] + tables,
+        help="Choose the table where you want to import your data"
+    )
+    
+    if selected_table:
+        if tables_info:
+            table_details = next((t for t in tables_info if t.get('TABLE_NAME') == selected_table), None)
+            
+            if table_details:
+                col1_info, col2_info, col3_info = st.columns(3)
+                
+                with col1_info:
+                    row_count = table_details.get('TABLE_ROWS', 0) or 0
+                    st.metric("📊 Rows", f"{row_count:,}")
+                
+                with col2_info:
+                    update_time = table_details.get('UPDATE_TIME')
+                    if update_time:
+                        try:
+                            if isinstance(update_time, str):
+                                last_update = update_time[:10]
+                            else:
+                                last_update = update_time.strftime("%Y-%m-%d")
+                            st.metric("🕒 Updated", last_update)
+                        except:
+                            st.metric("🕒 Updated", "Unknown")
+                
+                with col3_info:
+                    data_length = table_details.get('DATA_LENGTH', 0) or 0
+                    if data_length > 0:
+                        size_mb = data_length / (1024 * 1024)
+                        st.metric("💾 Size", f"{size_mb:.0f} MB")
+        
+        st.subheader(f"👀 Preview: {selected_table}")
+        
+        if st.button("🔄 Show Preview", type="secondary"):
+            try:
+                with st.spinner("Loading preview..."):
+                    preview_data = get_cached_table_preview(selected_table, 5)
+                
+                if not preview_data.empty:
+                    st.dataframe(preview_data, use_container_width=True, hide_index=True)
+                    st.success(f"📊 Showing last 5 rows from {len(preview_data.columns)} columns")
+                else:
+                    st.warning("📭 Table is empty or preview unavailable")
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+        
+        st.subheader("📤 Upload File")
+        uploaded_file = st.file_uploader(
+            "Choose a file to import",
+            type=['csv', 'xlsx', 'xls'],
+            help="Max size: 200MB",
+            key="import_uploader"
+        )
+        
+        if uploaded_file:
+            st.markdown(f"""
+            <div class="file-info">
+                <h4>📄 {uploaded_file.name}</h4>
+                <p><strong>Size:</strong> {uploaded_file.size / 1024:.2f} KB</p>
+                <p><strong>Type:</strong> {uploaded_file.type}</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            try:
+                # Read file
+                with st.spinner("Reading file..."):
+                    if uploaded_file.name.endswith('.csv'):
+                        df = pd.read_csv(uploaded_file)
+                    else:
+                        df = pd.read_excel(uploaded_file)
+                
+                st.success(f"✅ File loaded: {len(df)} rows, {len(df.columns)} columns")
+                
+                # Preview data
+                st.subheader("📋 Data Preview")
+                st.dataframe(df.head(10), use_container_width=True)
+                
+                # Column mapping
+                st.subheader("🔗 Column Mapping")
+                
+                table_columns = get_cached_table_columns(selected_table)
+                
+                if not table_columns:
+                    st.error("Cannot get table columns")
+                    return
+                
+                db_column_names = [col['COLUMN_NAME'] for col in table_columns]
+                file_columns = list(df.columns)
+                
+                st.info(f"**File Columns:** {len(file_columns)} | **Table Columns:** {len(db_column_names)}")
+                
+                # Auto-mapping
+                column_mapping = {}
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write("**File Column**")
+                with col2:
+                    st.write("**→ Database Column**")
+                
+                for file_col in file_columns:
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.text(file_col)
+                    
+                    with col2:
+                        # Auto-match if column names are similar
+                        default_index = 0
+                        if file_col in db_column_names:
+                            default_index = db_column_names.index(file_col)
+                        
+                        selected_db_col = st.selectbox(
+                            f"Map {file_col}",
+                            options=["-- Skip --"] + db_column_names,
+                            index=default_index + 1 if file_col in db_column_names else 0,
+                            key=f"mapping_{file_col}",
+                            label_visibility="collapsed"
+                        )
+                        
+                        if selected_db_col != "-- Skip --":
+                            column_mapping[file_col] = selected_db_col
+                
+                # Show mapping summary
+                if column_mapping:
+                    st.success(f"✅ Mapped {len(column_mapping)} columns")
+                    
+                    with st.expander("View Mapping Details"):
+                        for file_col, db_col in column_mapping.items():
+                            st.write(f"**{file_col}** → **{db_col}**")
+                else:
+                    st.warning("⚠️ No columns mapped")
+                
+                # Import button
+                st.divider()
+                
+                col1, col2, col3 = st.columns([1, 1, 2])
+                
+                with col1:
+                    if st.button("🚀 Import Data", type="primary", disabled=len(column_mapping) == 0):
+                        if not column_mapping:
+                            st.error("Please map at least one column")
+                        else:
+                            # สร้าง DatabaseManager ใหม่เลย ไม่ใช้อันเก่า
+                            from database import DatabaseManager
+                            fresh_db = DatabaseManager()
+                            
+                            with st.spinner(f"Importing {len(df)} rows..."):
+                                result = fresh_db.import_data(
+                                    selected_table,
+                                    df,
+                                    column_mapping
+                                )
+                            
+                            # ปิด connection
+                            fresh_db.close_connection()
+                            
+                            if result['success']:
+                                st.success(f"✅ {result['message']}")
+                                st.balloons()
+                                st.cache_data.clear()
+                                st.metric("Rows Imported", result['rows_affected'])
+                            else:
+                                st.error(f"❌ Import failed: {result['error']}")
+                
+                with col2:
+                    if st.button("🔄 Reset", type="secondary"):
+                        st.rerun()
+            
+            except Exception as e:
+                st.error(f"❌ Error processing file: {str(e)}")
+                st.exception(e)
 
+# ===== TAB 2: RUN PROCEDURES =====
 def render_procedures_tab():
-    """Render the Procedures/Update tab"""
+    """Render the Procedures tab"""
     st.header("⚙️ Database Procedures & Updates")
 
     # 🔒 กดปุ่มเพื่อเปิดใช้งานเท่านั้น (ป้องกันรันทุกครั้งที่แอป rerun)
@@ -491,12 +573,9 @@ def render_procedures_tab():
         st.info("This tab is idle. Turn on the toggle to load procedures.")
         return
     
-    
-    # Initialize database manager
     if 'db_manager' not in st.session_state:
         st.session_state.db_manager = DatabaseManager()
     
-    # Initialize execution history
     if 'execution_history' not in st.session_state:
         st.session_state.execution_history = []
     
@@ -505,333 +584,427 @@ def render_procedures_tab():
     with col1:
         st.subheader("🔧 Stored Procedures")
         
-        # Refresh button
-        if st.button("🔄 Refresh Procedures List", type="secondary"):
+        if st.button("🔄 Refresh Procedures List", type="secondary", key="refresh_procedures"):
             st.cache_data.clear()
             st.rerun()
         
-        # Get procedures
         procedures = get_stored_procedures()
         
         if procedures:
             st.info(f"Found {len(procedures)} stored procedures")
             
-            # Filter procedures
-            search_query = st.text_input("🔍 Search procedures", placeholder="Type to filter...")
+            search_query = st.text_input("🔍 Search procedures", placeholder="Type to filter...", key="search_proc")
             
             if search_query:
                 filtered_procedures = [p for p in procedures if search_query.lower() in p['ROUTINE_NAME'].lower()]
             else:
                 filtered_procedures = procedures
             
-            # Display procedures
             for proc in filtered_procedures:
                 with st.expander(f"📦 {proc['ROUTINE_NAME']} ({proc['ROUTINE_TYPE']})"):
+                    col_info, col_exec = st.columns([1, 1])
                     
-                    # Procedure info
-                    col_info1, col_info2 = st.columns(2)
-                    
-                    with col_info1:
+                    with col_info:
                         st.write(f"**Type:** {proc['ROUTINE_TYPE']}")
-                        if proc.get('RETURNS'):
-                            st.write(f"**Returns:** {proc['RETURNS']}")
-                    
-                    with col_info2:
+                        if proc.get('ROUTINE_COMMENT'):
+                            st.write(f"**Description:** {proc['ROUTINE_COMMENT']}")
                         if proc.get('CREATED'):
-                            st.write(f"**Created:** {str(proc['CREATED'])[:10]}")
-                        if proc.get('LAST_ALTERED'):
-                            st.write(f"**Modified:** {str(proc['LAST_ALTERED'])[:10]}")
+                            st.write(f"**Created:** {proc['CREATED']}")
                     
-                    if proc.get('ROUTINE_COMMENT'):
-                        st.info(f"💬 {proc['ROUTINE_COMMENT']}")
-                    
-                    # Get parameters
-                    params = get_procedure_parameters(proc['ROUTINE_NAME'])
-                    
-                    if params:
-                        st.write("**Parameters:**")
+                    with col_exec:
+                        params = get_procedure_parameters(proc['ROUTINE_NAME'])
                         
-                        param_values = []
-                        
-                        for param in params:
-                            param_name = param['PARAMETER_NAME']
-                            param_mode = param['PARAMETER_MODE']
-                            param_type = param['DATA_TYPE']
+                        if params:
+                            st.write(f"**Parameters:** {len(params)}")
+                            param_values = []
                             
-                            st.write(f"- `{param_name}` ({param_mode}) - {param_type}")
-                            
-                            # Input field for IN parameters
-                            if param_mode == 'IN':
-                                if param_type in ['int', 'bigint', 'smallint', 'tinyint']:
-                                    value = st.number_input(
-                                        f"Enter {param_name}",
-                                        key=f"param_{proc['ROUTINE_NAME']}_{param_name}",
-                                        step=1
+                            for param in params:
+                                param_name = param['PARAMETER_NAME']
+                                param_type = param['DATA_TYPE']
+                                
+                                if param_type in ['int', 'bigint', 'smallint']:
+                                    val = st.number_input(
+                                        f"{param_name} ({param_type})",
+                                        value=0,
+                                        key=f"param_{proc['ROUTINE_NAME']}_{param_name}"
                                     )
-                                    param_values.append(int(value))
                                 elif param_type in ['decimal', 'float', 'double']:
-                                    value = st.number_input(
-                                        f"Enter {param_name}",
-                                        key=f"param_{proc['ROUTINE_NAME']}_{param_name}",
-                                        step=0.01
-                                    )
-                                    param_values.append(float(value))
-                                elif param_type in ['date']:
-                                    value = st.date_input(
-                                        f"Enter {param_name}",
+                                    val = st.number_input(
+                                        f"{param_name} ({param_type})",
+                                        value=0.0,
+                                        format="%.2f",
                                         key=f"param_{proc['ROUTINE_NAME']}_{param_name}"
                                     )
-                                    param_values.append(str(value))
-                                elif param_type in ['datetime', 'timestamp']:
-                                    value = st.text_input(
-                                        f"Enter {param_name} (YYYY-MM-DD HH:MM:SS)",
+                                elif param_type in ['date', 'datetime', 'timestamp']:
+                                    val = st.date_input(
+                                        f"{param_name} ({param_type})",
                                         key=f"param_{proc['ROUTINE_NAME']}_{param_name}"
                                     )
-                                    param_values.append(value if value else None)
+                                    val = val.strftime("%Y-%m-%d")
                                 else:
-                                    value = st.text_input(
-                                        f"Enter {param_name}",
+                                    val = st.text_input(
+                                        f"{param_name} ({param_type})",
                                         key=f"param_{proc['ROUTINE_NAME']}_{param_name}"
                                     )
-                                    param_values.append(value if value else None)
-                    else:
-                        st.write("**No parameters required**")
-                        param_values = None
+                                
+                                param_values.append(val)
+                        else:
+                            st.info("No parameters required")
+                            param_values = None
                     
-                    st.markdown("---")
+                    st.divider()
                     
-                    # Execute button
-                    col_exec1, col_exec2 = st.columns([1, 2])
+                    col_btn1, col_btn2 = st.columns(2)
                     
-                    with col_exec1:
-                        execute_btn = st.button(
-                            f"▶️ Execute",
-                            key=f"exec_{proc['ROUTINE_NAME']}",
-                            type="primary"
-                        )
-                    
-                    with col_exec2:
-                        if execute_btn:
-                            st.info("Executing procedure...")
-                    
-                    if execute_btn:
-                        try:
-                            # Record start time
-                            start_time = time.time()
-                            
+                    with col_btn1:
+                        if st.button(f"▶️ Execute", key=f"exec_{proc['ROUTINE_NAME']}", type="primary", use_container_width=True):
                             with st.spinner(f"Executing {proc['ROUTINE_NAME']}..."):
-                                result = execute_procedure(proc['ROUTINE_NAME'], param_values if param_values else None)
-                            
-                            execution_time = time.time() - start_time
+                                result = execute_procedure(proc['ROUTINE_NAME'], param_values if params else None)
                             
                             if result['success']:
-                                # Success banner
                                 st.success(f"✅ {result['message']}")
                                 
-                                # Metrics row
-                                metric_col1, metric_col2, metric_col3 = st.columns(3)
-                                
-                                with metric_col1:
-                                    st.metric("⏱️ Execution Time", f"{execution_time:.2f}s")
-                                
-                                with metric_col2:
-                                    if result.get('rows_affected'):
-                                        st.metric("📊 Rows Affected", f"{result['rows_affected']:,}")
-                                    else:
-                                        st.metric("📊 Rows Affected", "N/A")
-                                
-                                with metric_col3:
-                                    result_count = len(result.get('results', []))
-                                    st.metric("📋 Result Sets", result_count)
-                                
-                                # Display results with download buttons
                                 if result.get('results'):
-                                    st.markdown("---")
-                                    st.write("**📋 Query Results:**")
-                                    
-                                    for i, result_set in enumerate(result['results']):
-                                        if result_set:
-                                            st.markdown(f"**Result Set {i+1}:**")
-                                            
-                                            # Convert to DataFrame
-                                            df = pd.DataFrame(result_set)
-                                            
-                                            # Display options
-                                            result_col1, result_col2, result_col3 = st.columns([2, 1, 1])
-                                            
-                                            with result_col1:
-                                                st.info(f"📊 {len(df)} rows × {len(df.columns)} columns")
-                                            
-                                            with result_col2:
-                                                view_btn = st.button(
-                                                    "👁️ View Data",
-                                                    key=f"view_{proc['ROUTINE_NAME']}_{i}",
-                                                    use_container_width=True
-                                                )
-                                            
-                                            with result_col3:
-                                                # Download CSV
-                                                csv = df.to_csv(index=False)
-                                                st.download_button(
-                                                    "📥 Download",
-                                                    csv,
-                                                    f"{proc['ROUTINE_NAME']}_result_{i+1}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                                    "text/csv",
-                                                    key=f"download_{proc['ROUTINE_NAME']}_{i}",
-                                                    use_container_width=True
-                                                )
-                                            
-                                            # Show data if view button clicked
-                                            if view_btn or f"show_data_{proc['ROUTINE_NAME']}_{i}" in st.session_state:
-                                                st.session_state[f"show_data_{proc['ROUTINE_NAME']}_{i}"] = True
-                                            
-                                            if st.session_state.get(f"show_data_{proc['ROUTINE_NAME']}_{i}", False):
-                                                st.dataframe(
-                                                    df,
-                                                    use_container_width=True,
-                                                    hide_index=True,
-                                                    height=min(400, (len(df) + 1) * 35)
-                                                )
-                                                
-                                                if st.button(
-                                                    "🔼 Hide Data",
-                                                    key=f"hide_{proc['ROUTINE_NAME']}_{i}"
-                                                ):
-                                                    st.session_state[f"show_data_{proc['ROUTINE_NAME']}_{i}"] = False
-                                                    st.rerun()
-                                            
-                                            st.markdown("---")
+                                    for idx, res in enumerate(result['results']):
+                                        st.write(f"**Result Set {idx + 1}:**")
+                                        df_result = pd.DataFrame(res)
+                                        st.dataframe(df_result, use_container_width=True)
+                                        
+                                        # Download buttons
+                                        csv_data = df_result.to_csv(index=False)
+                                        st.download_button(
+                                            "📥 Download CSV",
+                                            csv_data,
+                                            f"{proc['ROUTINE_NAME']}_result_{idx+1}.csv",
+                                            "text/csv",
+                                            key=f"download_csv_{proc['ROUTINE_NAME']}_{idx}"
+                                        )
                                 
-                                # Log to history
+                                if result.get('rows_affected'):
+                                    st.info(f"Rows affected: {result['rows_affected']}")
+                                
+                                if result.get('warnings'):
+                                    with st.expander("⚠️ Warnings"):
+                                        for warning in result['warnings']:
+                                            st.warning(f"{warning[0]}: {warning[2]}")
+                                
+                                # Add to history
                                 st.session_state.execution_history.append({
                                     'procedure': proc['ROUTINE_NAME'],
-                                    'timestamp': datetime.now(),
                                     'status': 'success',
-                                    'execution_time': execution_time,
-                                    'rows_affected': result.get('rows_affected'),
-                                    'result_sets': len(result.get('results', []))
+                                    'timestamp': datetime.now()
                                 })
-                                
-                                # Clear cache
-                                st.cache_data.clear()
-                                
                             else:
-                                st.error(f"❌ Execution failed: {result['error']}")
+                                st.error(f"❌ Execution failed")
                                 
-                                # Log failure
+                                if result.get('error_details'):
+                                    details = result['error_details']
+                                    st.error(f"**Error:** {details.get('msg')}")
+                                    if details.get('errno'):
+                                        st.caption(f"Error Code: {details['errno']}")
+                                    if details.get('sqlstate'):
+                                        st.caption(f"SQL State: {details['sqlstate']}")
+                                else:
+                                    st.error(result.get('error', 'Unknown error'))
+                                
+                                # Add to history
                                 st.session_state.execution_history.append({
                                     'procedure': proc['ROUTINE_NAME'],
-                                    'timestamp': datetime.now(),
                                     'status': 'failed',
-                                    'execution_time': execution_time,
-                                    'error': result['error']
+                                    'timestamp': datetime.now()
                                 })
-                        
-                        except Exception as e:
-                            st.error(f"❌ Error: {str(e)}")
-                            
-                            # Log error
-                            st.session_state.execution_history.append({
-                                'procedure': proc['ROUTINE_NAME'],
-                                'timestamp': datetime.now(),
-                                'status': 'error',
-                                'error': str(e)
-                            })
         
         else:
             st.warning("⚠️ No stored procedures found in database")
-            st.info("💡 Create stored procedures in your MySQL database to see them here")
     
     with col2:
         st.subheader("📊 Quick Stats")
         
-        # Procedure statistics
         if procedures:
-            total_procs = len(procedures)
-            procedures_by_type = {}
+            st.metric("Total Procedures", len(procedures))
+        
+        if st.session_state.execution_history:
+            success_count = sum(1 for h in st.session_state.execution_history if h['status'] == 'success')
+            failed_count = len(st.session_state.execution_history) - success_count
             
-            for proc in procedures:
-                proc_type = proc['ROUTINE_TYPE']
-                procedures_by_type[proc_type] = procedures_by_type.get(proc_type, 0) + 1
+            st.metric("Executions", len(st.session_state.execution_history))
+            
+            col_s, col_f = st.columns(2)
+            with col_s:
+                st.metric("✅ Success", success_count)
+            with col_f:
+                st.metric("❌ Failed", failed_count)
+        
+        st.divider()
+        
+        if st.button("🗑️ Clear History", use_container_width=True):
+            st.session_state.execution_history = []
+            st.rerun()
+
+# ===== TAB 3: FILE MERGER =====
+def render_merger_tab():
+    """Render the File Merger tab with download format selection"""
+    st.header("📁 File Merger")
+    st.write("รวมไฟล์ CSV และ Excel หลายไฟล์เข้าด้วยกัน")
+    
+    # Initialize merger
+    if 'merger' not in st.session_state:
+        st.session_state.merger = FileMerger()
+    if 'merger_processed_data' not in st.session_state:
+        st.session_state.merger_processed_data = {}
+    if 'merger_merged_df' not in st.session_state:
+        st.session_state.merger_merged_df = None
+    if 'merger_selected_files' not in st.session_state:
+        st.session_state.merger_selected_files = {}
+    
+    merger = st.session_state.merger
+    
+    # File upload section
+    st.subheader("📤 อัปโหลดไฟล์")
+    uploaded_files = st.file_uploader(
+        "เลือกไฟล์ CSV หรือ Excel",
+        type=['csv', 'xlsx', 'xls'],
+        accept_multiple_files=True,
+        help="รองรับไฟล์ CSV และ Excel หลายไฟล์",
+        key="merger_uploader"
+    )
+    
+    if uploaded_files:
+        if len(uploaded_files) != len(st.session_state.get('merger_last_uploaded', [])):
+            with st.spinner("กำลังประมวลผลไฟล์..."):
+                st.session_state.merger_processed_data = merger.process_uploaded_files(uploaded_files)
+                st.session_state.merger_last_uploaded = uploaded_files
+                st.session_state.merger_merged_df = None
+                st.session_state.merger_selected_files = {f.name: True for f in uploaded_files}
+    
+    # ===== MAIN CONTENT AFTER UPLOAD =====
+    if st.session_state.merger_processed_data:
+        # File selection
+        if len(st.session_state.merger_processed_data) > 1:
+            st.subheader("🎯 เลือกไฟล์สำหรับการรวม")
+            
+            cols = st.columns(min(len(st.session_state.merger_processed_data), 3))
+            
+            for i, (filename, file_info) in enumerate(st.session_state.merger_processed_data.items()):
+                with cols[i % 3]:
+                    selected = st.checkbox(
+                        filename,
+                        value=st.session_state.merger_selected_files.get(filename, True),
+                        key=f"merger_select_{filename}",
+                        help=f"ขนาด: {file_info['size']/1024:.1f} KB"
+                    )
+                    st.session_state.merger_selected_files[filename] = selected
+            
+            selected_count = sum(st.session_state.merger_selected_files.values())
+            
+            if selected_count == 0:
+                st.error("⚠️ กรุณาเลือกไฟล์อย่างน้อย 1 ไฟล์")
+                return
+        else:
+            filename = list(st.session_state.merger_processed_data.keys())[0]
+            st.session_state.merger_selected_files = {filename: True}
+        
+        # File information
+        st.subheader("📋 ไฟล์ที่อัปโหลด")
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            selected_sheets = {}
+            
+            for filename, file_info in st.session_state.merger_processed_data.items():
+                is_selected = st.session_state.merger_selected_files.get(filename, True)
+                
+                with st.expander(f"{'✅' if is_selected else '❌'} {filename}", expanded=is_selected):
+                    col_info, col_sheet = st.columns([2, 1])
+                    
+                    with col_info:
+                        st.markdown(f"""
+                        **ขนาด:** {file_info['size']/1024:.2f} KB  
+                        **ประเภท:** {file_info['type'].upper()}  
+                        **จำนวน Sheets:** {len(file_info['sheets'])}
+                        """)
+                    
+                    with col_sheet:
+                        if len(file_info['sheets']) > 1:
+                            selected_sheet = st.selectbox(
+                                "เลือก Sheet:",
+                                file_info['sheets'],
+                                key=f"merger_sheet_{filename}",
+                                disabled=not is_selected
+                            )
+                            selected_sheets[filename] = selected_sheet
+                        else:
+                            selected_sheets[filename] = file_info['sheets'][0]
+                            st.info(f"Sheet: {file_info['sheets'][0]}")
+                    
+                    if is_selected:
+                        sheet_name = selected_sheets[filename]
+                        if sheet_name in file_info['data']:
+                            df = file_info['data'][sheet_name]
+                            st.write(f"**Preview ({len(df)} แถว, {len(df.columns)} คอลัมน์):**")
+                            st.dataframe(df.head(5), use_container_width=True)
+        
+        with col2:
+            # Statistics
+            selected_files_data = {k: v for k, v in st.session_state.merger_processed_data.items() 
+                                 if st.session_state.merger_selected_files.get(k, True)}
+            
+            total_files = len(selected_files_data)
+            total_records = sum([
+                len(file_info['data'][selected_sheets.get(filename, file_info['sheets'][0])]) 
+                for filename, file_info in selected_files_data.items()
+                if selected_sheets.get(filename, file_info['sheets'][0]) in file_info['data']
+            ]) if selected_files_data else 0
             
             st.markdown(f"""
             <div class="metric-card">
-                <h3>{total_procs}</h3>
-                <p>Total Procedures</p>
+                <h3>📊 สถิติ</h3>
+                <p><strong>ไฟล์ที่เลือก:</strong> {total_files}</p>
+                <p><strong>จำนวนแถวรวม:</strong> {total_records:,}</p>
             </div>
             """, unsafe_allow_html=True)
+        
+        # Header analysis
+        st.header("🔍 การวิเคราะห์ Headers")
+        
+        all_headers, has_mismatch, file_headers = merger.analyze_headers(
+            st.session_state.merger_processed_data,
+            selected_sheets,
+            st.session_state.merger_selected_files
+        )
+        
+        if has_mismatch and len(file_headers) > 1:
+            st.warning("⚠️ พบความไม่สอดคล้องของ Headers")
             
-            for proc_type, count in procedures_by_type.items():
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h4>{count}</h4>
-                    <p>{proc_type}s</p>
-                </div>
-                """, unsafe_allow_html=True)
-        
-        st.markdown("---")
-        
-        # Execution History
-        st.subheader("📜 Execution History")
-        
-        if st.session_state.execution_history:
-            # Show last 10 executions
-            recent_executions = list(reversed(st.session_state.execution_history[-10:]))
+            # Show comparison
+            for filename, headers in file_headers.items():
+                with st.expander(f"Headers ของ {filename}"):
+                    st.write(f"**จำนวน:** {len(headers)} headers")
+                    st.write(", ".join(headers))
             
-            for idx, log in enumerate(recent_executions):
-                status_icon = "✅" if log['status'] == 'success' else "❌"
-                status_color = "#d4edda" if log['status'] == 'success' else "#f8d7da"
+            st.info("💡 คุณสามารถรวมไฟล์ได้ทันที Headers ที่ไม่ตรงกันจะเป็นค่าว่าง")
+        
+        elif len(file_headers) > 1:
+            st.success("✅ Headers ทั้งหมดสอดคล้องกัน")
+        
+        # Merge button
+        st.header("⚙️ การรวมไฟล์")
+        
+        if st.button("🚀 เริ่มรวมไฟล์", type="primary", use_container_width=True, key="merge_files_btn"):
+            with st.spinner("กำลังรวมไฟล์..."):
+                merged_df = merger.merge_files(
+                    st.session_state.merger_processed_data,
+                    selected_sheets,
+                    st.session_state.merger_selected_files
+                )
                 
-                with st.expander(
-                    f"{status_icon} {log['procedure']} - {log['timestamp'].strftime('%H:%M:%S')}",
-                    expanded=(idx == 0)  # Expand the most recent
-                ):
-                    st.write(f"**Status:** {log['status'].upper()}")
-                    st.write(f"**Time:** {log['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
-                    
-                    if log.get('execution_time'):
-                        st.write(f"**Duration:** {log['execution_time']:.2f}s")
-                    
-                    if log.get('rows_affected'):
-                        st.write(f"**Rows Affected:** {log['rows_affected']:,}")
-                    
-                    if log.get('result_sets'):
-                        st.write(f"**Result Sets:** {log['result_sets']}")
-                    
-                    if log.get('error'):
-                        st.error(f"**Error:** {log['error']}")
+                st.session_state.merger_merged_df = merged_df
+                st.success(f"✅ รวมไฟล์สำเร็จ! {len(merged_df):,} แถว")
+        
+        # Show results
+        if st.session_state.merger_merged_df is not None:
+            st.header("📊 ผลลัพธ์การรวมไฟล์")
             
-            # Clear history button
-            if st.button("🗑️ Clear History", use_container_width=True):
-                st.session_state.execution_history = []
-                st.rerun()
-        else:
-            st.info("No execution history yet")
-        
-        st.markdown("---")
-        
-        st.subheader("ℹ️ Info")
-        st.info("""
-        **How to use:**
-        
-        1. Select a procedure
-        2. Fill in parameters
-        3. Click Execute
-        4. View or download results
-        
-        **Tips:**
-        - Use for batch updates
-        - Complex transformations
-        - Scheduled tasks
-        """)
+            merged_df = st.session_state.merger_merged_df
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("จำนวนแถวรวม", f"{len(merged_df):,}")
+            with col2:
+                st.metric("จำนวนคอลัมน์", len(merged_df.columns))
+            with col3:
+                st.metric("ไฟล์ที่รวม", sum(st.session_state.merger_selected_files.values()))
+            
+            st.subheader("ตัวอย่างข้อมูล")
+            st.dataframe(merged_df.head(100), use_container_width=True)
+            
+            # ===== DOWNLOAD SECTION =====
+            st.header("⬇️ ดาวน์โหลด")
+            
+            col1, col2 = st.columns([1, 2])
+            
+            with col1:
+                download_format = st.radio(
+                    "เลือกรูปแบบไฟล์:",
+                    options=["CSV", "Excel (XLSX)"],
+                    index=0,
+                    key="download_format"
+                )
+            
+            with col2:
+                if download_format == "CSV":
+                    filename = f"merged_file_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                    csv_data = merged_df.to_csv(index=False, encoding='utf-8-sig')
+                    file_size = len(csv_data.encode('utf-8')) / 1024
+                    
+                    st.info(f"📄 CSV | ขนาด: {file_size:.2f} KB")
+                    
+                    st.download_button(
+                        label="📥 ดาวน์โหลดไฟล์ CSV",
+                        data=csv_data,
+                        file_name=filename,
+                        mime="text/csv",
+                        type="primary",
+                        use_container_width=True,
+                        key="download_merged_csv"
+                    )
+                
+                else:
+                    filename = f"merged_file_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                    
+                    from io import BytesIO
+                    output = BytesIO()
+                    
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        merged_df.to_excel(writer, index=False, sheet_name='Merged Data')
+                        
+                        workbook = writer.book
+                        worksheet = writer.sheets['Merged Data']
+                        
+                        for column in worksheet.columns:
+                            max_length = 0
+                            column_letter = column[0].column_letter
+                            
+                            for cell in column:
+                                try:
+                                    if len(str(cell.value)) > max_length:
+                                        max_length = len(str(cell.value))
+                                except:
+                                    pass
+                            
+                            adjusted_width = min(max_length + 2, 50)
+                            worksheet.column_dimensions[column_letter].width = adjusted_width
+                        
+                        worksheet.auto_filter.ref = worksheet.dimensions
+                    
+                    excel_data = output.getvalue()
+                    file_size = len(excel_data) / 1024
+                    
+                    st.info(f"📊 Excel | ขนาด: {file_size:.2f} KB")
+                    
+                    st.download_button(
+                        label="📥 ดาวน์โหลดไฟล์ Excel",
+                        data=excel_data,
+                        file_name=filename,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        type="primary",
+                        use_container_width=True,
+                        key="download_merged_excel"
+                    )
+    
+    else:
+        st.info("👆 กรุณาอัปโหลดไฟล์เพื่อเริ่มต้นใช้งาน")
 
+# ===== MAIN APPLICATION =====
 def main():
     try:
         # Header
         st.markdown("""
         <div class="main-header">
-            <h1>🚀 Data Import Hub</h1>
-            <p>Fast file import system with database management</p>
+            <h1>🚀 Data Management Hub</h1>
+            <p>Complete data management system with import, procedures, and file merger</p>
         </div>
         """, unsafe_allow_html=True)
         
@@ -854,7 +1027,6 @@ def main():
         with st.sidebar:
             st.header("⚙️ Configuration")
             
-            # Test connection
             if 'connection_status' not in st.session_state:
                 try:
                     st.session_state.connection_status = st.session_state.db_manager.test_connection()
@@ -865,9 +1037,7 @@ def main():
                 st.markdown('<div class="status-success">✅ Database Connected</div>', unsafe_allow_html=True)
             else:
                 st.markdown('<div class="status-error">❌ Database Connection Failed</div>', unsafe_allow_html=True)
-                return
             
-            # Refresh button
             if st.button("🔄 Refresh", key="refresh_sidebar"):
                 st.cache_data.clear()
                 st.rerun()
@@ -876,51 +1046,22 @@ def main():
                 tables_info = get_cached_tables_info()
                 tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
             except Exception as e:
-                st.warning(f"Could not get table info: {e}")
                 tables = []
                 tables_info = []
 
             st.write(f"📊 Available Tables: {len(tables)}")
-            
-            # Recent activity
-            if tables_info:
-                st.subheader("🕒 Recent Activity")
-                
-                sorted_tables = sorted(
-                    [t for t in tables_info if t.get('UPDATE_TIME')], 
-                    key=lambda x: x.get('UPDATE_TIME', ''), 
-                    reverse=True
-                )[:3]
-                
-                for table_info in sorted_tables:
-                    table_name = table_info.get('TABLE_NAME', 'Unknown')
-                    update_time = table_info.get('UPDATE_TIME')
-                    row_count = table_info.get('TABLE_ROWS', 0) or 0
-                    
-                    if update_time:
-                        try:
-                            if isinstance(update_time, str):
-                                time_str = update_time[:16]
-                            else:
-                                time_str = update_time.strftime("%Y-%m-%d %H:%M")
-                            
-                            st.markdown(f"""
-                            <div style="background: #f8f9fa; padding: 0.5rem; border-radius: 4px; margin: 0.2rem 0; border-left: 3px solid #007bff;">
-                                <div style="font-weight: bold; font-size: 12px;">📄 {table_name}</div>
-                                <div style="font-size: 11px; color: #666;">🕒 {time_str} | 📊 {row_count:,} rows</div>
-                            </div>
-                            """, unsafe_allow_html=True)
-                        except:
-                            pass
         
-        # ===== NEW: TABS NAVIGATION =====
-        tab1, tab2 = st.tabs(["📁 Import Data", "⚙️ Run Procedures"])
+        # ===== TABS NAVIGATION =====
+        tab1, tab2, tab3 = st.tabs(["📁 Import Data", "⚙️ Run Procedures", "🔗 File Merger"])
         
         with tab1:
             render_import_tab()
         
         with tab2:
             render_procedures_tab()
+        
+        with tab3:
+            render_merger_tab()
     
     except Exception as e:
         st.error(f"Application error: {e}")
