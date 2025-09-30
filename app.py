@@ -55,10 +55,14 @@ def get_cached_table_columns(table_name):
 def get_cached_table_preview(table_name, limit=5):
     """Cache table preview with smaller limit"""
     try:
-        db_manager = DatabaseManager()
-        query = f"SELECT * FROM {table_name} ORDER BY id DESC LIMIT {limit}"
-        return db_manager.execute_query(query)
+        # ใช้ instance ที่มีอยู่ใน session_state
+        if 'db_manager' in st.session_state:
+            return st.session_state.db_manager.get_table_preview(table_name, limit)
+        else:
+            db_manager = DatabaseManager()
+            return db_manager.get_table_preview(table_name, limit)
     except Exception as e:
+        st.error(f"Preview error: {str(e)}")
         return pd.DataFrame()
 
 @st.cache_data(ttl=300)
