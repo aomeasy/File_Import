@@ -291,7 +291,7 @@ def render_import_tab():
     col1, col2 = st.columns([3, 1])
     
     with col1:
-        st.header("📁 File Import")
+        st.header("📁 File Import to ntdatabase")
         
         if 'db_manager' not in st.session_state:
             st.session_state.db_manager = DatabaseManager()
