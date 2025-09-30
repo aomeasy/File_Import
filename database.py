@@ -28,19 +28,27 @@ class DatabaseManager:
             'user': os.getenv('DB_USER'),
             'password': os.getenv('DB_PASSWORD'),
             'charset': 'utf8mb4',
-            'autocommit': False,  # ← ปิด autocommit เพื่อควบคุม transaction
+            'autocommit': False,
             'connection_timeout': 10,
-            'use_pure': True,  # ← ใช้ pure Python implementation
-            'ssl_disabled': False  # ← เปิด SSL ถ้า database รองรับ
+            'use_pure': True,
+            'ssl_disabled': False
         }
         self.connection = None
         self._connection_pool = None
     
     def get_connection(self):
-        """Get database connection with error handling"""
+        """Get database connection with error handling and transaction cleanup"""
         try:
             if self.connection is None or not self.connection.is_connected():
                 self.connection = mysql.connector.connect(**self.connection_config)
+            else:
+                # Clean up any pending transactions
+                if self.connection.in_transaction:
+                    try:
+                        self.connection.rollback()
+                    except:
+                        pass
+            
             return self.connection
         except Error as e:
             logging.error(f"Database connection error: {e}")
@@ -70,7 +78,6 @@ class DatabaseManager:
             
             cursor = conn.cursor(dictionary=True)
             
-            # Use parameterized query
             query = """
                 SELECT 
                     TABLE_NAME,
@@ -102,18 +109,17 @@ class DatabaseManager:
             if not conn:
                 return pd.DataFrame()
             
-            # CRITICAL: Validate table exists in our database
+            # Validate table exists
             if not self._validate_table_exists(table_name):
                 logging.warning(f"Attempt to access invalid table: {table_name}")
                 return pd.DataFrame()
             
-            # Whitelist approach - only allow tables from our database
+            # Whitelist approach
             valid_tables = [t['TABLE_NAME'] for t in self.get_tables_with_info()]
             if table_name not in valid_tables:
                 logging.warning(f"Table not in whitelist: {table_name}")
                 return pd.DataFrame()
             
-            # Use prepared statement
             cursor = conn.cursor()
             
             # Set timeout
@@ -132,9 +138,7 @@ class DatabaseManager:
             pk_result = cursor.fetchone()
             
             if pk_result:
-                # Build query with parameterized column name
                 pk_column = pk_result[0]
-                # Validate column name
                 if not self._is_valid_identifier(pk_column):
                     cursor.close()
                     return pd.DataFrame()
@@ -152,7 +156,6 @@ class DatabaseManager:
             
             cursor.close()
             
-            # Execute with parameterized limit
             df = pd.read_sql(query, conn, params=(limit,))
             
             return df
@@ -168,13 +171,11 @@ class DatabaseManager:
             if not conn:
                 return []
             
-            # Validate table exists
             if not self._validate_table_exists(table_name):
                 return []
             
             cursor = conn.cursor(dictionary=True)
             
-            # Use parameterized query
             query = """
                 SELECT 
                     COLUMN_NAME, 
@@ -201,7 +202,7 @@ class DatabaseManager:
             return []
     
     def import_data(self, table_name: str, df: pd.DataFrame, column_mapping: Dict[str, str]) -> Dict[str, Any]:
-        """Import data - SECURE VERSION with transaction"""
+        """Import data - SECURE VERSION with transaction handling"""
         conn = None
         cursor = None
         
@@ -209,6 +210,13 @@ class DatabaseManager:
             conn = self.get_connection()
             if not conn:
                 return {'success': False, 'error': 'No database connection'}
+            
+            # Clean up any pending transactions before starting
+            if conn.in_transaction:
+                try:
+                    conn.rollback()
+                except:
+                    pass
             
             # Validate table exists
             if not self._validate_table_exists(table_name):
@@ -235,7 +243,7 @@ class DatabaseManager:
             # Clean data
             mapped_df = mapped_df.fillna('')
             
-            # Start transaction
+            # Start fresh transaction
             conn.start_transaction()
             
             cursor = conn.cursor()
@@ -253,7 +261,7 @@ class DatabaseManager:
             # Convert to tuples
             data_tuples = [tuple(row) for row in mapped_df.values]
             
-            # Execute in batches for large datasets
+            # Execute in batches
             batch_size = 1000
             total_inserted = 0
             
@@ -264,7 +272,6 @@ class DatabaseManager:
             
             # Commit transaction
             conn.commit()
-            cursor.close()
             
             return {
                 'success': True,
@@ -275,19 +282,28 @@ class DatabaseManager:
         except Error as e:
             # Rollback on error
             if conn:
-                conn.rollback()
+                try:
+                    conn.rollback()
+                except:
+                    pass
             logging.error(f"Import error: {e}")
             return {'success': False, 'error': f'Database error: {str(e)}'}
             
         except Exception as e:
             if conn:
-                conn.rollback()
+                try:
+                    conn.rollback()
+                except:
+                    pass
             logging.error(f"Unexpected error: {e}")
             return {'success': False, 'error': f'Unexpected error: {str(e)}'}
         
         finally:
             if cursor:
-                cursor.close()
+                try:
+                    cursor.close()
+                except:
+                    pass
     
     def execute_query(self, query: str, params: Optional[tuple] = None) -> pd.DataFrame:
         """Execute SELECT query - SECURE VERSION"""
@@ -323,6 +339,13 @@ class DatabaseManager:
             if not conn:
                 return {'success': False, 'error': 'No database connection'}
             
+            # Clean up any pending transactions
+            if conn.in_transaction:
+                try:
+                    conn.rollback()
+                except:
+                    pass
+            
             # Validate procedure exists
             if not self._validate_procedure_exists(procedure_name):
                 return {'success': False, 'error': 'Invalid procedure name'}
@@ -332,7 +355,7 @@ class DatabaseManager:
             # Start transaction
             conn.start_transaction()
             
-            # Build CALL statement with placeholders
+            # Build CALL statement
             if parameters:
                 placeholders = ', '.join(['%s'] * len(parameters))
                 call_statement = f"CALL `{self.connection_config['database']}`.`{procedure_name}`({placeholders})"
@@ -360,7 +383,6 @@ class DatabaseManager:
             
             # Commit transaction
             conn.commit()
-            cursor.close()
             
             return {
                 'success': True,
@@ -372,7 +394,10 @@ class DatabaseManager:
             
         except Error as e:
             if conn:
-                conn.rollback()
+                try:
+                    conn.rollback()
+                except:
+                    pass
                 
             error_details = {
                 'errno': e.errno if hasattr(e, 'errno') else None,
@@ -390,13 +415,19 @@ class DatabaseManager:
             
         except Exception as e:
             if conn:
-                conn.rollback()
+                try:
+                    conn.rollback()
+                except:
+                    pass
             logging.error(f"Unexpected error: {e}")
             return {'success': False, 'error': str(e)}
         
         finally:
             if cursor:
-                cursor.close()
+                try:
+                    cursor.close()
+                except:
+                    pass
     
     def _validate_table_exists(self, table_name: str) -> bool:
         """Validate table exists in database - whitelist approach"""
@@ -455,9 +486,6 @@ class DatabaseManager:
         if not identifier or not isinstance(identifier, str):
             return False
         
-        # Only allow alphanumeric and underscore
-        # Must start with letter or underscore
-        # Max length 64 characters (MySQL limit)
         import re
         pattern = r'^[a-zA-Z_][a-zA-Z0-9_]{0,63}$'
         
@@ -467,6 +495,12 @@ class DatabaseManager:
         """Close database connection"""
         try:
             if self.connection and self.connection.is_connected():
+                # Clean up any pending transactions before closing
+                if self.connection.in_transaction:
+                    try:
+                        self.connection.rollback()
+                    except:
+                        pass
                 self.connection.close()
                 logging.info("Database connection closed")
         except Error as e:
