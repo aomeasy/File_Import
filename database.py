@@ -50,6 +50,7 @@ class DatabaseManager:
                         pass
             
             return self.connection
+            
         except Error as e:
             logging.error(f"Database connection error: {e}")
             st.error("Database connection failed. Please check configuration.")
@@ -210,13 +211,22 @@ class DatabaseManager:
             conn = self.get_connection()
             if not conn:
                 return {'success': False, 'error': 'No database connection'}
+                
+            print(f"DEBUG: Connection in_transaction before cleanup: {conn.in_transaction}")
+        
             
             # Clean up any pending transactions before starting
             if conn.in_transaction:
                 try:
+                    print("DEBUG: Rolling back existing transaction...")
                     conn.rollback()
-                except:
-                    pass
+                    print(f"DEBUG: After rollback, in_transaction: {conn.in_transaction}")
+                except Exception as e:
+                    print(f"DEBUG: Rollback error: {e}")
+            
+            # ตรวจสอบอีกครั้ง
+            print(f"DEBUG: Connection in_transaction before start: {conn.in_transaction}")
+            
             
             # Validate table exists
             if not self._validate_table_exists(table_name):
