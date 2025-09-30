@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 from typing import Dict, List, Optional, Any
 import logging
+import os  # <--- เพิ่มบรรทัดนี้
 
 class DatabaseManager:
     def __init__(self):
