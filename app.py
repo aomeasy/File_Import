@@ -290,200 +290,226 @@ class FileMerger:
         return pd.DataFrame()
 
 # ===== TAB 1: IMPORT DATA =====
+# ===== TAB 1: IMPORT DATA =====
 def render_import_tab():
     """Render the Import tab"""
-    col1, col2 = st.columns([3, 1])
     
-    with col1:
-        st.header("📁 File Import to ntdatabase")
-        
-        if 'db_manager' not in st.session_state:
-            st.session_state.db_manager = DatabaseManager()
-        if 'file_processor' not in st.session_state:
-            st.session_state.file_processor = FileProcessor()
-        
+    # ===== STATS SECTION AT TOP =====
+    st.subheader("📊 Quick Stats")
+    
+    col_stat1, col_stat2, col_stat3 = st.columns(3)
+    
+    with col_stat1:
         try:
             tables_info = get_cached_tables_info()
             tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
-        except Exception as e:
-            st.warning(f"Could not get table info: {e}")
-            tables = []
-            tables_info = []
+            st.metric("📁 Total Tables", len(tables))
+        except:
+            st.metric("📁 Total Tables", "N/A")
+    
+    with col_stat2:
+        if 'connection_status' in st.session_state and st.session_state.connection_status:
+            st.metric("🔌 Database Status", "Connected", delta="Online", delta_color="normal")
+        else:
+            st.metric("🔌 Database Status", "Disconnected", delta="Offline", delta_color="inverse")
+    
+    with col_stat3:
+        if st.button("🔄 Refresh All", use_container_width=True, key="refresh_import_top"):
+            st.cache_data.clear()
+            st.rerun()
+    
+    st.divider()
+    
+    # ===== MAIN IMPORT SECTION (FULL WIDTH) =====
+    st.header("📁 File Import to ntdatabase")
+    
+    if 'db_manager' not in st.session_state:
+        st.session_state.db_manager = DatabaseManager()
+    if 'file_processor' not in st.session_state:
+        st.session_state.file_processor = FileProcessor()
+    
+    try:
+        tables_info = get_cached_tables_info()
+        tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
+    except Exception as e:
+        st.warning(f"Could not get table info: {e}")
+        tables = []
+        tables_info = []
+    
+    selected_table = st.selectbox(
+        "🎯 Select Target Table",
+        options=[""] + tables,
+        help="Choose the table where you want to import your data"
+    )
+    
+    if selected_table:
+        if tables_info:
+            table_details = next((t for t in tables_info if t.get('TABLE_NAME') == selected_table), None)
+            
+            if table_details:
+                col1_info, col2_info, col3_info = st.columns(3)
+                
+                with col1_info:
+                    row_count = table_details.get('TABLE_ROWS', 0) or 0
+                    st.metric("📊 Rows", f"{row_count:,}")
+                
+                with col2_info:
+                    update_time = table_details.get('UPDATE_TIME')
+                    if update_time:
+                        try:
+                            if isinstance(update_time, str):
+                                last_update = update_time[:10]
+                            else:
+                                last_update = update_time.strftime("%Y-%m-%d")
+                            st.metric("🕒 Updated", last_update)
+                        except:
+                            st.metric("🕒 Updated", "Unknown")
+                
+                with col3_info:
+                    data_length = table_details.get('DATA_LENGTH', 0) or 0
+                    if data_length > 0:
+                        size_mb = data_length / (1024 * 1024)
+                        st.metric("💾 Size", f"{size_mb:.0f} MB")
         
-        selected_table = st.selectbox(
-            "🎯 Select Target Table",
-            options=[""] + tables,
-            help="Choose the table where you want to import your data"
+        st.subheader(f"👀 Preview: {selected_table}")
+        
+        if st.button("🔄 Show Preview", type="secondary"):
+            try:
+                with st.spinner("Loading preview..."):
+                    preview_data = get_cached_table_preview(selected_table, 5)
+                
+                if not preview_data.empty:
+                    st.dataframe(preview_data, use_container_width=True, hide_index=True)
+                    st.success(f"📊 Showing last 5 rows from {len(preview_data.columns)} columns")
+                else:
+                    st.warning("📭 Table is empty or preview unavailable")
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+        
+        st.subheader("📤 Upload File")
+        uploaded_file = st.file_uploader(
+            "Choose a file to import",
+            type=['csv', 'xlsx', 'xls'],
+            help="Max size: 200MB",
+            key="import_uploader"
         )
         
-        if selected_table:
-            if tables_info:
-                table_details = next((t for t in tables_info if t.get('TABLE_NAME') == selected_table), None)
-                
-                if table_details:
-                    col1_info, col2_info, col3_info = st.columns(3)
-                    
-                    with col1_info:
-                        row_count = table_details.get('TABLE_ROWS', 0) or 0
-                        st.metric("📊 Rows", f"{row_count:,}")
-                    
-                    with col2_info:
-                        update_time = table_details.get('UPDATE_TIME')
-                        if update_time:
-                            try:
-                                if isinstance(update_time, str):
-                                    last_update = update_time[:10]
-                                else:
-                                    last_update = update_time.strftime("%Y-%m-%d")
-                                st.metric("🕒 Updated", last_update)
-                            except:
-                                st.metric("🕒 Updated", "Unknown")
-                    
-                    with col3_info:
-                        data_length = table_details.get('DATA_LENGTH', 0) or 0
-                        if data_length > 0:
-                            size_mb = data_length / (1024 * 1024)
-                            st.metric("💾 Size", f"{size_mb:.0f} MB")
+        if uploaded_file:
+            st.markdown(f"""
+            <div class="file-info">
+                <h4>📄 {uploaded_file.name}</h4>
+                <p><strong>Size:</strong> {uploaded_file.size / 1024:.2f} KB</p>
+                <p><strong>Type:</strong> {uploaded_file.type}</p>
+            </div>
+            """, unsafe_allow_html=True)
             
-            st.subheader(f"👀 Preview: {selected_table}")
-            
-            if st.button("🔄 Show Preview", type="secondary"):
-                try:
-                    with st.spinner("Loading preview..."):
-                        preview_data = get_cached_table_preview(selected_table, 5)
-                    
-                    if not preview_data.empty:
-                        st.dataframe(preview_data, use_container_width=True, hide_index=True)
-                        st.success(f"📊 Showing last 5 rows from {len(preview_data.columns)} columns")
+            try:
+                # Read file
+                with st.spinner("Reading file..."):
+                    if uploaded_file.name.endswith('.csv'):
+                        df = pd.read_csv(uploaded_file)
                     else:
-                        st.warning("📭 Table is empty or preview unavailable")
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
-            
-            st.subheader("📤 Upload File")
-            uploaded_file = st.file_uploader(
-                "Choose a file to import",
-                type=['csv', 'xlsx', 'xls'],
-                help="Max size: 200MB",
-                key="import_uploader"
-            )
-            
-            if uploaded_file:
-                st.markdown(f"""
-                <div class="file-info">
-                    <h4>📄 {uploaded_file.name}</h4>
-                    <p><strong>Size:</strong> {uploaded_file.size / 1024:.2f} KB</p>
-                    <p><strong>Type:</strong> {uploaded_file.type}</p>
-                </div>
-                """, unsafe_allow_html=True)
+                        df = pd.read_excel(uploaded_file)
                 
-                try:
-                    # Read file
-                    with st.spinner("Reading file..."):
-                        if uploaded_file.name.endswith('.csv'):
-                            df = pd.read_csv(uploaded_file)
-                        else:
-                            df = pd.read_excel(uploaded_file)
-                    
-                    st.success(f"✅ File loaded: {len(df)} rows, {len(df.columns)} columns")
-                    
-                    # Preview data
-                    st.subheader("📋 Data Preview")
-                    st.dataframe(df.head(10), use_container_width=True)
-                    
-                    # Column mapping
-                    st.subheader("🔗 Column Mapping")
-                    
-                    table_columns = get_cached_table_columns(selected_table)
-                    
-                    if not table_columns:
-                        st.error("Cannot get table columns")
-                        return
-                    
-                    db_column_names = [col['COLUMN_NAME'] for col in table_columns]
-                    file_columns = list(df.columns)
-                    
-                    st.info(f"**File Columns:** {len(file_columns)} | **Table Columns:** {len(db_column_names)}")
-                    
-                    # Auto-mapping
-                    column_mapping = {}
-                    
+                st.success(f"✅ File loaded: {len(df)} rows, {len(df.columns)} columns")
+                
+                # Preview data
+                st.subheader("📋 Data Preview")
+                st.dataframe(df.head(10), use_container_width=True)
+                
+                # Column mapping
+                st.subheader("🔗 Column Mapping")
+                
+                table_columns = get_cached_table_columns(selected_table)
+                
+                if not table_columns:
+                    st.error("Cannot get table columns")
+                    return
+                
+                db_column_names = [col['COLUMN_NAME'] for col in table_columns]
+                file_columns = list(df.columns)
+                
+                st.info(f"**File Columns:** {len(file_columns)} | **Table Columns:** {len(db_column_names)}")
+                
+                # Auto-mapping
+                column_mapping = {}
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write("**File Column**")
+                with col2:
+                    st.write("**→ Database Column**")
+                
+                for file_col in file_columns:
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        st.write("**File Column**")
-                    with col2:
-                        st.write("**→ Database Column**")
-                    
-                    for file_col in file_columns:
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.text(file_col)
-                        
-                        with col2:
-                            # Auto-match if column names are similar
-                            default_index = 0
-                            if file_col in db_column_names:
-                                default_index = db_column_names.index(file_col)
-                            
-                            selected_db_col = st.selectbox(
-                                f"Map {file_col}",
-                                options=["-- Skip --"] + db_column_names,
-                                index=default_index + 1 if file_col in db_column_names else 0,
-                                key=f"mapping_{file_col}",
-                                label_visibility="collapsed"
-                            )
-                            
-                            if selected_db_col != "-- Skip --":
-                                column_mapping[file_col] = selected_db_col
-                    
-                    # Show mapping summary
-                    if column_mapping:
-                        st.success(f"✅ Mapped {len(column_mapping)} columns")
-                        
-                        with st.expander("View Mapping Details"):
-                            for file_col, db_col in column_mapping.items():
-                                st.write(f"**{file_col}** → **{db_col}**")
-                    else:
-                        st.warning("⚠️ No columns mapped")
-                    
-                    # Import button
-                    st.divider()
-                    
-                    col1, col2, col3 = st.columns([1, 1, 2])
-                    
-                    with col1:
-                        if st.button("🚀 Import Data", type="primary", disabled=len(column_mapping) == 0):
-                            if not column_mapping:
-                                st.error("Please map at least one column")
-                            else:
-                                with st.spinner(f"Importing {len(df)} rows..."):
-                                    result = st.session_state.db_manager.import_data(
-                                        selected_table,
-                                        df,
-                                        column_mapping
-                                    )
-                                
-                                if result['success']:
-                                    st.success(f"✅ {result['message']}")
-                                    st.balloons()
-                                    
-                                    # Clear cache to show updated data
-                                    st.cache_data.clear()
-                                    
-                                    # Show summary
-                                    st.metric("Rows Imported", result['rows_affected'])
-                                else:
-                                    st.error(f"❌ Import failed: {result['error']}")
+                        st.text(file_col)
                     
                     with col2:
-                        if st.button("🔄 Reset", type="secondary"):
-                            st.rerun()
+                        # Auto-match if column names are similar
+                        default_index = 0
+                        if file_col in db_column_names:
+                            default_index = db_column_names.index(file_col)
+                        
+                        selected_db_col = st.selectbox(
+                            f"Map {file_col}",
+                            options=["-- Skip --"] + db_column_names,
+                            index=default_index + 1 if file_col in db_column_names else 0,
+                            key=f"mapping_{file_col}",
+                            label_visibility="collapsed"
+                        )
+                        
+                        if selected_db_col != "-- Skip --":
+                            column_mapping[file_col] = selected_db_col
                 
-                except Exception as e:
-                    st.error(f"❌ Error processing file: {str(e)}")
-                    st.exception(e)
+                # Show mapping summary
+                if column_mapping:
+                    st.success(f"✅ Mapped {len(column_mapping)} columns")
+                    
+                    with st.expander("View Mapping Details"):
+                        for file_col, db_col in column_mapping.items():
+                            st.write(f"**{file_col}** → **{db_col}**")
+                else:
+                    st.warning("⚠️ No columns mapped")
+                
+                # Import button
+                st.divider()
+                
+                col1, col2, col3 = st.columns([1, 1, 2])
+                
+                with col1:
+                    if st.button("🚀 Import Data", type="primary", disabled=len(column_mapping) == 0):
+                        if not column_mapping:
+                            st.error("Please map at least one column")
+                        else:
+                            with st.spinner(f"Importing {len(df)} rows..."):
+                                result = st.session_state.db_manager.import_data(
+                                    selected_table,
+                                    df,
+                                    column_mapping
+                                )
+                            
+                            if result['success']:
+                                st.success(f"✅ {result['message']}")
+                                st.balloons()
+                                
+                                # Clear cache to show updated data
+                                st.cache_data.clear()
+                                
+                                # Show summary
+                                st.metric("Rows Imported", result['rows_affected'])
+                            else:
+                                st.error(f"❌ Import failed: {result['error']}")
+                
+                with col2:
+                    if st.button("🔄 Reset", type="secondary"):
+                        st.rerun()
+            
+            except Exception as e:
+                st.error(f"❌ Error processing file: {str(e)}")
+                st.exception(e)
     
     with col2:
         st.header("📊 Stats")
