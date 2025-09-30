@@ -3,12 +3,13 @@ import pandas as pd
 import mysql.connector
 from mysql.connector import Error
 import os
-import time
 from datetime import datetime
-import re
-import traceback
+import time
+from functools import lru_cache
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
-# Import our modules with error handling
+# Import modules with error handling
 try:
     from database import DatabaseManager
 except ImportError as e:
@@ -26,174 +27,637 @@ st.set_page_config(
     page_title="Data Import Hub",
     page_icon="🚀",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
-# Custom CSS for modern AI-themed design
+# ===== OPTIMIZATION 1: CACHING =====
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def get_cached_tables_info():
+    """Cache table information to avoid repeated DB queries"""
+    try:
+        db_manager = DatabaseManager()
+        return db_manager.get_tables_with_info()
+    except Exception as e:
+        st.error(f"Error getting tables info: {e}")
+        return []
+
+@st.cache_data(ttl=300)
+def get_cached_table_columns(table_name):
+    """Cache table columns to avoid repeated queries"""
+    try:
+        db_manager = DatabaseManager()
+        return db_manager.get_table_columns(table_name)
+    except Exception as e:
+        return []
+
+@st.cache_data(ttl=60)  # Cache for 1 minute
+def get_cached_table_preview(table_name, limit=5):
+    """Cache table preview with smaller limit"""
+    try:
+        db_manager = DatabaseManager()
+        # Use LIMIT in SQL query instead of loading all data
+        query = f"SELECT * FROM {table_name} ORDER BY id DESC LIMIT {limit}"
+        return db_manager.execute_query(query)
+    except Exception as e:
+        return pd.DataFrame()
+
+# ===== NEW: PROCEDURES FUNCTIONS =====
+@st.cache_data(ttl=300)
+def get_stored_procedures():
+    """Get list of stored procedures from database"""
+    try:
+        db_manager = DatabaseManager()
+        query = """
+        SELECT 
+            ROUTINE_NAME,
+            ROUTINE_TYPE,
+            DTD_IDENTIFIER as RETURNS,
+            CREATED,
+            LAST_ALTERED,
+            ROUTINE_COMMENT
+        FROM INFORMATION_SCHEMA.ROUTINES
+        WHERE ROUTINE_SCHEMA = %s
+        ORDER BY ROUTINE_NAME
+        """
+        df = db_manager.execute_query(query, (db_manager.connection_config['database'],))
+        return df.to_dict('records') if not df.empty else []
+    except Exception as e:
+        st.error(f"Error getting procedures: {e}")
+        return []
+
+def get_procedure_parameters(procedure_name):
+    """Get parameters for a stored procedure"""
+    try:
+        db_manager = DatabaseManager()
+        query = """
+        SELECT 
+            PARAMETER_NAME,
+            PARAMETER_MODE,
+            DATA_TYPE,
+            CHARACTER_MAXIMUM_LENGTH,
+            NUMERIC_PRECISION
+        FROM INFORMATION_SCHEMA.PARAMETERS
+        WHERE SPECIFIC_SCHEMA = %s 
+        AND SPECIFIC_NAME = %s
+        AND PARAMETER_NAME IS NOT NULL
+        ORDER BY ORDINAL_POSITION
+        """
+        df = db_manager.execute_query(query, (db_manager.connection_config['database'], procedure_name))
+        return df.to_dict('records') if not df.empty else []
+    except Exception as e:
+        st.error(f"Error getting parameters: {e}")
+        return []
+
+def execute_procedure(procedure_name, parameters=None):
+    """Execute a stored procedure"""
+    try:
+        db_manager = DatabaseManager()
+        conn = db_manager.get_connection()
+        
+        if not conn:
+            return {'success': False, 'error': 'No database connection'}
+        
+        cursor = conn.cursor()
+        
+        # Build CALL statement
+        if parameters:
+            placeholders = ', '.join(['%s'] * len(parameters))
+            call_statement = f"CALL {procedure_name}({placeholders})"
+            cursor.execute(call_statement, parameters)
+        else:
+            call_statement = f"CALL {procedure_name}()"
+            cursor.execute(call_statement)
+        
+        # Fetch results if any
+        results = []
+        try:
+            for result in cursor.stored_results():
+                results.append(result.fetchall())
+        except:
+            pass
+        
+        conn.commit()
+        cursor.close()
+        
+        return {
+            'success': True,
+            'message': f'Procedure {procedure_name} executed successfully',
+            'results': results
+        }
+        
+    except Error as e:
+        return {'success': False, 'error': str(e)}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+# ===== OPTIMIZATION 2: SIMPLIFIED CSS =====
 st.markdown("""
 <style>
     .main-header {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 2rem;
-        border-radius: 10px;
-        margin-bottom: 2rem;
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
         text-align: center;
         color: white;
     }
     
-    .status-success {
-        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    .metric-card {
+        background: #f0f2f6;
         padding: 1rem;
-        border-radius: 10px;
-        color: white;
-        margin: 1rem 0;
+        border-radius: 8px;
+        text-align: center;
+        margin: 0.5rem 0;
+        border: 1px solid #e0e0e0;
+    }
+    
+    .status-success {
+        background: #d4edda;
+        padding: 0.5rem;
+        border-radius: 4px;
+        color: #155724;
+        margin: 0.5rem 0;
     }
     
     .status-error {
-        background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
-        padding: 1rem;
-        border-radius: 10px;
-        color: white;
-        margin: 1rem 0;
+        background: #f8d7da;
+        padding: 0.5rem;
+        border-radius: 4px;
+        color: #721c24;
+        margin: 0.5rem 0;
     }
     
-    .table-preview {
-        border: 2px solid #e0e0e0;
-        border-radius: 10px;
-        padding: 1rem;
-        background: #f8f9ff;
-    }
-    
-    .debug-info {
-        background: #f8f9fa;
-        padding: 1rem;
+    .procedure-card {
+        background: white;
+        border: 1px solid #e0e0e0;
         border-radius: 8px;
-        border-left: 4px solid #007bff;
-        margin: 1rem 0;
+        padding: 1rem;
+        margin: 0.5rem 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    
+    .procedure-card:hover {
+        border-color: #667eea;
+        box-shadow: 0 4px 8px rgba(102,126,234,0.1);
     }
 </style>
 """, unsafe_allow_html=True)
 
-def auto_map_columns(file_cols, db_cols):
-    """Auto-map columns with support for Thai characters and fuzzy matching"""
+def render_import_tab():
+    """Render the Import tab (original functionality)"""
+    col1, col2 = st.columns([3, 1])
     
-    auto_mapping = {}
-    
-    # สร้าง dictionary ของ database columns
-    db_col_dict = {col['COLUMN_NAME']: col['COLUMN_NAME'] for col in db_cols}
-    
-    def normalize_text(text):
-        """Normalize text for better matching"""
-        if not text:
-            return ""
+    with col1:
+        st.header("📁 File Import")
         
-        # แปลงเป็น lowercase
-        text = text.lower().strip()
+        # Initialize session state
+        if 'db_manager' not in st.session_state:
+            st.session_state.db_manager = DatabaseManager()
+        if 'file_processor' not in st.session_state:
+            st.session_state.file_processor = FileProcessor()
         
-        # ลบช่องว่าง underscore และเครื่องหมายพิเศษ
-        text = text.replace('_', '').replace(' ', '').replace('-', '')
+        # Get tables
+        try:
+            tables_info = get_cached_tables_info()
+            tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
+        except Exception as e:
+            st.warning(f"Could not get table info: {e}")
+            tables = []
+            tables_info = []
         
-        # ลบสระและวรรณยุกต์บางตัวที่อาจแตกต่าง (สำหรับภาษาไทย)
-        text = text.replace('ำ', 'า').replace('ั', '').replace('์', '').replace('่', '').replace('้', '').replace('๊', '').replace('๋', '')
+        selected_table = st.selectbox(
+            "🎯 Select Target Table",
+            options=[""] + tables,
+            help="Choose the table where you want to import your data"
+        )
         
-        return text
-    
-    def calculate_similarity(str1, str2):
-        """Calculate similarity between two strings (0-1)"""
-        str1_norm = normalize_text(str1)
-        str2_norm = normalize_text(str2)
-        
-        if str1_norm == str2_norm:
-            return 1.0
-        
-        # Check if one contains the other
-        if str1_norm in str2_norm or str2_norm in str1_norm:
-            return 0.8
-        
-        # Calculate character overlap
-        set1 = set(str1_norm)
-        set2 = set(str2_norm)
-        
-        if not set1 or not set2:
-            return 0.0
-        
-        intersection = len(set1 & set2)
-        union = len(set1 | set2)
-        
-        return intersection / union if union > 0 else 0.0
-    
-    # Manual mapping rules สำหรับ columns ที่รู้จัก
-    manual_rules = {
-        'ลำดมท': 'ลำดับที่',
-        'ลาดมท': 'ลำดับที่',
-        'ลําดับที่': 'ลำดับที่',
-        'ip_address': 'IP Address',
-        'ipaddress': 'IP Address',
-        'source_file': None,  # Skip this column
-        'ระยะเวลาคนล_ddhhmm': 'ระยะเวลาคืนลี dd:hh:mm',
-        'ระยะเวลาคนล': 'ระยะเวลาคืนลี dd:hh:mm',
-        'ศนยบรการ': 'ศูนย์บริการ',
-        'ศูนยบริการ': 'ศูนย์บริการ'
-    }
-    
-    for file_col in file_cols:
-        file_col_lower = file_col.lower().strip()
-        file_col_norm = normalize_text(file_col)
-        
-        mapped = False
-        
-        # 1. Check manual rules first
-        if file_col_lower in manual_rules:
-            mapped_value = manual_rules[file_col_lower]
-            if mapped_value and mapped_value in db_col_dict:
-                auto_mapping[file_col] = mapped_value
-                mapped = True
-                continue
-            elif mapped_value is None:
-                # Skip this column
-                continue
-        
-        # 2. Try exact match (case-insensitive)
-        for db_col in db_cols:
-            db_col_name = db_col['COLUMN_NAME']
-            if file_col_lower == db_col_name.lower():
-                auto_mapping[file_col] = db_col_name
-                mapped = True
-                break
-        
-        if mapped:
-            continue
-        
-        # 3. Try normalized match
-        best_match = None
-        best_similarity = 0.0
-        
-        for db_col in db_cols:
-            db_col_name = db_col['COLUMN_NAME']
-            similarity = calculate_similarity(file_col, db_col_name)
-            
-            # Consider it a match if similarity > 0.7
-            if similarity > best_similarity and similarity >= 0.7:
-                best_similarity = similarity
-                best_match = db_col_name
-        
-        if best_match:
-            auto_mapping[file_col] = best_match
-            mapped = True
-        
-        # 4. Try substring match
-        if not mapped:
-            for db_col in db_cols:
-                db_col_name = db_col['COLUMN_NAME']
-                db_col_norm = normalize_text(db_col_name)
+        if selected_table:
+            # Show basic info immediately
+            if tables_info:
+                table_details = next((t for t in tables_info if t.get('TABLE_NAME') == selected_table), None)
                 
-                if len(file_col_norm) >= 3 and len(db_col_norm) >= 3:
-                    if file_col_norm in db_col_norm or db_col_norm in file_col_norm:
-                        auto_mapping[file_col] = db_col_name
-                        mapped = True
-                        break
+                if table_details:
+                    col1_info, col2_info, col3_info = st.columns(3)
+                    
+                    with col1_info:
+                        row_count = table_details.get('TABLE_ROWS', 0) or 0
+                        st.metric("📊 Rows", f"{row_count:,}")
+                    
+                    with col2_info:
+                        update_time = table_details.get('UPDATE_TIME')
+                        if update_time:
+                            try:
+                                if isinstance(update_time, str):
+                                    last_update = update_time[:10]
+                                else:
+                                    last_update = update_time.strftime("%Y-%m-%d")
+                                st.metric("🕒 Updated", last_update)
+                            except:
+                                st.metric("🕒 Updated", "Unknown")
+                    
+                    with col3_info:
+                        data_length = table_details.get('DATA_LENGTH', 0) or 0
+                        if data_length > 0:
+                            size_mb = data_length / (1024 * 1024)
+                            st.metric("💾 Size", f"{size_mb:.0f} MB")
+            
+            st.subheader(f"👀 Preview: {selected_table}")
+            
+            col_preview1, col_preview2 = st.columns([1, 2])
+            
+            with col_preview1:
+                show_preview = st.button("🔄 Show Preview", type="secondary")
+            
+            with col_preview2:
+                if show_preview:
+                    st.info("Loading preview...")
+            
+            if show_preview:
+                try:
+                    with st.spinner("Loading preview..."):
+                        preview_data = get_cached_table_preview(selected_table, 5)
+                    
+                    if not preview_data.empty:
+                        st.dataframe(preview_data, use_container_width=True, hide_index=True)
+                        st.success(f"📊 Showing last 5 rows from {len(preview_data.columns)} columns")
+                    else:
+                        st.warning("📭 Table is empty or preview unavailable")
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+            
+            st.subheader("📤 Upload File")
+            uploaded_file = st.file_uploader(
+                "Choose a file to import",
+                type=['csv', 'xlsx', 'xls'],
+                help="Max size: 200MB"
+            )
+            
+            if uploaded_file:
+                file_size = uploaded_file.size
+                if file_size > 200 * 1024 * 1024:
+                    st.error("❌ File too large! Please use files smaller than 200MB")
+                    return
+                
+                try:
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    status_text.text("📁 Processing file...")
+                    progress_bar.progress(25)
+                    
+                    df = st.session_state.file_processor.process_file(uploaded_file)
+                    progress_bar.progress(50)
+                    
+                    if df is not None:
+                        max_preview_rows = 1000
+                        if len(df) > max_preview_rows:
+                            preview_df = df.head(max_preview_rows)
+                            st.warning(f"📊 Large file detected! Showing first {max_preview_rows} rows for preview. Full {len(df)} rows will be imported.")
+                        else:
+                            preview_df = df
+                        
+                        progress_bar.progress(75)
+                        status_text.text("✅ File loaded successfully!")
+                        
+                        st.success(f"✅ File loaded! {len(df)} rows, {len(df.columns)} columns")
+                        
+                        with st.expander("📋 File Preview", expanded=False):
+                            st.dataframe(preview_df.head(10), use_container_width=True, hide_index=True)
+                        
+                        progress_bar.progress(100)
+                        
+                        st.subheader("🔗 Column Mapping")
+                        
+                        table_columns = get_cached_table_columns(selected_table)
+                        
+                        if table_columns:
+                            def smart_auto_map(file_cols, db_cols):
+                                mapping = {}
+                                db_col_names = {col['COLUMN_NAME'].lower(): col['COLUMN_NAME'] for col in db_cols}
+                                
+                                for file_col in file_cols:
+                                    file_col_clean = file_col.lower().strip().replace(' ', '_')
+                                    
+                                    if file_col_clean in db_col_names:
+                                        mapping[file_col] = db_col_names[file_col_clean]
+                                    else:
+                                        for db_key, db_val in db_col_names.items():
+                                            if file_col_clean in db_key or db_key in file_col_clean:
+                                                mapping[file_col] = db_val
+                                                break
+                                
+                                return mapping
+                            
+                            auto_mapping = smart_auto_map(df.columns, table_columns)
+                            
+                            mapping = {}
+                            
+                            if auto_mapping:
+                                st.success(f"🎯 Auto-mapped {len(auto_mapping)} columns")
+                                
+                                col_map1, col_map2 = st.columns(2)
+                                with col_map1:
+                                    st.write("**Auto-mapped columns:**")
+                                with col_map2:
+                                    if st.button("✅ Use Auto-mapping"):
+                                        mapping = auto_mapping.copy()
+                            
+                            unmapped_cols = [col for col in df.columns if col not in auto_mapping]
+                            
+                            if unmapped_cols:
+                                st.write(f"**Map remaining {len(unmapped_cols)} columns:**")
+                                
+                                db_options = ["🚫 Skip"] + [col['COLUMN_NAME'] for col in table_columns]
+                                
+                                display_cols = unmapped_cols[:10]
+                                if len(unmapped_cols) > 10:
+                                    st.warning(f"Showing first 10 of {len(unmapped_cols)} unmapped columns")
+                                
+                                for file_col in display_cols:
+                                    mapped_col = st.selectbox(
+                                        f"📄 {file_col}",
+                                        options=db_options,
+                                        key=f"map_{file_col}"
+                                    )
+                                    
+                                    if mapped_col != "🚫 Skip":
+                                        mapping[file_col] = mapped_col
+                            
+                            final_mapping = {**auto_mapping, **mapping}
+                            
+                            if final_mapping:
+                                st.markdown("### 🚀 Import Data")
+                                
+                                col_import1, col_import2 = st.columns([2, 1])
+                                
+                                with col_import1:
+                                    st.info(f"Ready to import {len(df)} rows with {len(final_mapping)} columns")
+                                
+                                with col_import2:
+                                    import_button = st.button("🚀 Import Now!", type="primary")
+                                
+                                if import_button:
+                                    try:
+                                        import_progress = st.progress(0)
+                                        import_status = st.empty()
+                                        
+                                        import_status.text("🔄 Preparing data...")
+                                        import_progress.progress(20)
+                                        
+                                        chunk_size = 10000
+                                        total_rows = len(df)
+                                        
+                                        if total_rows > chunk_size:
+                                            import_status.text(f"🔄 Importing {total_rows} rows in chunks...")
+                                            
+                                            for i in range(0, total_rows, chunk_size):
+                                                chunk = df.iloc[i:i+chunk_size]
+                                                result = st.session_state.db_manager.import_data(selected_table, chunk, final_mapping)
+                                                
+                                                progress = min(100, int((i + chunk_size) / total_rows * 80) + 20)
+                                                import_progress.progress(progress)
+                                                import_status.text(f"🔄 Imported {min(i + chunk_size, total_rows)} / {total_rows} rows")
+                                        else:
+                                            import_status.text("🔄 Importing data...")
+                                            import_progress.progress(50)
+                                            result = st.session_state.db_manager.import_data(selected_table, df, final_mapping)
+                                        
+                                        import_progress.progress(100)
+                                        
+                                        if result.get('success', False):
+                                            st.success(f"🎉 Import completed! {result.get('rows_affected', 0)} rows imported")
+                                            st.balloons()
+                                            st.cache_data.clear()
+                                        else:
+                                            st.error(f"❌ Import failed: {result.get('error', 'Unknown error')}")
+                                    
+                                    except Exception as e:
+                                        st.error(f"❌ Import error: {str(e)}")
+                            
+                            else:
+                                st.warning("⚠️ Please map at least one column")
+                        
+                        else:
+                            st.error("❌ Could not fetch table structure")
+                
+                except Exception as e:
+                    st.error(f"❌ Error processing file: {str(e)}")
     
-    return auto_mapping
+    with col2:
+        st.header("📊 Stats")
+        
+        try:
+            tables_info = get_cached_tables_info()
+            tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
+            
+            if tables:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h3>{len(tables)}</h3>
+                    <p>Tables</p>
+                </div>
+                """, unsafe_allow_html=True)
+        except:
+            pass
+        
+        st.subheader("⚡ Actions")
+        if st.button("🔄 Refresh All", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+
+def render_procedures_tab():
+    """Render the Procedures/Update tab"""
+    st.header("⚙️ Database Procedures & Updates")
+    
+    # Initialize database manager
+    if 'db_manager' not in st.session_state:
+        st.session_state.db_manager = DatabaseManager()
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.subheader("🔧 Stored Procedures")
+        
+        # Refresh button
+        if st.button("🔄 Refresh Procedures List", type="secondary"):
+            st.cache_data.clear()
+            st.rerun()
+        
+        # Get procedures
+        procedures = get_stored_procedures()
+        
+        if procedures:
+            st.info(f"Found {len(procedures)} stored procedures")
+            
+            # Filter procedures
+            search_query = st.text_input("🔍 Search procedures", placeholder="Type to filter...")
+            
+            if search_query:
+                filtered_procedures = [p for p in procedures if search_query.lower() in p['ROUTINE_NAME'].lower()]
+            else:
+                filtered_procedures = procedures
+            
+            # Display procedures
+            for proc in filtered_procedures:
+                with st.expander(f"📦 {proc['ROUTINE_NAME']} ({proc['ROUTINE_TYPE']})"):
+                    
+                    # Procedure info
+                    col_info1, col_info2 = st.columns(2)
+                    
+                    with col_info1:
+                        st.write(f"**Type:** {proc['ROUTINE_TYPE']}")
+                        if proc.get('RETURNS'):
+                            st.write(f"**Returns:** {proc['RETURNS']}")
+                    
+                    with col_info2:
+                        if proc.get('CREATED'):
+                            st.write(f"**Created:** {str(proc['CREATED'])[:10]}")
+                        if proc.get('LAST_ALTERED'):
+                            st.write(f"**Modified:** {str(proc['LAST_ALTERED'])[:10]}")
+                    
+                    if proc.get('ROUTINE_COMMENT'):
+                        st.info(f"💬 {proc['ROUTINE_COMMENT']}")
+                    
+                    # Get parameters
+                    params = get_procedure_parameters(proc['ROUTINE_NAME'])
+                    
+                    if params:
+                        st.write("**Parameters:**")
+                        
+                        param_values = []
+                        
+                        for param in params:
+                            param_name = param['PARAMETER_NAME']
+                            param_mode = param['PARAMETER_MODE']
+                            param_type = param['DATA_TYPE']
+                            
+                            st.write(f"- `{param_name}` ({param_mode}) - {param_type}")
+                            
+                            # Input field for IN parameters
+                            if param_mode == 'IN':
+                                if param_type in ['int', 'bigint', 'smallint', 'tinyint']:
+                                    value = st.number_input(
+                                        f"Enter {param_name}",
+                                        key=f"param_{proc['ROUTINE_NAME']}_{param_name}",
+                                        step=1
+                                    )
+                                    param_values.append(int(value))
+                                elif param_type in ['decimal', 'float', 'double']:
+                                    value = st.number_input(
+                                        f"Enter {param_name}",
+                                        key=f"param_{proc['ROUTINE_NAME']}_{param_name}",
+                                        step=0.01
+                                    )
+                                    param_values.append(float(value))
+                                elif param_type in ['date']:
+                                    value = st.date_input(
+                                        f"Enter {param_name}",
+                                        key=f"param_{proc['ROUTINE_NAME']}_{param_name}"
+                                    )
+                                    param_values.append(str(value))
+                                elif param_type in ['datetime', 'timestamp']:
+                                    value = st.text_input(
+                                        f"Enter {param_name} (YYYY-MM-DD HH:MM:SS)",
+                                        key=f"param_{proc['ROUTINE_NAME']}_{param_name}"
+                                    )
+                                    param_values.append(value if value else None)
+                                else:
+                                    value = st.text_input(
+                                        f"Enter {param_name}",
+                                        key=f"param_{proc['ROUTINE_NAME']}_{param_name}"
+                                    )
+                                    param_values.append(value if value else None)
+                    else:
+                        st.write("**No parameters required**")
+                        param_values = None
+                    
+                    st.markdown("---")
+                    
+                    # Execute button
+                    col_exec1, col_exec2 = st.columns([1, 2])
+                    
+                    with col_exec1:
+                        execute_btn = st.button(
+                            f"▶️ Execute",
+                            key=f"exec_{proc['ROUTINE_NAME']}",
+                            type="primary"
+                        )
+                    
+                    with col_exec2:
+                        if execute_btn:
+                            st.info("Executing procedure...")
+                    
+                    if execute_btn:
+                        try:
+                            with st.spinner(f"Executing {proc['ROUTINE_NAME']}..."):
+                                result = execute_procedure(proc['ROUTINE_NAME'], param_values if param_values else None)
+                            
+                            if result['success']:
+                                st.success(f"✅ {result['message']}")
+                                
+                                # Display results if any
+                                if result.get('results'):
+                                    st.write("**Results:**")
+                                    for i, res in enumerate(result['results']):
+                                        if res:
+                                            st.write(f"Result set {i+1}:")
+                                            st.write(res)
+                                
+                                # Clear cache to refresh data
+                                st.cache_data.clear()
+                            else:
+                                st.error(f"❌ Execution failed: {result['error']}")
+                        
+                        except Exception as e:
+                            st.error(f"❌ Error: {str(e)}")
+        
+        else:
+            st.warning("⚠️ No stored procedures found in database")
+            st.info("💡 Create stored procedures in your MySQL database to see them here")
+    
+    with col2:
+        st.subheader("📊 Quick Stats")
+        
+        # Procedure statistics
+        if procedures:
+            total_procs = len(procedures)
+            procedures_by_type = {}
+            
+            for proc in procedures:
+                proc_type = proc['ROUTINE_TYPE']
+                procedures_by_type[proc_type] = procedures_by_type.get(proc_type, 0) + 1
+            
+            st.markdown(f"""
+            <div class="metric-card">
+                <h3>{total_procs}</h3>
+                <p>Total Procedures</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            for proc_type, count in procedures_by_type.items():
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h4>{count}</h4>
+                    <p>{proc_type}s</p>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        st.subheader("ℹ️ Info")
+        st.info("""
+        **How to use:**
+        
+        1. Select a procedure from the list
+        2. Fill in required parameters
+        3. Click Execute to run
+        4. View results below
+        
+        **Tips:**
+        - Use procedures for batch updates
+        - Complex data transformations
+        - Scheduled maintenance tasks
+        """)
 
 def main():
     try:
@@ -201,409 +665,99 @@ def main():
         st.markdown("""
         <div class="main-header">
             <h1>🚀 Data Import Hub</h1>
-            <p>Modern file import system powered by AI-driven interface</p>
+            <p>Fast file import system with database management</p>
         </div>
         """, unsafe_allow_html=True)
         
         # Initialize components
-        try:
-            db_manager = DatabaseManager()
-        except Exception as e:
-            st.error(f"Failed to initialize DatabaseManager: {e}")
-            st.error("Please check your database configuration in database.py")
-            return
-        
-        try:
-            file_processor = FileProcessor()
-        except Exception as e:
-            st.error(f"Failed to initialize FileProcessor: {e}")
-            return
-
-        # Connection status bar
-        try:
-            connection_status = db_manager.test_connection()
-            
-            if connection_status:
-                # Get tables count
-                try:
-                    tables_info = db_manager.get_tables_with_info()
-                    tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
-                    tables_count = len(tables)
-                except:
-                    tables_count = 0
-                    tables = []
-                    tables_info = []
-                
-                st.markdown(f"""
-                <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); 
-                            padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; 
-                            display: flex; justify-content: space-between; align-items: center;">
-                    <div style="color: white; font-weight: bold;">
-                        <span style="font-size: 18px;">✅ Database Connected</span>
-                    </div>
-                    <div style="color: white; font-weight: bold;">
-                        <span style="font-size: 16px;">📊 Available Tables: {tables_count}</span>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown("""
-                <div style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); 
-                            padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;">
-                    <span style="color: white; font-weight: bold; font-size: 18px;">
-                        ❌ Database Connection Failed
-                    </span>
-                </div>
-                """, unsafe_allow_html=True)
-                st.error("Please check database configuration")
+        if 'db_manager' not in st.session_state:
+            try:
+                st.session_state.db_manager = DatabaseManager()
+            except Exception as e:
+                st.error(f"Failed to initialize DatabaseManager: {e}")
                 return
-        except Exception as e:
-            st.error(f"Database connection error: {e}")
-            return
         
-        # Main content
-        st.header("📁 File Import")
-        
-        # Table selection
-        selected_table = st.selectbox(
-            "🎯 Select Target Table",
-            options=[""] + tables,
-            help="Choose the table where you want to import your data",
-            format_func=lambda x: x if x == "" else f"📄 {x}"
-        )
-        
-        # Show table info when selected
-        if selected_table:
+        if 'file_processor' not in st.session_state:
+            try:
+                st.session_state.file_processor = FileProcessor()
+            except Exception as e:
+                st.error(f"Failed to initialize FileProcessor: {e}")
+                return
+
+        # Sidebar configuration
+        with st.sidebar:
+            st.header("⚙️ Configuration")
+            
+            # Test connection
+            if 'connection_status' not in st.session_state:
+                try:
+                    st.session_state.connection_status = st.session_state.db_manager.test_connection()
+                except Exception as e:
+                    st.session_state.connection_status = False
+            
+            if st.session_state.connection_status:
+                st.markdown('<div class="status-success">✅ Database Connected</div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="status-error">❌ Database Connection Failed</div>', unsafe_allow_html=True)
+                return
+            
+            # Refresh button
+            if st.button("🔄 Refresh", key="refresh_sidebar"):
+                st.cache_data.clear()
+                st.rerun()
+            
+            try:
+                tables_info = get_cached_tables_info()
+                tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
+            except Exception as e:
+                st.warning(f"Could not get table info: {e}")
+                tables = []
+                tables_info = []
+
+            st.write(f"📊 Available Tables: {len(tables)}")
+            
+            # Recent activity
             if tables_info:
-                table_details = None
-                for table_info in tables_info:
-                    if table_info.get('TABLE_NAME') == selected_table:
-                        table_details = table_info
-                        break
+                st.subheader("🕒 Recent Activity")
                 
-                if table_details:
-                    st.markdown("### 📊 Table Information")
+                sorted_tables = sorted(
+                    [t for t in tables_info if t.get('UPDATE_TIME')], 
+                    key=lambda x: x.get('UPDATE_TIME', ''), 
+                    reverse=True
+                )[:3]
+                
+                for table_info in sorted_tables:
+                    table_name = table_info.get('TABLE_NAME', 'Unknown')
+                    update_time = table_info.get('UPDATE_TIME')
+                    row_count = table_info.get('TABLE_ROWS', 0) or 0
                     
-                    col1_info, col2_info, col3_info = st.columns(3)
-                    
-                    with col1_info:
-                        row_count = table_details.get('TABLE_ROWS', 0) or 0
-                        st.metric("📊 Total Rows", f"{row_count:,}")
-                    
-                    with col2_info:
-                        update_time = table_details.get('UPDATE_TIME')
-                        if update_time:
-                            try:
-                                if isinstance(update_time, str):
-                                    last_update = update_time[:19] if len(update_time) > 19 else update_time
-                                else:
-                                    last_update = update_time.strftime("%Y-%m-%d %H:%M:%S")
-                                st.metric("🕒 Last Update", last_update)
-                            except:
-                                st.metric("🕒 Last Update", "Unknown")
-                        else:
-                            st.metric("🕒 Last Update", "No data")
-                    
-                    with col3_info:
-                        data_length = table_details.get('DATA_LENGTH', 0) or 0
-                        if data_length and data_length > 0:
-                            size_mb = data_length / (1024 * 1024)
-                            if size_mb > 1:
-                                st.metric("💾 Size", f"{size_mb:.1f} MB")
-                            else:
-                                size_kb = data_length / 1024
-                                st.metric("💾 Size", f"{size_kb:.1f} KB")
-                        else:
-                            st.metric("💾 Size", "Unknown")
-                    
-                    create_time = table_details.get('CREATE_TIME')
-                    if create_time:
+                    if update_time:
                         try:
-                            if isinstance(create_time, str):
-                                create_str = create_time[:19] if len(create_time) > 19 else create_time
+                            if isinstance(update_time, str):
+                                time_str = update_time[:16]
                             else:
-                                create_str = create_time.strftime("%Y-%m-%d %H:%M:%S")
-                            st.info(f"📅 **Table Created:** {create_str}")
+                                time_str = update_time.strftime("%Y-%m-%d %H:%M")
+                            
+                            st.markdown(f"""
+                            <div style="background: #f8f9fa; padding: 0.5rem; border-radius: 4px; margin: 0.2rem 0; border-left: 3px solid #007bff;">
+                                <div style="font-weight: bold; font-size: 12px;">📄 {table_name}</div>
+                                <div style="font-size: 11px; color: #666;">🕒 {time_str} | 📊 {row_count:,} rows</div>
+                            </div>
+                            """, unsafe_allow_html=True)
                         except:
                             pass
-                else:
-                    st.markdown("### 📊 Table Information")
-                    st.info(f"📄 Selected table: **{selected_table}**")
-            
-            else:
-                st.markdown("### 📊 Table Information")
-                st.info(f"📄 Selected table: **{selected_table}**")
-                st.warning("⚠️ Detailed table information is not available")
         
-        if selected_table:
-            # Table preview section
-            st.subheader(f"👀 Preview: {selected_table}")
-            
-            col_preview1, col_preview2, col_preview3 = st.columns([2, 1, 1])
-            
-            with col_preview1:
-                show_preview_btn = st.button("🔄 Show Last 5 Rows", type="secondary")
-            
-            with col_preview2:
-                debug_table_btn = st.button("🔍 Debug Table", help="Debug table connection issues")
-            
-            with col_preview3:
-                if st.button("📋 Show Columns"):
-                    try:
-                        columns = db_manager.get_table_columns(selected_table)
-                        if columns:
-                            st.write(f"**Table has {len(columns)} columns:**")
-                            col_names = [col['COLUMN_NAME'] for col in columns[:10]]
-                            st.write(", ".join(col_names))
-                            if len(columns) > 10:
-                                st.write(f"... and {len(columns) - 10} more columns")
-                        else:
-                            st.warning("Could not fetch column information")
-                    except Exception as e:
-                        st.error(f"Error fetching columns: {e}")
-            
-            # Debug functionality
-            if debug_table_btn:
-                st.markdown("### 🔍 Table Debug Information")
-                
-                with st.container():
-                    st.markdown('<div class="debug-info">', unsafe_allow_html=True)
-                    
-                    st.write("**1. Connection Test:**")
-                    conn_test = db_manager.test_connection()
-                    st.write(f"   Connection Status: {'✅ Connected' if conn_test else '❌ Failed'}")
-                    
-                    if conn_test:
-                        st.write("**2. Table Existence:**")
-                        try:
-                            test_query = f"SELECT 1 FROM `{selected_table}` LIMIT 1"
-                            result = db_manager.execute_query(test_query)
-                            exists = not result.empty
-                            st.write(f"   Table Exists: {'✅ Yes' if exists else '❌ No'}")
-                            
-                            if exists:
-                                st.write("**3. Row Count Test:**")
-                                try:
-                                    count_query = f"SELECT COUNT(*) as count FROM `{selected_table}`"
-                                    count_result = db_manager.execute_query(count_query)
-                                    if not count_result.empty:
-                                        row_count = count_result['count'].iloc[0]
-                                        st.write(f"   Total Rows: {row_count:,}")
-                                    else:
-                                        st.write("   Total Rows: Could not determine")
-                                except Exception as e:
-                                    st.write(f"   Row Count Error: {e}")
-                                
-                                st.write("**4. Column Information:**")
-                                try:
-                                    columns = db_manager.get_table_columns(selected_table)
-                                    if columns:
-                                        st.write(f"   Columns Found: {len(columns)}")
-                                        st.write(f"   First 5 Columns: {[col['COLUMN_NAME'] for col in columns[:5]]}")
-                                    else:
-                                        st.write("   Columns: Could not fetch")
-                                except Exception as e:
-                                    st.write(f"   Column Error: {e}")
-                                
-                                st.write("**5. Sample Query Test:**")
-                                try:
-                                    sample_query = f"SELECT * FROM `{selected_table}` LIMIT 1"
-                                    sample_result = db_manager.execute_query(sample_query)
-                                    if not sample_result.empty:
-                                        st.write("   Sample Query: ✅ Success")
-                                        st.write(f"   Sample Data Columns: {list(sample_result.columns)}")
-                                    else:
-                                        st.write("   Sample Query: ⚠️ No data returned")
-                                except Exception as e:
-                                    st.write(f"   Sample Query Error: {e}")
-                            
-                        except Exception as e:
-                            st.write(f"   Table Check Error: {e}")
-                    
-                    st.markdown('</div>', unsafe_allow_html=True)
-            
-            # Show preview
-            if show_preview_btn:
-                try:
-                    with st.spinner("🔄 Loading table preview..."):
-                        preview_data = db_manager.get_table_preview(selected_table)
-                    
-                    if not preview_data.empty:
-                        st.markdown('<div class="table-preview">', unsafe_allow_html=True)
-                        st.dataframe(
-                            preview_data,
-                            use_container_width=True,
-                            hide_index=True
-                        )
-                        st.markdown('</div>', unsafe_allow_html=True)
-                        
-                        st.success(f"📊 Table has {len(preview_data.columns)} columns and showing last 5 rows")
-                    else:
-                        st.warning("📭 Table is empty or preview unavailable")
-                        st.info("💡 Try using the Debug Table button above to diagnose the issue")
-                except Exception as e:
-                    st.error(f"❌ Error fetching table data: {str(e)}")
-                    st.info("💡 Use the Debug Table button to get more detailed error information")
-            
-            # File upload
-            st.subheader("📤 Upload File")
-            uploaded_file = st.file_uploader(
-                "Choose a file to import",
-                type=['csv', 'xlsx', 'xls'],
-                help="Supported formats: CSV, Excel (.xlsx, .xls)"
-            )
-            
-            if uploaded_file:
-                try:
-                    df = file_processor.process_file(uploaded_file)
-                    
-                    if df is not None:
-                        st.success(f"✅ File loaded successfully! {len(df)} rows, {len(df.columns)} columns")
-                        
-                        st.subheader("📋 File Preview")
-                        st.dataframe(df.head(), use_container_width=True, hide_index=True)
-                        
-                        # Column mapping
-                        st.subheader("🔗 Column Mapping")
-                        st.info("📌 Map your file columns to database table columns before importing")
-                        
-                        table_columns = db_manager.get_table_columns(selected_table)
-                        
-                        if table_columns:
-                            mapping = {}
-                            
-                            # Column comparison
-                            col_map1, col_map2 = st.columns(2)
-                            
-                            with col_map1:
-                                st.markdown("**📁 File Columns:**")
-                                for i, col in enumerate(df.columns):
-                                    st.write(f"**{i+1}.** {col}")
-                            
-                            with col_map2:
-                                st.markdown("**🗄️ Database Table Columns:**")
-                                for i, col_info in enumerate(table_columns):
-                                    col_name = col_info['COLUMN_NAME']
-                                    col_type = col_info['DATA_TYPE']
-                                    nullable = "NULL" if col_info['IS_NULLABLE'] == 'YES' else "NOT NULL"
-                                    st.write(f"**{i+1}.** {col_name} `({col_type})` - {nullable}")
-                            
-                            st.markdown("---")
-                            
-                            st.markdown("### 🎯 **Map Your Columns:**")
-                            
-                            # Auto-mapping
-                            auto_mapping = auto_map_columns(df.columns, table_columns)
-                            
-                            if auto_mapping:
-                                st.success(f"✨ Auto-mapped {len(auto_mapping)} columns successfully!")
-                            
-                            # Mapping dropdowns
-                            for i, file_col in enumerate(df.columns):
-                                map_col1, map_col2 = st.columns([1, 1])
-                                
-                                with map_col1:
-                                    st.write(f"📄 **{file_col}**")
-                                
-                                with map_col2:
-                                    db_options = ["🚫 Skip this column"] + [col['COLUMN_NAME'] for col in table_columns]
-                                    
-                                    default_index = 0
-                                    if file_col in auto_mapping:
-                                        suggested_col = auto_mapping[file_col]
-                                        if suggested_col in [col['COLUMN_NAME'] for col in table_columns]:
-                                            default_index = [col['COLUMN_NAME'] for col in table_columns].index(suggested_col) + 1
-                                    
-                                    mapped_col = st.selectbox(
-                                        f"Map to:",
-                                        options=db_options,
-                                        index=default_index,
-                                        key=f"mapping_{file_col}_{i}",
-                                        label_visibility="collapsed",
-                                        help=f"Auto-suggested: {auto_mapping.get(file_col, 'No suggestion')}" if file_col in auto_mapping else "No auto-suggestion available"
-                                    )
-                                    
-                                    if mapped_col != "🚫 Skip this column":
-                                        mapping[file_col] = mapped_col
-                            
-                            st.markdown("---")
-                            
-                            if mapping:
-                                st.markdown("### 📋 **Mapping Summary:**")
-                                mapping_df = pd.DataFrame([
-                                    {"File Column": file_col, "→": "→", "Database Column": db_col}
-                                    for file_col, db_col in mapping.items()
-                                ])
-                                st.dataframe(mapping_df, use_container_width=True, hide_index=True)
-                                
-                                st.markdown("### 🚀 **Ready to Import!**")
-                                
-                                col_import1, col_import2 = st.columns([2, 1])
-                                
-                                with col_import1:
-                                    st.info(f"✅ Ready to import **{len(df)}** rows with **{len(mapping)}** mapped columns into `{selected_table}` table")
-                                
-                                with col_import2:
-                                    import_button = st.button(
-                                        "🚀 Import Data Now!",
-                                        type="primary",
-                                        use_container_width=True,
-                                        help="Click to start importing data to database"
-                                    )
-                                
-                                if import_button:
-                                    try:
-                                        with st.spinner("🔄 Importing data to database..."):
-                                            time.sleep(1)
-                                            result = db_manager.import_data(selected_table, df, mapping)
-                                        
-                                        if result['success']:
-                                            st.success(f"🎉 **Import Successful!** \n\n✅ Imported **{result['rows_affected']}** rows into `{selected_table}` table")
-                                            st.balloons()
-                                            
-                                            st.markdown("### 📊 **Updated Table Preview:**")
-                                            updated_preview = db_manager.get_table_preview(selected_table)
-                                            if not updated_preview.empty:
-                                                st.dataframe(updated_preview, use_container_width=True, hide_index=True)
-                                                st.success(f"📈 Table `{selected_table}` now contains updated data!")
-                                            else:
-                                                st.warning("Could not load updated preview")
-                                        else:
-                                            st.error(f"❌ **Import Failed:** {result['error']}")
-                                            st.error("Please check your data and column mapping, then try again.")
-                                    
-                                    except Exception as e:
-                                        st.error(f"❌ **Import Error:** {str(e)}")
-                                        st.error("Something went wrong during the import process.")
-                            
-                            else:
-                                st.warning("⚠️ Please map at least one column to proceed with import")
-                                st.info("💡 **Tip:** Select database columns from the dropdowns above to map your file data")
-                                
-                                st.markdown("### 🚀 **Import Section:**")
-                                st.button(
-                                    "🚫 No Mapping - Cannot Import",
-                                    disabled=True,
-                                    use_container_width=True,
-                                    help="Please map at least one column first"
-                                )
-                        else:
-                            st.error("❌ Could not fetch table structure")
-                            
-                except Exception as e:
-                    st.error(f"❌ Error processing file: {str(e)}")
+        # ===== NEW: TABS NAVIGATION =====
+        tab1, tab2 = st.tabs(["📁 Import Data", "⚙️ Run Procedures"])
+        
+        with tab1:
+            render_import_tab()
+        
+        with tab2:
+            render_procedures_tab()
     
     except Exception as e:
-        st.error(f"Main application error: {e}")
-        with st.expander("🔍 Debug Information"):
-            st.code(traceback.format_exc())
+        st.error(f"Application error: {e}")
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        st.error(f"Application error: {e}")
-        st.error("Please check your configuration and try again")
-        
-        with st.expander("🔍 Debug Information"):
-            st.code(traceback.format_exc())
+    main()
