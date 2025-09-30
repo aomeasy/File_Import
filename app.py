@@ -1,412 +1,906 @@
+import streamlit as st
+import pandas as pd
 import mysql.connector
 from mysql.connector import Error
-import pandas as pd
-import streamlit as st
-from typing import Dict, List, Optional, Any
-import logging
+import os
+from datetime import datetime
+import time
+from functools import lru_cache
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
-class DatabaseManager:
-    def __init__(self):
-        self.connection_config = {
-            'host': '182.53.230.50',
-            'port': 33306,
-            'database': 'ntdatabase',
-            'user': 'mysqldb',
-            'password': 'h5DHtZ5TtssikBd',
-            'charset': 'utf8mb4',
-            'autocommit': True,
-            'connection_timeout': 10
-        }
-        self.connection = None
-    
-    def get_connection(self):
-        """Get database connection with error handling"""
-        try:
-            if self.connection is None or not self.connection.is_connected():
-                self.connection = mysql.connector.connect(**self.connection_config)
-            return self.connection
-        except Error as e:
-            st.error(f"Database connection error: {e}")
-            return None
-    
-    def test_connection(self) -> bool:
-        """Test database connection"""
-        try:
-            conn = self.get_connection()
-            if conn and conn.is_connected():
-                cursor = conn.cursor()
-                cursor.execute("SELECT 1")
-                cursor.fetchall()
-                cursor.close()
-                return True
-        except Error as e:
-            logging.error(f"Connection test failed: {e}")
-        return False
-    
-    def get_tables_with_info(self) -> List[Dict[str, Any]]:
-        """Get list of all tables with their information including last update"""
-        try:
-            conn = self.get_connection()
-            if not conn:
-                return []
-            
-            cursor = conn.cursor(dictionary=True)
-            
-            # Try different queries based on MySQL version
-            queries = [
-                # Modern MySQL (5.7+)
-                """
-                SELECT 
-                    TABLE_NAME,
-                    TABLE_ROWS,
-                    DATA_LENGTH,
-                    INDEX_LENGTH,
-                    CREATE_TIME,
-                    UPDATE_TIME
-                FROM INFORMATION_SCHEMA.TABLES 
-                WHERE TABLE_SCHEMA = %s 
-                AND TABLE_TYPE = 'BASE TABLE'
-                ORDER BY TABLE_NAME
-                """,
-                # Fallback query
-                """
-                SELECT 
-                    TABLE_NAME,
-                    TABLE_ROWS,
-                    DATA_LENGTH,
-                    INDEX_LENGTH,
-                    NULL as CREATE_TIME,
-                    NULL as UPDATE_TIME
-                FROM INFORMATION_SCHEMA.TABLES 
-                WHERE TABLE_SCHEMA = %s 
-                AND TABLE_TYPE = 'BASE TABLE'
-                ORDER BY TABLE_NAME
-                """
-            ]
-            
-            for query in queries:
-                try:
-                    cursor.execute(query, (self.connection_config['database'],))
-                    tables_info = cursor.fetchall()
-                    cursor.close()
-                    
-                    # If we got results, return them
-                    if tables_info:
-                        return tables_info
-                except Error as e:
-                    # Try next query
-                    continue
-            
-            cursor.close()
-            return []
-            
-        except Error as e:
-            # If INFORMATION_SCHEMA doesn't work, try basic table list with manual timestamp check
-            try:
-                return self._get_basic_table_info()
-            except:
-                st.warning(f"Could not get detailed table information: {e}")
-                return []
-    
-    def _get_basic_table_info(self) -> List[Dict[str, Any]]:
-        """Fallback method to get basic table info"""
-        try:
-            conn = self.get_connection()
-            if not conn:
-                return []
-            
-            cursor = conn.cursor()
-            cursor.execute("SHOW TABLES")
-            table_names = [table[0] for table in cursor.fetchall()]
-            cursor.close()
-            
-            tables_info = []
-            for table_name in table_names:
-                try:
-                    # Get row count
-                    cursor = conn.cursor()
-                    cursor.execute(f"SELECT COUNT(*) FROM `{table_name}`")
-                    row_count = cursor.fetchone()[0]
-                    cursor.close()
-                    
-                    tables_info.append({
-                        'TABLE_NAME': table_name,
-                        'TABLE_ROWS': row_count,
-                        'DATA_LENGTH': None,
-                        'INDEX_LENGTH': None,
-                        'CREATE_TIME': None,
-                        'UPDATE_TIME': None
-                    })
-                except:
-                    # Skip problematic tables
-                    continue
-            
-            return tables_info
-            
-        except Error as e:
-            return []
-    
-    def get_table_preview(self, table_name: str, limit: int = 5) -> pd.DataFrame:
-        """Get preview of table data (last N rows) - FIXED VERSION"""
-        try:
-            conn = self.get_connection()
-            if not conn:
-                st.warning("No database connection available")
-                return pd.DataFrame()
-            
-            # Sanitize table name to prevent SQL injection
-            if not self._is_valid_table_name(table_name):
-                raise ValueError("Invalid table name")
-            
-            # Try different query strategies for large tables
-            queries_to_try = [
-                # Strategy 1: Check if table has a primary key first
-                None,  # Will be determined dynamically
-                # Strategy 2: Simple LIMIT without ORDER BY (fastest for large tables)
-                f"SELECT * FROM `{table_name}` LIMIT %s",
-                # Strategy 3: Random sample
-                f"SELECT * FROM `{table_name}` ORDER BY RAND() LIMIT %s"
-            ]
-            
-            # First, try to find primary key for optimal ordering
-            try:
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute("""
-                    SELECT COLUMN_NAME 
-                    FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE 
-                    WHERE TABLE_SCHEMA = %s 
-                    AND TABLE_NAME = %s 
-                    AND CONSTRAINT_NAME = 'PRIMARY'
-                    ORDER BY ORDINAL_POSITION
-                    LIMIT 1
-                """, (self.connection_config['database'], table_name))
-                
-                primary_key = cursor.fetchone()
-                cursor.close()
-                
-                if primary_key:
-                    pk_column = primary_key['COLUMN_NAME']
-                    queries_to_try[0] = f"SELECT * FROM `{table_name}` ORDER BY `{pk_column}` DESC LIMIT %s"
-                else:
-                    # Try to find any indexed column
-                    cursor = conn.cursor(dictionary=True)
-                    cursor.execute(f"SHOW INDEX FROM `{table_name}` WHERE Key_name != 'PRIMARY' LIMIT 1")
-                    index_info = cursor.fetchone()
-                    cursor.close()
-                    
-                    if index_info:
-                        idx_column = index_info['Column_name']
-                        queries_to_try[0] = f"SELECT * FROM `{table_name}` ORDER BY `{idx_column}` DESC LIMIT %s"
-                    
-            except Error:
-                # If we can't get key info, skip the first strategy
-                pass
-            
-            # Remove None entries
-            queries_to_try = [q for q in queries_to_try if q is not None]
-            
-            last_error = None
-            
-            for i, query in enumerate(queries_to_try):
-                try:
-                    # Set timeout for large tables
-                    cursor = conn.cursor()
-                    cursor.execute("SET SESSION max_execution_time = 8000")  # 8 seconds timeout
-                    cursor.close()
-                    
-                    df = pd.read_sql(query, conn, params=[limit])
-                    
-                    if not df.empty:
-                        return df
-                    else:
-                        continue
-                        
-                except Error as e:
-                    last_error = str(e)
-                    if "timeout" in str(e).lower() or "execution time" in str(e).lower():
-                        # If timeout, try next strategy
-                        continue
-                    else:
-                        # For other errors, also try next strategy
-                        continue
-                except Exception as e:
-                    last_error = str(e)
-                    continue
-            
-            # If all queries failed, return empty DataFrame
-            if last_error:
-                st.error(f"Could not fetch table preview: {last_error}")
-            
-            return pd.DataFrame()
-            
-        except Error as e:
-            st.error(f"Database error in table preview: {e}")
-            return pd.DataFrame()
-        except Exception as e:
-            st.error(f"Unexpected error in table preview: {e}")
-            return pd.DataFrame()
-    
-    def get_table_columns(self, table_name: str) -> List[Dict[str, Any]]:
-        """Get table column information"""
-        try:
-            conn = self.get_connection()
-            if not conn:
-                return []
-            
-            if not self._is_valid_table_name(table_name):
-                raise ValueError("Invalid table name")
-            
-            cursor = conn.cursor(dictionary=True)
-            query = """
-            SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, 
-                   CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE
-            FROM INFORMATION_SCHEMA.COLUMNS 
-            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
-            ORDER BY ORDINAL_POSITION
-            """
-            cursor.execute(query, (self.connection_config['database'], table_name))
-            columns = cursor.fetchall()
-            cursor.close()
-            return columns
-        except Error as e:
-            st.error(f"Error fetching table columns: {e}")
-            return []
-    
-    def import_data(self, table_name: str, df: pd.DataFrame, column_mapping: Dict[str, str]) -> Dict[str, Any]:
-        """Import data from DataFrame to database table"""
-        try:
-            conn = self.get_connection()
-            if not conn:
-                return {'success': False, 'error': 'No database connection'}
-            
-            if not self._is_valid_table_name(table_name):
-                return {'success': False, 'error': 'Invalid table name'}
-            
-            # Prepare data based on mapping
-            mapped_df = pd.DataFrame()
-            for file_col, db_col in column_mapping.items():
-                if file_col in df.columns:
-                    mapped_df[db_col] = df[file_col]
-            
-            if mapped_df.empty:
-                return {'success': False, 'error': 'No data to import after mapping'}
-            
-            # Clean data - handle NaN values
-            mapped_df = mapped_df.fillna('')
-            
-            # Get table columns to ensure we're only inserting valid columns
-            table_columns = self.get_table_columns(table_name)
-            valid_columns = [col['COLUMN_NAME'] for col in table_columns]
-            
-            # Filter mapped_df to only include valid columns
-            final_df = mapped_df[[col for col in mapped_df.columns if col in valid_columns]]
-            
-            if final_df.empty:
-                return {'success': False, 'error': 'No valid columns found for import'}
-            
-            # Create INSERT query
-            columns_str = '`, `'.join(final_df.columns)
-            placeholders = ', '.join(['%s'] * len(final_df.columns))
-            query = f"INSERT INTO `{table_name}` (`{columns_str}`) VALUES ({placeholders})"
-            
-            cursor = conn.cursor()
-            
-            # Convert DataFrame to list of tuples for executemany
-            data_tuples = [tuple(row) for row in final_df.values]
-            
-            # Execute the insert
-            cursor.executemany(query, data_tuples)
-            rows_affected = cursor.rowcount
-            
-            cursor.close()
-            conn.commit()
-            
-            return {
-                'success': True,
-                'rows_affected': rows_affected,
-                'message': f'Successfully imported {rows_affected} rows'
-            }
-            
-        except Error as e:
-            return {'success': False, 'error': f'Database error: {str(e)}'}
-        except Exception as e:
-            return {'success': False, 'error': f'Unexpected error: {str(e)}'}
-    
-    def execute_query(self, query: str, params: Optional[tuple] = None) -> pd.DataFrame:
-        """Execute a SELECT query and return results as DataFrame"""
-        try:
-            conn = self.get_connection()
-            if not conn:
-                return pd.DataFrame()
-            
-            if params:
-                df = pd.read_sql(query, conn, params=params)
-            else:
-                df = pd.read_sql(query, conn)
-            
-            return df
-        except Error as e:
-            st.error(f"Query execution error: {e}")
-            return pd.DataFrame()
-    
-    def get_tables(self) -> List[str]:
-        """Get list of all tables in the database (for backward compatibility)"""
-        try:
-            tables_info = self.get_tables_with_info()
-            return [table['TABLE_NAME'] for table in tables_info]
-        except Exception as e:
-            logging.error(f"Error in get_tables: {e}")
-            return []
-    
-    def get_table_info(self, table_name: str) -> Dict[str, Any]:
-        """Get detailed table information"""
-        try:
-            conn = self.get_connection()
-            if not conn:
-                return {}
-            
-            if not self._is_valid_table_name(table_name):
-                return {}
-            
-            cursor = conn.cursor(dictionary=True)
-            
-            # Get row count
-            cursor.execute(f"SELECT COUNT(*) as row_count FROM `{table_name}`")
-            row_count = cursor.fetchone()['row_count']
-            
-            # Get table creation info
-            cursor.execute(f"SHOW CREATE TABLE `{table_name}`")
-            create_info = cursor.fetchone()
-            
-            cursor.close()
-            
-            return {
-                'row_count': row_count,
-                'create_statement': create_info['Create Table'] if create_info else '',
-                'columns': self.get_table_columns(table_name)
-            }
-        except Error as e:
-            st.error(f"Error getting table info: {e}")
-            return {}
-    
-    def _is_valid_table_name(self, table_name: str) -> bool:
-        """Validate table name to prevent SQL injection"""
-        if not table_name or not isinstance(table_name, str):
-            return False
+# Import modules with error handling
+try:
+    from database import DatabaseManager
+except ImportError as e:
+    st.error(f"Cannot import DatabaseManager: {e}")
+    st.stop()
+
+try:
+    from file_processor import FileProcessor
+except ImportError as e:
+    st.error(f"Cannot import FileProcessor: {e}")
+    st.stop()
+
+# Configure page
+st.set_page_config(
+    page_title="Data Import Hub",
+    page_icon="🚀",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# ===== OPTIMIZATION 1: CACHING =====
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def get_cached_tables_info():
+    """Cache table information to avoid repeated DB queries"""
+    try:
+        db_manager = DatabaseManager()
+        return db_manager.get_tables_with_info()
+    except Exception as e:
+        st.error(f"Error getting tables info: {e}")
+        return []
+
+@st.cache_data(ttl=300)
+def get_cached_table_columns(table_name):
+    """Cache table columns to avoid repeated queries"""
+    try:
+        db_manager = DatabaseManager()
+        return db_manager.get_table_columns(table_name)
+    except Exception as e:
+        return []
+
+@st.cache_data(ttl=60)  # Cache for 1 minute
+def get_cached_table_preview(table_name, limit=5):
+    """Cache table preview with smaller limit"""
+    try:
+        db_manager = DatabaseManager()
+        # Use LIMIT in SQL query instead of loading all data
+        query = f"SELECT * FROM {table_name} ORDER BY id DESC LIMIT {limit}"
+        return db_manager.execute_query(query)
+    except Exception as e:
+        return pd.DataFrame()
+
+# ===== NEW: PROCEDURES FUNCTIONS =====
+@st.cache_data(ttl=300)
+def get_stored_procedures():
+    """Get list of stored procedures from database"""
+    try:
+        db_manager = DatabaseManager()
+        query = """
+        SELECT 
+            ROUTINE_NAME,
+            ROUTINE_TYPE,
+            DTD_IDENTIFIER as RETURNS,
+            CREATED,
+            LAST_ALTERED,
+            ROUTINE_COMMENT
+        FROM INFORMATION_SCHEMA.ROUTINES
+        WHERE ROUTINE_SCHEMA = %s
+        ORDER BY ROUTINE_NAME
+        """
+        df = db_manager.execute_query(query, (db_manager.connection_config['database'],))
+        return df.to_dict('records') if not df.empty else []
+    except Exception as e:
+        st.error(f"Error getting procedures: {e}")
+        return []
+
+def get_procedure_parameters(procedure_name):
+    """Get parameters for a stored procedure"""
+    try:
+        db_manager = DatabaseManager()
+        query = """
+        SELECT 
+            PARAMETER_NAME,
+            PARAMETER_MODE,
+            DATA_TYPE,
+            CHARACTER_MAXIMUM_LENGTH,
+            NUMERIC_PRECISION
+        FROM INFORMATION_SCHEMA.PARAMETERS
+        WHERE SPECIFIC_SCHEMA = %s 
+        AND SPECIFIC_NAME = %s
+        AND PARAMETER_NAME IS NOT NULL
+        ORDER BY ORDINAL_POSITION
+        """
+        df = db_manager.execute_query(query, (db_manager.connection_config['database'], procedure_name))
+        return df.to_dict('records') if not df.empty else []
+    except Exception as e:
+        st.error(f"Error getting parameters: {e}")
+        return []
+
+def execute_procedure(procedure_name, parameters=None):
+    """Execute a stored procedure"""
+    try:
+        db_manager = DatabaseManager()
+        conn = db_manager.get_connection()
         
-        # Check if table name contains only allowed characters
-        import re
-        pattern = r'^[a-zA-Z_][a-zA-Z0-9_]*$'
-        return bool(re.match(pattern, table_name))
-    
-    def close_connection(self):
-        """Close database connection"""
+        if not conn:
+            return {'success': False, 'error': 'No database connection'}
+        
+        cursor = conn.cursor()
+        
+        # Build CALL statement
+        if parameters:
+            placeholders = ', '.join(['%s'] * len(parameters))
+            call_statement = f"CALL {procedure_name}({placeholders})"
+            cursor.execute(call_statement, parameters)
+        else:
+            call_statement = f"CALL {procedure_name}()"
+            cursor.execute(call_statement)
+        
+        # Fetch results if any
+        results = []
         try:
-            if self.connection and self.connection.is_connected():
-                self.connection.close()
-        except Error as e:
-            logging.error(f"Error closing connection: {e}")
+            for result in cursor.stored_results():
+                results.append(result.fetchall())
+        except:
+            pass
+        
+        conn.commit()
+        cursor.close()
+        
+        return {
+            'success': True,
+            'message': f'Procedure {procedure_name} executed successfully',
+            'results': results
+        }
+        
+    except Error as e:
+        return {'success': False, 'error': str(e)}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+# ===== OPTIMIZATION 2: SIMPLIFIED CSS =====
+st.markdown("""
+<style>
+    .main-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        text-align: center;
+        color: white;
+    }
     
-    def __del__(self):
-        """Destructor to ensure connection is closed"""
-        self.close_connection()
+    .metric-card {
+        background: #f0f2f6;
+        padding: 1rem;
+        border-radius: 8px;
+        text-align: center;
+        margin: 0.5rem 0;
+        border: 1px solid #e0e0e0;
+    }
+    
+    .status-success {
+        background: #d4edda;
+        padding: 0.5rem;
+        border-radius: 4px;
+        color: #155724;
+        margin: 0.5rem 0;
+    }
+    
+    .status-error {
+        background: #f8d7da;
+        padding: 0.5rem;
+        border-radius: 4px;
+        color: #721c24;
+        margin: 0.5rem 0;
+    }
+    
+    .procedure-card {
+        background: white;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 0.5rem 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    
+    .procedure-card:hover {
+        border-color: #667eea;
+        box-shadow: 0 4px 8px rgba(102,126,234,0.1);
+    }
+</style>
+""", unsafe_allow_html=True)
+
+def render_import_tab():
+    """Render the Import tab (original functionality)"""
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        st.header("📁 File Import")
+        
+        # Initialize session state
+        if 'db_manager' not in st.session_state:
+            st.session_state.db_manager = DatabaseManager()
+        if 'file_processor' not in st.session_state:
+            st.session_state.file_processor = FileProcessor()
+        
+        # Get tables
+        try:
+            tables_info = get_cached_tables_info()
+            tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
+        except Exception as e:
+            st.warning(f"Could not get table info: {e}")
+            tables = []
+            tables_info = []
+        
+        selected_table = st.selectbox(
+            "🎯 Select Target Table",
+            options=[""] + tables,
+            help="Choose the table where you want to import your data"
+        )
+        
+        if selected_table:
+            # Show basic info immediately
+            if tables_info:
+                table_details = next((t for t in tables_info if t.get('TABLE_NAME') == selected_table), None)
+                
+                if table_details:
+                    col1_info, col2_info, col3_info = st.columns(3)
+                    
+                    with col1_info:
+                        row_count = table_details.get('TABLE_ROWS', 0) or 0
+                        st.metric("📊 Rows", f"{row_count:,}")
+                    
+                    with col2_info:
+                        update_time = table_details.get('UPDATE_TIME')
+                        if update_time:
+                            try:
+                                if isinstance(update_time, str):
+                                    last_update = update_time[:10]
+                                else:
+                                    last_update = update_time.strftime("%Y-%m-%d")
+                                st.metric("🕒 Updated", last_update)
+                            except:
+                                st.metric("🕒 Updated", "Unknown")
+                    
+                    with col3_info:
+                        data_length = table_details.get('DATA_LENGTH', 0) or 0
+                        if data_length > 0:
+                            size_mb = data_length / (1024 * 1024)
+                            st.metric("💾 Size", f"{size_mb:.0f} MB")
+            
+            st.subheader(f"👀 Preview: {selected_table}")
+            
+            col_preview1, col_preview2 = st.columns([1, 2])
+            
+            with col_preview1:
+                show_preview = st.button("🔄 Show Preview", type="secondary")
+            
+            with col_preview2:
+                if show_preview:
+                    st.info("Loading preview...")
+            
+            if show_preview:
+                try:
+                    with st.spinner("Loading preview..."):
+                        preview_data = get_cached_table_preview(selected_table, 5)
+                    
+                    if not preview_data.empty:
+                        st.dataframe(preview_data, use_container_width=True, hide_index=True)
+                        st.success(f"📊 Showing last 5 rows from {len(preview_data.columns)} columns")
+                    else:
+                        st.warning("📭 Table is empty or preview unavailable")
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+            
+            st.subheader("📤 Upload File")
+            uploaded_file = st.file_uploader(
+                "Choose a file to import",
+                type=['csv', 'xlsx', 'xls'],
+                help="Max size: 200MB"
+            )
+            
+            if uploaded_file:
+                file_size = uploaded_file.size
+                if file_size > 200 * 1024 * 1024:
+                    st.error("❌ File too large! Please use files smaller than 200MB")
+                    return
+                
+                try:
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    status_text.text("📁 Processing file...")
+                    progress_bar.progress(25)
+                    
+                    df = st.session_state.file_processor.process_file(uploaded_file)
+                    progress_bar.progress(50)
+                    
+                    if df is not None:
+                        max_preview_rows = 1000
+                        if len(df) > max_preview_rows:
+                            preview_df = df.head(max_preview_rows)
+                            st.warning(f"📊 Large file detected! Showing first {max_preview_rows} rows for preview. Full {len(df)} rows will be imported.")
+                        else:
+                            preview_df = df
+                        
+                        progress_bar.progress(75)
+                        status_text.text("✅ File loaded successfully!")
+                        
+                        st.success(f"✅ File loaded! {len(df)} rows, {len(df.columns)} columns")
+                        
+                        with st.expander("📋 File Preview", expanded=False):
+                            st.dataframe(preview_df.head(10), use_container_width=True, hide_index=True)
+                        
+                        progress_bar.progress(100)
+                        
+                        st.subheader("🔗 Column Mapping")
+                        
+                        table_columns = get_cached_table_columns(selected_table)
+                        
+                        if table_columns:
+                            def smart_auto_map(file_cols, db_cols):
+                                mapping = {}
+                                db_col_names = {col['COLUMN_NAME'].lower(): col['COLUMN_NAME'] for col in db_cols}
+                                
+                                for file_col in file_cols:
+                                    file_col_clean = file_col.lower().strip().replace(' ', '_')
+                                    
+                                    if file_col_clean in db_col_names:
+                                        mapping[file_col] = db_col_names[file_col_clean]
+                                    else:
+                                        for db_key, db_val in db_col_names.items():
+                                            if file_col_clean in db_key or db_key in file_col_clean:
+                                                mapping[file_col] = db_val
+                                                break
+                                
+                                return mapping
+                            
+                            auto_mapping = smart_auto_map(df.columns, table_columns)
+                            
+                            mapping = {}
+                            
+                            if auto_mapping:
+                                st.success(f"🎯 Auto-mapped {len(auto_mapping)} columns")
+                                
+                                col_map1, col_map2 = st.columns(2)
+                                with col_map1:
+                                    st.write("**Auto-mapped columns:**")
+                                with col_map2:
+                                    if st.button("✅ Use Auto-mapping"):
+                                        mapping = auto_mapping.copy()
+                            
+                            unmapped_cols = [col for col in df.columns if col not in auto_mapping]
+                            
+                            if unmapped_cols:
+                                st.write(f"**Map remaining {len(unmapped_cols)} columns:**")
+                                
+                                db_options = ["🚫 Skip"] + [col['COLUMN_NAME'] for col in table_columns]
+                                
+                                display_cols = unmapped_cols[:10]
+                                if len(unmapped_cols) > 10:
+                                    st.warning(f"Showing first 10 of {len(unmapped_cols)} unmapped columns")
+                                
+                                for file_col in display_cols:
+                                    mapped_col = st.selectbox(
+                                        f"📄 {file_col}",
+                                        options=db_options,
+                                        key=f"map_{file_col}"
+                                    )
+                                    
+                                    if mapped_col != "🚫 Skip":
+                                        mapping[file_col] = mapped_col
+                            
+                            final_mapping = {**auto_mapping, **mapping}
+                            
+                            if final_mapping:
+                                st.markdown("### 🚀 Import Data")
+                                
+                                col_import1, col_import2 = st.columns([2, 1])
+                                
+                                with col_import1:
+                                    st.info(f"Ready to import {len(df)} rows with {len(final_mapping)} columns")
+                                
+                                with col_import2:
+                                    import_button = st.button("🚀 Import Now!", type="primary")
+                                
+                                if import_button:
+                                    try:
+                                        import_progress = st.progress(0)
+                                        import_status = st.empty()
+                                        
+                                        import_status.text("🔄 Preparing data...")
+                                        import_progress.progress(20)
+                                        
+                                        chunk_size = 10000
+                                        total_rows = len(df)
+                                        
+                                        if total_rows > chunk_size:
+                                            import_status.text(f"🔄 Importing {total_rows} rows in chunks...")
+                                            
+                                            for i in range(0, total_rows, chunk_size):
+                                                chunk = df.iloc[i:i+chunk_size]
+                                                result = st.session_state.db_manager.import_data(selected_table, chunk, final_mapping)
+                                                
+                                                progress = min(100, int((i + chunk_size) / total_rows * 80) + 20)
+                                                import_progress.progress(progress)
+                                                import_status.text(f"🔄 Imported {min(i + chunk_size, total_rows)} / {total_rows} rows")
+                                        else:
+                                            import_status.text("🔄 Importing data...")
+                                            import_progress.progress(50)
+                                            result = st.session_state.db_manager.import_data(selected_table, df, final_mapping)
+                                        
+                                        import_progress.progress(100)
+                                        
+                                        if result.get('success', False):
+                                            st.success(f"🎉 Import completed! {result.get('rows_affected', 0)} rows imported")
+                                            st.balloons()
+                                            st.cache_data.clear()
+                                        else:
+                                            st.error(f"❌ Import failed: {result.get('error', 'Unknown error')}")
+                                    
+                                    except Exception as e:
+                                        st.error(f"❌ Import error: {str(e)}")
+                            
+                            else:
+                                st.warning("⚠️ Please map at least one column")
+                        
+                        else:
+                            st.error("❌ Could not fetch table structure")
+                
+                except Exception as e:
+                    st.error(f"❌ Error processing file: {str(e)}")
+    
+    with col2:
+        st.header("📊 Stats")
+        
+        try:
+            tables_info = get_cached_tables_info()
+            tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
+            
+            if tables:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h3>{len(tables)}</h3>
+                    <p>Tables</p>
+                </div>
+                """, unsafe_allow_html=True)
+        except:
+            pass
+        
+        st.subheader("⚡ Actions")
+        if st.button("🔄 Refresh All", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+
+def render_procedures_tab():
+    """Render the Procedures/Update tab"""
+    st.header("⚙️ Database Procedures & Updates")
+    
+    # Initialize database manager
+    if 'db_manager' not in st.session_state:
+        st.session_state.db_manager = DatabaseManager()
+    
+    # Initialize execution history
+    if 'execution_history' not in st.session_state:
+        st.session_state.execution_history = []
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.subheader("🔧 Stored Procedures")
+        
+        # Refresh button
+        if st.button("🔄 Refresh Procedures List", type="secondary"):
+            st.cache_data.clear()
+            st.rerun()
+        
+        # Get procedures
+        procedures = get_stored_procedures()
+        
+        if procedures:
+            st.info(f"Found {len(procedures)} stored procedures")
+            
+            # Filter procedures
+            search_query = st.text_input("🔍 Search procedures", placeholder="Type to filter...")
+            
+            if search_query:
+                filtered_procedures = [p for p in procedures if search_query.lower() in p['ROUTINE_NAME'].lower()]
+            else:
+                filtered_procedures = procedures
+            
+            # Display procedures
+            for proc in filtered_procedures:
+                with st.expander(f"📦 {proc['ROUTINE_NAME']} ({proc['ROUTINE_TYPE']})"):
+                    
+                    # Procedure info
+                    col_info1, col_info2 = st.columns(2)
+                    
+                    with col_info1:
+                        st.write(f"**Type:** {proc['ROUTINE_TYPE']}")
+                        if proc.get('RETURNS'):
+                            st.write(f"**Returns:** {proc['RETURNS']}")
+                    
+                    with col_info2:
+                        if proc.get('CREATED'):
+                            st.write(f"**Created:** {str(proc['CREATED'])[:10]}")
+                        if proc.get('LAST_ALTERED'):
+                            st.write(f"**Modified:** {str(proc['LAST_ALTERED'])[:10]}")
+                    
+                    if proc.get('ROUTINE_COMMENT'):
+                        st.info(f"💬 {proc['ROUTINE_COMMENT']}")
+                    
+                    # Get parameters
+                    params = get_procedure_parameters(proc['ROUTINE_NAME'])
+                    
+                    if params:
+                        st.write("**Parameters:**")
+                        
+                        param_values = []
+                        
+                        for param in params:
+                            param_name = param['PARAMETER_NAME']
+                            param_mode = param['PARAMETER_MODE']
+                            param_type = param['DATA_TYPE']
+                            
+                            st.write(f"- `{param_name}` ({param_mode}) - {param_type}")
+                            
+                            # Input field for IN parameters
+                            if param_mode == 'IN':
+                                if param_type in ['int', 'bigint', 'smallint', 'tinyint']:
+                                    value = st.number_input(
+                                        f"Enter {param_name}",
+                                        key=f"param_{proc['ROUTINE_NAME']}_{param_name}",
+                                        step=1
+                                    )
+                                    param_values.append(int(value))
+                                elif param_type in ['decimal', 'float', 'double']:
+                                    value = st.number_input(
+                                        f"Enter {param_name}",
+                                        key=f"param_{proc['ROUTINE_NAME']}_{param_name}",
+                                        step=0.01
+                                    )
+                                    param_values.append(float(value))
+                                elif param_type in ['date']:
+                                    value = st.date_input(
+                                        f"Enter {param_name}",
+                                        key=f"param_{proc['ROUTINE_NAME']}_{param_name}"
+                                    )
+                                    param_values.append(str(value))
+                                elif param_type in ['datetime', 'timestamp']:
+                                    value = st.text_input(
+                                        f"Enter {param_name} (YYYY-MM-DD HH:MM:SS)",
+                                        key=f"param_{proc['ROUTINE_NAME']}_{param_name}"
+                                    )
+                                    param_values.append(value if value else None)
+                                else:
+                                    value = st.text_input(
+                                        f"Enter {param_name}",
+                                        key=f"param_{proc['ROUTINE_NAME']}_{param_name}"
+                                    )
+                                    param_values.append(value if value else None)
+                    else:
+                        st.write("**No parameters required**")
+                        param_values = None
+                    
+                    st.markdown("---")
+                    
+                    # Execute button
+                    col_exec1, col_exec2 = st.columns([1, 2])
+                    
+                    with col_exec1:
+                        execute_btn = st.button(
+                            f"▶️ Execute",
+                            key=f"exec_{proc['ROUTINE_NAME']}",
+                            type="primary"
+                        )
+                    
+                    with col_exec2:
+                        if execute_btn:
+                            st.info("Executing procedure...")
+                    
+                    if execute_btn:
+                        try:
+                            # Record start time
+                            start_time = time.time()
+                            
+                            with st.spinner(f"Executing {proc['ROUTINE_NAME']}..."):
+                                result = execute_procedure(proc['ROUTINE_NAME'], param_values if param_values else None)
+                            
+                            execution_time = time.time() - start_time
+                            
+                            if result['success']:
+                                # Success banner
+                                st.success(f"✅ {result['message']}")
+                                
+                                # Metrics row
+                                metric_col1, metric_col2, metric_col3 = st.columns(3)
+                                
+                                with metric_col1:
+                                    st.metric("⏱️ Execution Time", f"{execution_time:.2f}s")
+                                
+                                with metric_col2:
+                                    if result.get('rows_affected'):
+                                        st.metric("📊 Rows Affected", f"{result['rows_affected']:,}")
+                                    else:
+                                        st.metric("📊 Rows Affected", "N/A")
+                                
+                                with metric_col3:
+                                    result_count = len(result.get('results', []))
+                                    st.metric("📋 Result Sets", result_count)
+                                
+                                # Display results with download buttons
+                                if result.get('results'):
+                                    st.markdown("---")
+                                    st.write("**📋 Query Results:**")
+                                    
+                                    for i, result_set in enumerate(result['results']):
+                                        if result_set:
+                                            st.markdown(f"**Result Set {i+1}:**")
+                                            
+                                            # Convert to DataFrame
+                                            df = pd.DataFrame(result_set)
+                                            
+                                            # Display options
+                                            result_col1, result_col2, result_col3 = st.columns([2, 1, 1])
+                                            
+                                            with result_col1:
+                                                st.info(f"📊 {len(df)} rows × {len(df.columns)} columns")
+                                            
+                                            with result_col2:
+                                                view_btn = st.button(
+                                                    "👁️ View Data",
+                                                    key=f"view_{proc['ROUTINE_NAME']}_{i}",
+                                                    use_container_width=True
+                                                )
+                                            
+                                            with result_col3:
+                                                # Download CSV
+                                                csv = df.to_csv(index=False)
+                                                st.download_button(
+                                                    "📥 Download",
+                                                    csv,
+                                                    f"{proc['ROUTINE_NAME']}_result_{i+1}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                                    "text/csv",
+                                                    key=f"download_{proc['ROUTINE_NAME']}_{i}",
+                                                    use_container_width=True
+                                                )
+                                            
+                                            # Show data if view button clicked
+                                            if view_btn or f"show_data_{proc['ROUTINE_NAME']}_{i}" in st.session_state:
+                                                st.session_state[f"show_data_{proc['ROUTINE_NAME']}_{i}"] = True
+                                            
+                                            if st.session_state.get(f"show_data_{proc['ROUTINE_NAME']}_{i}", False):
+                                                st.dataframe(
+                                                    df,
+                                                    use_container_width=True,
+                                                    hide_index=True,
+                                                    height=min(400, (len(df) + 1) * 35)
+                                                )
+                                                
+                                                if st.button(
+                                                    "🔼 Hide Data",
+                                                    key=f"hide_{proc['ROUTINE_NAME']}_{i}"
+                                                ):
+                                                    st.session_state[f"show_data_{proc['ROUTINE_NAME']}_{i}"] = False
+                                                    st.rerun()
+                                            
+                                            st.markdown("---")
+                                
+                                # Log to history
+                                st.session_state.execution_history.append({
+                                    'procedure': proc['ROUTINE_NAME'],
+                                    'timestamp': datetime.now(),
+                                    'status': 'success',
+                                    'execution_time': execution_time,
+                                    'rows_affected': result.get('rows_affected'),
+                                    'result_sets': len(result.get('results', []))
+                                })
+                                
+                                # Clear cache
+                                st.cache_data.clear()
+                                
+                            else:
+                                st.error(f"❌ Execution failed: {result['error']}")
+                                
+                                # Log failure
+                                st.session_state.execution_history.append({
+                                    'procedure': proc['ROUTINE_NAME'],
+                                    'timestamp': datetime.now(),
+                                    'status': 'failed',
+                                    'execution_time': execution_time,
+                                    'error': result['error']
+                                })
+                        
+                        except Exception as e:
+                            st.error(f"❌ Error: {str(e)}")
+                            
+                            # Log error
+                            st.session_state.execution_history.append({
+                                'procedure': proc['ROUTINE_NAME'],
+                                'timestamp': datetime.now(),
+                                'status': 'error',
+                                'error': str(e)
+                            })
+        
+        else:
+            st.warning("⚠️ No stored procedures found in database")
+            st.info("💡 Create stored procedures in your MySQL database to see them here")
+    
+    with col2:
+        st.subheader("📊 Quick Stats")
+        
+        # Procedure statistics
+        if procedures:
+            total_procs = len(procedures)
+            procedures_by_type = {}
+            
+            for proc in procedures:
+                proc_type = proc['ROUTINE_TYPE']
+                procedures_by_type[proc_type] = procedures_by_type.get(proc_type, 0) + 1
+            
+            st.markdown(f"""
+            <div class="metric-card">
+                <h3>{total_procs}</h3>
+                <p>Total Procedures</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            for proc_type, count in procedures_by_type.items():
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h4>{count}</h4>
+                    <p>{proc_type}s</p>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        # Execution History
+        st.subheader("📜 Execution History")
+        
+        if st.session_state.execution_history:
+            # Show last 10 executions
+            recent_executions = list(reversed(st.session_state.execution_history[-10:]))
+            
+            for idx, log in enumerate(recent_executions):
+                status_icon = "✅" if log['status'] == 'success' else "❌"
+                status_color = "#d4edda" if log['status'] == 'success' else "#f8d7da"
+                
+                with st.expander(
+                    f"{status_icon} {log['procedure']} - {log['timestamp'].strftime('%H:%M:%S')}",
+                    expanded=(idx == 0)  # Expand the most recent
+                ):
+                    st.write(f"**Status:** {log['status'].upper()}")
+                    st.write(f"**Time:** {log['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
+                    
+                    if log.get('execution_time'):
+                        st.write(f"**Duration:** {log['execution_time']:.2f}s")
+                    
+                    if log.get('rows_affected'):
+                        st.write(f"**Rows Affected:** {log['rows_affected']:,}")
+                    
+                    if log.get('result_sets'):
+                        st.write(f"**Result Sets:** {log['result_sets']}")
+                    
+                    if log.get('error'):
+                        st.error(f"**Error:** {log['error']}")
+            
+            # Clear history button
+            if st.button("🗑️ Clear History", use_container_width=True):
+                st.session_state.execution_history = []
+                st.rerun()
+        else:
+            st.info("No execution history yet")
+        
+        st.markdown("---")
+        
+        st.subheader("ℹ️ Info")
+        st.info("""
+        **How to use:**
+        
+        1. Select a procedure
+        2. Fill in parameters
+        3. Click Execute
+        4. View or download results
+        
+        **Tips:**
+        - Use for batch updates
+        - Complex transformations
+        - Scheduled tasks
+        """)
+
+def main():
+    try:
+        # Header
+        st.markdown("""
+        <div class="main-header">
+            <h1>🚀 Data Import Hub</h1>
+            <p>Fast file import system with database management</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Initialize components
+        if 'db_manager' not in st.session_state:
+            try:
+                st.session_state.db_manager = DatabaseManager()
+            except Exception as e:
+                st.error(f"Failed to initialize DatabaseManager: {e}")
+                return
+        
+        if 'file_processor' not in st.session_state:
+            try:
+                st.session_state.file_processor = FileProcessor()
+            except Exception as e:
+                st.error(f"Failed to initialize FileProcessor: {e}")
+                return
+
+        # Sidebar configuration
+        with st.sidebar:
+            st.header("⚙️ Configuration")
+            
+            # Test connection
+            if 'connection_status' not in st.session_state:
+                try:
+                    st.session_state.connection_status = st.session_state.db_manager.test_connection()
+                except Exception as e:
+                    st.session_state.connection_status = False
+            
+            if st.session_state.connection_status:
+                st.markdown('<div class="status-success">✅ Database Connected</div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="status-error">❌ Database Connection Failed</div>', unsafe_allow_html=True)
+                return
+            
+            # Refresh button
+            if st.button("🔄 Refresh", key="refresh_sidebar"):
+                st.cache_data.clear()
+                st.rerun()
+            
+            try:
+                tables_info = get_cached_tables_info()
+                tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
+            except Exception as e:
+                st.warning(f"Could not get table info: {e}")
+                tables = []
+                tables_info = []
+
+            st.write(f"📊 Available Tables: {len(tables)}")
+            
+            # Recent activity
+            if tables_info:
+                st.subheader("🕒 Recent Activity")
+                
+                sorted_tables = sorted(
+                    [t for t in tables_info if t.get('UPDATE_TIME')], 
+                    key=lambda x: x.get('UPDATE_TIME', ''), 
+                    reverse=True
+                )[:3]
+                
+                for table_info in sorted_tables:
+                    table_name = table_info.get('TABLE_NAME', 'Unknown')
+                    update_time = table_info.get('UPDATE_TIME')
+                    row_count = table_info.get('TABLE_ROWS', 0) or 0
+                    
+                    if update_time:
+                        try:
+                            if isinstance(update_time, str):
+                                time_str = update_time[:16]
+                            else:
+                                time_str = update_time.strftime("%Y-%m-%d %H:%M")
+                            
+                            st.markdown(f"""
+                            <div style="background: #f8f9fa; padding: 0.5rem; border-radius: 4px; margin: 0.2rem 0; border-left: 3px solid #007bff;">
+                                <div style="font-weight: bold; font-size: 12px;">📄 {table_name}</div>
+                                <div style="font-size: 11px; color: #666;">🕒 {time_str} | 📊 {row_count:,} rows</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        except:
+                            pass
+        
+        # ===== NEW: TABS NAVIGATION =====
+        tab1, tab2 = st.tabs(["📁 Import Data", "⚙️ Run Procedures"])
+        
+        with tab1:
+            render_import_tab()
+        
+        with tab2:
+            render_procedures_tab()
+    
+    except Exception as e:
+        st.error(f"Application error: {e}")
+
+if __name__ == "__main__":
+    main()
