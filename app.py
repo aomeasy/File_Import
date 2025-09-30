@@ -370,7 +370,122 @@ def render_import_tab():
             
             if uploaded_file:
                 # Import logic (keeping original code)
-                pass
+                if uploaded_file:
+    st.markdown(f"""
+    <div class="file-info">
+        <h4>📄 {uploaded_file.name}</h4>
+        <p><strong>Size:</strong> {uploaded_file.size / 1024:.2f} KB</p>
+        <p><strong>Type:</strong> {uploaded_file.type}</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    try:
+        # Read file
+        with st.spinner("Reading file..."):
+            if uploaded_file.name.endswith('.csv'):
+                df = pd.read_csv(uploaded_file)
+            else:
+                df = pd.read_excel(uploaded_file)
+        
+        st.success(f"✅ File loaded: {len(df)} rows, {len(df.columns)} columns")
+        
+        # Preview data
+        st.subheader("📋 Data Preview")
+        st.dataframe(df.head(10), use_container_width=True)
+        
+        # Column mapping
+        st.subheader("🔗 Column Mapping")
+        
+        table_columns = get_cached_table_columns(selected_table)
+        
+        if not table_columns:
+            st.error("Cannot get table columns")
+            return
+        
+        db_column_names = [col['COLUMN_NAME'] for col in table_columns]
+        file_columns = list(df.columns)
+        
+        st.info(f"**File Columns:** {len(file_columns)} | **Table Columns:** {len(db_column_names)}")
+        
+        # Auto-mapping
+        column_mapping = {}
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**File Column**")
+        with col2:
+            st.write("**→ Database Column**")
+        
+        for file_col in file_columns:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.text(file_col)
+            
+            with col2:
+                # Auto-match if column names are similar
+                default_index = 0
+                if file_col in db_column_names:
+                    default_index = db_column_names.index(file_col)
+                
+                selected_db_col = st.selectbox(
+                    f"Map {file_col}",
+                    options=["-- Skip --"] + db_column_names,
+                    index=default_index + 1 if file_col in db_column_names else 0,
+                    key=f"mapping_{file_col}",
+                    label_visibility="collapsed"
+                )
+                
+                if selected_db_col != "-- Skip --":
+                    column_mapping[file_col] = selected_db_col
+        
+        # Show mapping summary
+        if column_mapping:
+            st.success(f"✅ Mapped {len(column_mapping)} columns")
+            
+            with st.expander("View Mapping Details"):
+                for file_col, db_col in column_mapping.items():
+                    st.write(f"**{file_col}** → **{db_col}**")
+        else:
+            st.warning("⚠️ No columns mapped")
+        
+        # Import button
+        st.divider()
+        
+        col1, col2, col3 = st.columns([1, 1, 2])
+        
+        with col1:
+            if st.button("🚀 Import Data", type="primary", disabled=len(column_mapping) == 0):
+                if not column_mapping:
+                    st.error("Please map at least one column")
+                else:
+                    with st.spinner(f"Importing {len(df)} rows..."):
+                        result = st.session_state.db_manager.import_data(
+                            selected_table,
+                            df,
+                            column_mapping
+                        )
+                    
+                    if result['success']:
+                        st.success(f"✅ {result['message']}")
+                        st.balloons()
+                        
+                        # Clear cache to show updated data
+                        st.cache_data.clear()
+                        
+                        # Show summary
+                        st.metric("Rows Imported", result['rows_affected'])
+                    else:
+                        st.error(f"❌ Import failed: {result['error']}")
+        
+        with col2:
+            if st.button("🔄 Reset", type="secondary"):
+                st.rerun()
+    
+    except Exception as e:
+        st.error(f"❌ Error processing file: {str(e)}")
+        st.exception(e)
     
     with col2:
         st.header("📊 Stats")
