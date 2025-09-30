@@ -290,7 +290,6 @@ class FileMerger:
         return pd.DataFrame()
 
 # ===== TAB 1: IMPORT DATA =====
-# ===== TAB 1: IMPORT DATA =====
 def render_import_tab():
     """Render the Import tab"""
     
@@ -321,7 +320,7 @@ def render_import_tab():
     st.divider()
     
     # ===== MAIN IMPORT SECTION (FULL WIDTH) =====
-    st.header("📁 File Import to ntdatabase")
+    st.header("📁 File Import to Database")
     
     if 'db_manager' not in st.session_state:
         st.session_state.db_manager = DatabaseManager()
@@ -510,28 +509,6 @@ def render_import_tab():
             except Exception as e:
                 st.error(f"❌ Error processing file: {str(e)}")
                 st.exception(e)
-    
-    with col2:
-        st.header("📊 Stats")
-        
-        try:
-            tables_info = get_cached_tables_info()
-            tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
-            
-            if tables:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3>{len(tables)}</h3>
-                    <p>Tables</p>
-                </div>
-                """, unsafe_allow_html=True)
-        except:
-            pass
-        
-        st.subheader("⚡ Actions")
-        if st.button("🔄 Refresh All", use_container_width=True, key="refresh_import"):
-            st.cache_data.clear()
-            st.rerun()
 
 # ===== TAB 2: RUN PROCEDURES =====
 def render_procedures_tab():
@@ -567,18 +544,146 @@ def render_procedures_tab():
             
             for proc in filtered_procedures:
                 with st.expander(f"📦 {proc['ROUTINE_NAME']} ({proc['ROUTINE_TYPE']})"):
-                    # Procedure execution logic (keeping original code)
-                    pass
+                    col_info, col_exec = st.columns([1, 1])
+                    
+                    with col_info:
+                        st.write(f"**Type:** {proc['ROUTINE_TYPE']}")
+                        if proc.get('ROUTINE_COMMENT'):
+                            st.write(f"**Description:** {proc['ROUTINE_COMMENT']}")
+                        if proc.get('CREATED'):
+                            st.write(f"**Created:** {proc['CREATED']}")
+                    
+                    with col_exec:
+                        params = get_procedure_parameters(proc['ROUTINE_NAME'])
+                        
+                        if params:
+                            st.write(f"**Parameters:** {len(params)}")
+                            param_values = []
+                            
+                            for param in params:
+                                param_name = param['PARAMETER_NAME']
+                                param_type = param['DATA_TYPE']
+                                
+                                if param_type in ['int', 'bigint', 'smallint']:
+                                    val = st.number_input(
+                                        f"{param_name} ({param_type})",
+                                        value=0,
+                                        key=f"param_{proc['ROUTINE_NAME']}_{param_name}"
+                                    )
+                                elif param_type in ['decimal', 'float', 'double']:
+                                    val = st.number_input(
+                                        f"{param_name} ({param_type})",
+                                        value=0.0,
+                                        format="%.2f",
+                                        key=f"param_{proc['ROUTINE_NAME']}_{param_name}"
+                                    )
+                                elif param_type in ['date', 'datetime', 'timestamp']:
+                                    val = st.date_input(
+                                        f"{param_name} ({param_type})",
+                                        key=f"param_{proc['ROUTINE_NAME']}_{param_name}"
+                                    )
+                                    val = val.strftime("%Y-%m-%d")
+                                else:
+                                    val = st.text_input(
+                                        f"{param_name} ({param_type})",
+                                        key=f"param_{proc['ROUTINE_NAME']}_{param_name}"
+                                    )
+                                
+                                param_values.append(val)
+                        else:
+                            st.info("No parameters required")
+                            param_values = None
+                    
+                    st.divider()
+                    
+                    col_btn1, col_btn2 = st.columns(2)
+                    
+                    with col_btn1:
+                        if st.button(f"▶️ Execute", key=f"exec_{proc['ROUTINE_NAME']}", type="primary", use_container_width=True):
+                            with st.spinner(f"Executing {proc['ROUTINE_NAME']}..."):
+                                result = execute_procedure(proc['ROUTINE_NAME'], param_values if params else None)
+                            
+                            if result['success']:
+                                st.success(f"✅ {result['message']}")
+                                
+                                if result.get('results'):
+                                    for idx, res in enumerate(result['results']):
+                                        st.write(f"**Result Set {idx + 1}:**")
+                                        df_result = pd.DataFrame(res)
+                                        st.dataframe(df_result, use_container_width=True)
+                                        
+                                        # Download buttons
+                                        csv_data = df_result.to_csv(index=False)
+                                        st.download_button(
+                                            "📥 Download CSV",
+                                            csv_data,
+                                            f"{proc['ROUTINE_NAME']}_result_{idx+1}.csv",
+                                            "text/csv",
+                                            key=f"download_csv_{proc['ROUTINE_NAME']}_{idx}"
+                                        )
+                                
+                                if result.get('rows_affected'):
+                                    st.info(f"Rows affected: {result['rows_affected']}")
+                                
+                                if result.get('warnings'):
+                                    with st.expander("⚠️ Warnings"):
+                                        for warning in result['warnings']:
+                                            st.warning(f"{warning[0]}: {warning[2]}")
+                                
+                                # Add to history
+                                st.session_state.execution_history.append({
+                                    'procedure': proc['ROUTINE_NAME'],
+                                    'status': 'success',
+                                    'timestamp': datetime.now()
+                                })
+                            else:
+                                st.error(f"❌ Execution failed")
+                                
+                                if result.get('error_details'):
+                                    details = result['error_details']
+                                    st.error(f"**Error:** {details.get('msg')}")
+                                    if details.get('errno'):
+                                        st.caption(f"Error Code: {details['errno']}")
+                                    if details.get('sqlstate'):
+                                        st.caption(f"SQL State: {details['sqlstate']}")
+                                else:
+                                    st.error(result.get('error', 'Unknown error'))
+                                
+                                # Add to history
+                                st.session_state.execution_history.append({
+                                    'procedure': proc['ROUTINE_NAME'],
+                                    'status': 'failed',
+                                    'timestamp': datetime.now()
+                                })
         
         else:
             st.warning("⚠️ No stored procedures found in database")
     
     with col2:
         st.subheader("📊 Quick Stats")
-        # Stats logic (keeping original code)
-        pass
+        
+        if procedures:
+            st.metric("Total Procedures", len(procedures))
+        
+        if st.session_state.execution_history:
+            success_count = sum(1 for h in st.session_state.execution_history if h['status'] == 'success')
+            failed_count = len(st.session_state.execution_history) - success_count
+            
+            st.metric("Executions", len(st.session_state.execution_history))
+            
+            col_s, col_f = st.columns(2)
+            with col_s:
+                st.metric("✅ Success", success_count)
+            with col_f:
+                st.metric("❌ Failed", failed_count)
+        
+        st.divider()
+        
+        if st.button("🗑️ Clear History", use_container_width=True):
+            st.session_state.execution_history = []
+            st.rerun()
 
-# ===== TAB 3: FILE MERGER COMPLETE =====
+# ===== TAB 3: FILE MERGER =====
 def render_merger_tab():
     """Render the File Merger tab with download format selection"""
     st.header("📁 File Merger")
@@ -833,6 +938,7 @@ def render_merger_tab():
     
     else:
         st.info("👆 กรุณาอัปโหลดไฟล์เพื่อเริ่มต้นใช้งาน")
+
 # ===== MAIN APPLICATION =====
 def main():
     try:
