@@ -483,21 +483,24 @@ def render_import_tab():
                         if not column_mapping:
                             st.error("Please map at least one column")
                         else:
+                            # สร้าง DatabaseManager ใหม่เลย ไม่ใช้อันเก่า
+                            from database import DatabaseManager
+                            fresh_db = DatabaseManager()
+                            
                             with st.spinner(f"Importing {len(df)} rows..."):
-                                result = st.session_state.db_manager.import_data(
+                                result = fresh_db.import_data(
                                     selected_table,
                                     df,
                                     column_mapping
                                 )
                             
+                            # ปิด connection
+                            fresh_db.close_connection()
+                            
                             if result['success']:
                                 st.success(f"✅ {result['message']}")
                                 st.balloons()
-                                
-                                # Clear cache to show updated data
                                 st.cache_data.clear()
-                                
-                                # Show summary
                                 st.metric("Rows Imported", result['rows_affected'])
                             else:
                                 st.error(f"❌ Import failed: {result['error']}")
