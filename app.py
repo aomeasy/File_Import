@@ -473,6 +473,10 @@ def render_procedures_tab():
     if 'db_manager' not in st.session_state:
         st.session_state.db_manager = DatabaseManager()
     
+    # Initialize execution history
+    if 'execution_history' not in st.session_state:
+        st.session_state.execution_history = []
+    
     col1, col2 = st.columns([2, 1])
     
     with col1:
@@ -589,27 +593,127 @@ def render_procedures_tab():
                     
                     if execute_btn:
                         try:
+                            # Record start time
+                            start_time = time.time()
+                            
                             with st.spinner(f"Executing {proc['ROUTINE_NAME']}..."):
                                 result = execute_procedure(proc['ROUTINE_NAME'], param_values if param_values else None)
                             
+                            execution_time = time.time() - start_time
+                            
                             if result['success']:
+                                # Success banner
                                 st.success(f"✅ {result['message']}")
                                 
-                                # Display results if any
-                                if result.get('results'):
-                                    st.write("**Results:**")
-                                    for i, res in enumerate(result['results']):
-                                        if res:
-                                            st.write(f"Result set {i+1}:")
-                                            st.write(res)
+                                # Metrics row
+                                metric_col1, metric_col2, metric_col3 = st.columns(3)
                                 
-                                # Clear cache to refresh data
+                                with metric_col1:
+                                    st.metric("⏱️ Execution Time", f"{execution_time:.2f}s")
+                                
+                                with metric_col2:
+                                    if result.get('rows_affected'):
+                                        st.metric("📊 Rows Affected", f"{result['rows_affected']:,}")
+                                    else:
+                                        st.metric("📊 Rows Affected", "N/A")
+                                
+                                with metric_col3:
+                                    result_count = len(result.get('results', []))
+                                    st.metric("📋 Result Sets", result_count)
+                                
+                                # Display results with download buttons
+                                if result.get('results'):
+                                    st.markdown("---")
+                                    st.write("**📋 Query Results:**")
+                                    
+                                    for i, result_set in enumerate(result['results']):
+                                        if result_set:
+                                            st.markdown(f"**Result Set {i+1}:**")
+                                            
+                                            # Convert to DataFrame
+                                            df = pd.DataFrame(result_set)
+                                            
+                                            # Display options
+                                            result_col1, result_col2, result_col3 = st.columns([2, 1, 1])
+                                            
+                                            with result_col1:
+                                                st.info(f"📊 {len(df)} rows × {len(df.columns)} columns")
+                                            
+                                            with result_col2:
+                                                view_btn = st.button(
+                                                    "👁️ View Data",
+                                                    key=f"view_{proc['ROUTINE_NAME']}_{i}",
+                                                    use_container_width=True
+                                                )
+                                            
+                                            with result_col3:
+                                                # Download CSV
+                                                csv = df.to_csv(index=False)
+                                                st.download_button(
+                                                    "📥 Download",
+                                                    csv,
+                                                    f"{proc['ROUTINE_NAME']}_result_{i+1}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                                    "text/csv",
+                                                    key=f"download_{proc['ROUTINE_NAME']}_{i}",
+                                                    use_container_width=True
+                                                )
+                                            
+                                            # Show data if view button clicked
+                                            if view_btn or f"show_data_{proc['ROUTINE_NAME']}_{i}" in st.session_state:
+                                                st.session_state[f"show_data_{proc['ROUTINE_NAME']}_{i}"] = True
+                                            
+                                            if st.session_state.get(f"show_data_{proc['ROUTINE_NAME']}_{i}", False):
+                                                st.dataframe(
+                                                    df,
+                                                    use_container_width=True,
+                                                    hide_index=True,
+                                                    height=min(400, (len(df) + 1) * 35)
+                                                )
+                                                
+                                                if st.button(
+                                                    "🔼 Hide Data",
+                                                    key=f"hide_{proc['ROUTINE_NAME']}_{i}"
+                                                ):
+                                                    st.session_state[f"show_data_{proc['ROUTINE_NAME']}_{i}"] = False
+                                                    st.rerun()
+                                            
+                                            st.markdown("---")
+                                
+                                # Log to history
+                                st.session_state.execution_history.append({
+                                    'procedure': proc['ROUTINE_NAME'],
+                                    'timestamp': datetime.now(),
+                                    'status': 'success',
+                                    'execution_time': execution_time,
+                                    'rows_affected': result.get('rows_affected'),
+                                    'result_sets': len(result.get('results', []))
+                                })
+                                
+                                # Clear cache
                                 st.cache_data.clear()
+                                
                             else:
                                 st.error(f"❌ Execution failed: {result['error']}")
+                                
+                                # Log failure
+                                st.session_state.execution_history.append({
+                                    'procedure': proc['ROUTINE_NAME'],
+                                    'timestamp': datetime.now(),
+                                    'status': 'failed',
+                                    'execution_time': execution_time,
+                                    'error': result['error']
+                                })
                         
                         except Exception as e:
                             st.error(f"❌ Error: {str(e)}")
+                            
+                            # Log error
+                            st.session_state.execution_history.append({
+                                'procedure': proc['ROUTINE_NAME'],
+                                'timestamp': datetime.now(),
+                                'status': 'error',
+                                'error': str(e)
+                            })
         
         else:
             st.warning("⚠️ No stored procedures found in database")
@@ -644,19 +748,58 @@ def render_procedures_tab():
         
         st.markdown("---")
         
+        # Execution History
+        st.subheader("📜 Execution History")
+        
+        if st.session_state.execution_history:
+            # Show last 10 executions
+            recent_executions = list(reversed(st.session_state.execution_history[-10:]))
+            
+            for idx, log in enumerate(recent_executions):
+                status_icon = "✅" if log['status'] == 'success' else "❌"
+                status_color = "#d4edda" if log['status'] == 'success' else "#f8d7da"
+                
+                with st.expander(
+                    f"{status_icon} {log['procedure']} - {log['timestamp'].strftime('%H:%M:%S')}",
+                    expanded=(idx == 0)  # Expand the most recent
+                ):
+                    st.write(f"**Status:** {log['status'].upper()}")
+                    st.write(f"**Time:** {log['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
+                    
+                    if log.get('execution_time'):
+                        st.write(f"**Duration:** {log['execution_time']:.2f}s")
+                    
+                    if log.get('rows_affected'):
+                        st.write(f"**Rows Affected:** {log['rows_affected']:,}")
+                    
+                    if log.get('result_sets'):
+                        st.write(f"**Result Sets:** {log['result_sets']}")
+                    
+                    if log.get('error'):
+                        st.error(f"**Error:** {log['error']}")
+            
+            # Clear history button
+            if st.button("🗑️ Clear History", use_container_width=True):
+                st.session_state.execution_history = []
+                st.rerun()
+        else:
+            st.info("No execution history yet")
+        
+        st.markdown("---")
+        
         st.subheader("ℹ️ Info")
         st.info("""
         **How to use:**
         
-        1. Select a procedure from the list
-        2. Fill in required parameters
-        3. Click Execute to run
-        4. View results below
+        1. Select a procedure
+        2. Fill in parameters
+        3. Click Execute
+        4. View or download results
         
         **Tips:**
-        - Use procedures for batch updates
-        - Complex data transformations
-        - Scheduled maintenance tasks
+        - Use for batch updates
+        - Complex transformations
+        - Scheduled tasks
         """)
 
 def main():
