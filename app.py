@@ -435,9 +435,9 @@ def render_procedures_tab():
         # Stats logic (keeping original code)
         pass
 
-# ===== TAB 3: FILE MERGER =====
+# ===== TAB 3: FILE MERGER (COMPLETE VERSION) =====
 def render_merger_tab():
-    """Render the File Merger tab"""
+    """Render the File Merger tab with full header analysis"""
     st.header("📁 File Merger")
     st.write("รวมไฟล์ CSV และ Excel หลายไฟล์เข้าด้วยกัน")
     
@@ -481,7 +481,7 @@ def render_merger_tab():
             for i, (filename, file_info) in enumerate(st.session_state.merger_processed_data.items()):
                 with cols[i % 3]:
                     selected = st.checkbox(
-                        f"✅ {filename}",
+                        f"{filename}",
                         value=st.session_state.merger_selected_files.get(filename, True),
                         key=f"merger_select_{filename}",
                         help=f"ขนาด: {file_info['size']/1024:.1f} KB"
@@ -491,7 +491,10 @@ def render_merger_tab():
             selected_count = sum(st.session_state.merger_selected_files.values())
             
             if selected_count == 0:
-                st.error("⚠️ กรุณาเลือกไฟล์อย่างน้อย 1 ไฟล์")
+                st.error("กรุณาเลือกไฟล์อย่างน้อย 1 ไฟล์")
+                return
+            elif selected_count < len(st.session_state.merger_processed_data):
+                st.info(f"เลือกแล้ว {selected_count} จาก {len(st.session_state.merger_processed_data)} ไฟล์")
         else:
             filename = list(st.session_state.merger_processed_data.keys())[0]
             st.session_state.merger_selected_files = {filename: True}
@@ -499,53 +502,54 @@ def render_merger_tab():
         # File information
         st.subheader("📋 ไฟล์ที่อัปโหลด")
         
-        selected_sheets = {}
-        
-        for filename, file_info in st.session_state.merger_processed_data.items():
-            is_selected = st.session_state.merger_selected_files.get(filename, True)
-            
-            with st.expander(f"{'✅' if is_selected else '❌'} {filename}", expanded=is_selected):
-                col_info, col_sheet = st.columns([2, 1])
-                
-                with col_info:
-                    css_class = "file-info" if is_selected else "file-info disabled"
-                    status_text = "✅ เลือกสำหรับการรวม" if is_selected else "❌ ไม่รวมในการประมวลผล"
-                    st.markdown(f"""
-                    <div class="{css_class}">
-                        <strong>สถานะ:</strong> {status_text}<br>
-                        <strong>ขนาด:</strong> {file_info['size']/1024:.2f} KB<br>
-                        <strong>ประเภท:</strong> {file_info['type'].upper()}<br>
-                        <strong>จำนวน Sheets:</strong> {len(file_info['sheets'])}
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with col_sheet:
-                    if len(file_info['sheets']) > 1:
-                        selected_sheet = st.selectbox(
-                            "เลือก Sheet:",
-                            file_info['sheets'],
-                            key=f"merger_sheet_{filename}",
-                            index=0,
-                            disabled=not is_selected
-                        )
-                        selected_sheets[filename] = selected_sheet
-                    else:
-                        selected_sheets[filename] = file_info['sheets'][0]
-                        st.info(f"Sheet: {file_info['sheets'][0]}")
-                
-                if is_selected:
-                    sheet_name = selected_sheets[filename]
-                    if sheet_name in file_info['data']:
-                        df = file_info['data'][sheet_name]
-                        st.write(f"**Preview ({len(df)} แถว, {len(df.columns)} คอลัมน์):**")
-                        st.dataframe(df.head(3), use_container_width=True)
-                else:
-                    st.markdown("*ไฟล์นี้จะไม่ถูกรวมในการประมวลผล*")
-        
-        # Statistics
-        col1, col2 = st.columns(2)
+        col1, col2 = st.columns([2, 1])
         
         with col1:
+            selected_sheets = {}
+            
+            for filename, file_info in st.session_state.merger_processed_data.items():
+                is_selected = st.session_state.merger_selected_files.get(filename, True)
+                
+                with st.expander(f"{'✅' if is_selected else '❌'} {filename}", expanded=is_selected):
+                    col_info, col_sheet = st.columns([2, 1])
+                    
+                    with col_info:
+                        css_class = "file-info" if is_selected else "file-info disabled"
+                        status_text = "เลือกสำหรับการรวม" if is_selected else "ไม่รวมในการประมวลผล"
+                        st.markdown(f"""
+                        <div class="{css_class}">
+                            <strong>สถานะ:</strong> {status_text}<br>
+                            <strong>ขนาด:</strong> {file_info['size']/1024:.2f} KB<br>
+                            <strong>ประเภท:</strong> {file_info['type'].upper()}<br>
+                            <strong>จำนวน Sheets:</strong> {len(file_info['sheets'])}
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with col_sheet:
+                        if len(file_info['sheets']) > 1:
+                            selected_sheet = st.selectbox(
+                                "เลือก Sheet:",
+                                file_info['sheets'],
+                                key=f"merger_sheet_{filename}",
+                                index=0,
+                                disabled=not is_selected
+                            )
+                            selected_sheets[filename] = selected_sheet
+                        else:
+                            selected_sheets[filename] = file_info['sheets'][0]
+                            st.info(f"Sheet: {file_info['sheets'][0]}")
+                    
+                    if is_selected:
+                        sheet_name = selected_sheets[filename]
+                        if sheet_name in file_info['data']:
+                            df = file_info['data'][sheet_name]
+                            st.write(f"**Preview ({len(df)} แถว, {len(df.columns)} คอลัมน์):**")
+                            st.dataframe(df.head(3), use_container_width=True)
+                    else:
+                        st.markdown("*ไฟล์นี้จะไม่ถูกรวมในการประมวลผล*")
+        
+        with col2:
+            # Statistics
             selected_files_data = {k: v for k, v in st.session_state.merger_processed_data.items() 
                                  if st.session_state.merger_selected_files.get(k, True)}
             
@@ -556,17 +560,221 @@ def render_merger_tab():
                 if selected_sheets.get(filename, file_info['sheets'][0]) in file_info['data']
             ]) if selected_files_data else 0
             
+            excluded_files = len(st.session_state.merger_processed_data) - total_files
+            
             st.markdown(f"""
             <div class="metric-card">
                 <h3>📊 สถิติ</h3>
                 <p><strong>ไฟล์ที่เลือก:</strong> {total_files}</p>
+                <p><strong>ไฟล์ที่ไม่เลือก:</strong> {excluded_files}</p>
                 <p><strong>จำนวนแถวรวม:</strong> {total_records:,}</p>
             </div>
             """, unsafe_allow_html=True)
         
+        # ===== HEADER ANALYSIS SECTION =====
+        if any(st.session_state.merger_selected_files.values()):
+            st.header("🔍 การวิเคราะห์ Headers")
+            
+            all_headers, has_mismatch, file_headers = merger.analyze_headers(
+                st.session_state.merger_processed_data,
+                selected_sheets,
+                st.session_state.merger_selected_files
+            )
+            
+            if has_mismatch and len(file_headers) > 1:
+                st.warning("พบความไม่สอดคล้องของ Headers - กรุณาตรวจสอบและปรับแต่ง")
+                
+                # Show header comparison
+                st.subheader("เปรียบเทียบ Headers (สีเขียว = มีในไฟล์อื่น, สีแดง = ไม่มีในไฟล์อื่น)")
+                
+                # Helper function to check if header exists in other files
+                def get_header_match_status(header, all_file_headers, current_filename):
+                    other_files = [f for f in all_file_headers.keys() if f != current_filename]
+                    if not other_files:
+                        return "single_file"
+                    exists_in_others = any(header in all_file_headers[f] for f in other_files)
+                    return "match" if exists_in_others else "no_match"
+                
+                for filename, headers in file_headers.items():
+                    with st.expander(f"Headers ของ {filename} ({len(headers)} headers)"):
+                        # Display headers with color coding
+                        header_html = "<div style='display: flex; flex-wrap: wrap; gap: 5px; margin: 10px 0;'>"
+                        
+                        for header in headers:
+                            match_status = get_header_match_status(header, file_headers, filename)
+                            
+                            if match_status == "match":
+                                css_class = "header-match"
+                                icon = ""
+                            elif match_status == "no_match":
+                                css_class = "header-no-match"
+                                icon = ""
+                            else:
+                                css_class = "header-match"
+                                icon = ""
+                            
+                            header_html += f'<span class="{css_class}">{icon} {header}</span>'
+                        
+                        header_html += "</div>"
+                        st.markdown(header_html, unsafe_allow_html=True)
+                        
+                        # Show statistics
+                        matched_headers = [h for h in headers if get_header_match_status(h, file_headers, filename) == "match"]
+                        unmatched_headers = [h for h in headers if get_header_match_status(h, file_headers, filename) == "no_match"]
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.success(f"Headers ที่มีในไฟล์อื่น: {len(matched_headers)}")
+                        with col2:
+                            if unmatched_headers:
+                                st.error(f"Headers ที่ไม่มีในไฟล์อื่น: {len(unmatched_headers)}")
+                            else:
+                                st.success("ทุก Headers มีในไฟล์อื่น")
+                
+                # Header mapping interface
+                st.subheader("🔧 ปรับแต่ง Headers สำหรับการรวมไฟล์")
+                
+                st.info("""
+                **วิธีใช้งาน:**
+                1. ดูตัวอย่างข้อมูลแต่ละไฟล์
+                2. เลือกว่า Header ไหนจะใช้ หรือลบทิ้ง
+                3. จับคู่ Headers ที่มีความหมายเหมือนกัน
+                4. **Headers สีแดงคือไม่มีในไฟล์อื่น** - ควรพิจารณาจับคู่หรือลบ
+                """)
+                
+                header_mapping = {}
+                excluded_headers = {}
+                
+                for filename, headers in file_headers.items():
+                    st.markdown("---")
+                    
+                    # File header with match statistics
+                    matched_count = len([h for h in headers if get_header_match_status(h, file_headers, filename) == "match"])
+                    unmatched_count = len(headers) - matched_count
+                    
+                    st.markdown(f"### {filename}")
+                    
+                    if unmatched_count > 0:
+                        st.warning(f"มี {unmatched_count} headers ที่ไม่ตรงกับไฟล์อื่น (แสดงเป็นสีแดง)")
+                    else:
+                        st.success("ทุก headers ตรงกับไฟล์อื่น")
+                    
+                    # Get sample data
+                    sheet_name = selected_sheets.get(filename, st.session_state.merger_processed_data[filename]['sheets'][0])
+                    sample_df = st.session_state.merger_processed_data[filename]['data'][sheet_name].head(5)
+                    
+                    # Show sample data
+                    with st.expander("ดูตัวอย่างข้อมูล 5 แถวแรก", expanded=False):
+                        st.dataframe(sample_df, use_container_width=True)
+                    
+                    st.write("**จัดการ Headers:**")
+                    
+                    file_mapping = {}
+                    file_excluded = []
+                    
+                    for i, header in enumerate(headers):
+                        match_status = get_header_match_status(header, file_headers, filename)
+                        
+                        with st.container():
+                            col1, col2, col3 = st.columns([2, 2, 3])
+                            
+                            with col1:
+                                # Show header with color coding
+                                if match_status == "match":
+                                    st.markdown(f"**`{header}`**")
+                                    st.caption("มีในไฟล์อื่น")
+                                elif match_status == "no_match":
+                                    st.markdown(f"**`{header}`**")
+                                    st.caption("ไม่มีในไฟล์อื่น - ควรพิจารณา")
+                                else:
+                                    st.markdown(f"**`{header}`**")
+                                    st.caption("ไฟล์เดียว")
+                                
+                                # Show sample values
+                                if header in sample_df.columns:
+                                    sample_values = sample_df[header].dropna().head(3).tolist()
+                                    if sample_values:
+                                        st.caption(f"ตัวอย่าง: {', '.join(str(v)[:15] for v in sample_values)}")
+                            
+                            with col2:
+                                action = st.selectbox(
+                                    "การดำเนินการ:",
+                                    ["ใช้งาน", "ลบทิ้ง"],
+                                    key=f"merger_action_{filename}_{i}",
+                                    index=0,
+                                    label_visibility="collapsed"
+                                )
+                            
+                            with col3:
+                                if action == "ใช้งาน":
+                                    mapping_options = [f"ใช้ชื่อเดิม: {header}"]
+                                    
+                                    matching_headers = [h for h in all_headers if h != header]
+                                    for other_header in sorted(matching_headers):
+                                        mapping_options.append(f"จับคู่กับ: {other_header}")
+                                    
+                                    mapping_options.append("สร้างชื่อใหม่")
+                                    
+                                    if match_status == "no_match" and len(matching_headers) > 0:
+                                        st.info("แนะนำ: header นี้ไม่มีในไฟล์อื่น")
+                                    
+                                    selected_mapping = st.selectbox(
+                                        "เลือกการจับคู่:",
+                                        mapping_options,
+                                        key=f"merger_map_{filename}_{i}",
+                                        index=0,
+                                        label_visibility="collapsed"
+                                    )
+                                    
+                                    if selected_mapping.startswith("จับคู่กับ:"):
+                                        mapped_header = selected_mapping.replace("จับคู่กับ: ", "")
+                                        file_mapping[header] = mapped_header
+                                        st.success(f"จับคู่: {header} → {mapped_header}")
+                                    elif selected_mapping == "สร้างชื่อใหม่":
+                                        custom_header = st.text_input(
+                                            "พิมพ์ชื่อใหม่:",
+                                            value=header,
+                                            key=f"merger_custom_{filename}_{i}",
+                                            label_visibility="collapsed"
+                                        )
+                                        if custom_header and custom_header != header:
+                                            file_mapping[header] = custom_header
+                                            st.success(f"เปลี่ยนชื่อ: {header} → {custom_header}")
+                                    else:
+                                        st.info("ใช้ชื่อเดิม")
+                                else:
+                                    file_excluded.append(header)
+                                    st.error("Header นี้จะถูกลบออก")
+                    
+                    if file_mapping:
+                        header_mapping[filename] = file_mapping
+                    if file_excluded:
+                        excluded_headers[filename] = file_excluded
+                
+                # Store mappings
+                st.session_state.merger_header_mapping = header_mapping
+                st.session_state.merger_excluded_headers = excluded_headers
+                
+            elif len(file_headers) > 1:
+                st.success("Headers ทั้งหมดสอดคล้องกัน - พร้อมสำหรับการรวมไฟล์")
+                st.session_state.merger_header_mapping = {}
+                st.session_state.merger_excluded_headers = {}
+            else:
+                st.info("มีเพียงไฟล์เดียวที่เลือก - ไม่ต้องการการปรับแต่ง Headers")
+                st.session_state.merger_header_mapping = {}
+                st.session_state.merger_excluded_headers = {}
+        
         # Merge button
         if any(st.session_state.merger_selected_files.values()):
-            st.subheader("⚙️ การรวมไฟล์")
+            st.header("⚙️ การรวมไฟล์")
+            
+            selected_files_list = [f for f, selected in st.session_state.merger_selected_files.items() if selected]
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("**ไฟล์ที่จะรวม:**")
+                for f in selected_files_list:
+                    st.write(f"• {f}")
             
             if st.button("🚀 เริ่มรวมไฟล์", type="primary", use_container_width=True, key="merge_files_btn"):
                 with st.spinner("กำลังรวมไฟล์..."):
@@ -581,11 +789,11 @@ def render_merger_tab():
                     st.session_state.merger_merged_df = merged_df
                     
                     selected_count = sum(st.session_state.merger_selected_files.values())
-                    st.success(f"✅ รวมไฟล์สำเร็จ! รวม {selected_count} ไฟล์ ได้รับ {len(merged_df):,} แถว")
+                    st.success(f"รวมไฟล์สำเร็จ! รวม {selected_count} ไฟล์ ได้รับ {len(merged_df):,} แถว")
         
-        # Show merged results
+        # Show results
         if st.session_state.merger_merged_df is not None:
-            st.subheader("📊 ผลลัพธ์การรวมไฟล์")
+            st.header("📊 ผลลัพธ์การรวมไฟล์")
             
             merged_df = st.session_state.merger_merged_df
             
@@ -598,26 +806,63 @@ def render_merger_tab():
             with col3:
                 st.metric("ไฟล์ที่รวม", sum(st.session_state.merger_selected_files.values()))
             
+            st.subheader("ตัวอย่างข้อมูล")
             st.dataframe(merged_df.head(100), use_container_width=True)
             
             # Download
-            st.subheader("⬇️ ดาวน์โหลด")
+            st.header("⬇️ ดาวน์โหลด")
             
             filename = f"merged_file_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
             csv_data = merged_df.to_csv(index=False)
             
-            st.download_button(
-                label="📥 ดาวน์โหลดไฟล์ CSV",
-                data=csv_data,
-                file_name=filename,
-                mime="text/csv",
-                type="primary",
-                use_container_width=True,
-                key="download_merged"
-            )
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                st.download_button(
+                    label="📥 ดาวน์โหลดไฟล์ CSV",
+                    data=csv_data,
+                    file_name=filename,
+                    mime="text/csv",
+                    type="primary",
+                    use_container_width=True,
+                    key="download_merged"
+                )
+            
+            with col2:
+                file_size = len(csv_data.encode('utf-8')) / 1024
+                st.info(f"ขนาดไฟล์: {file_size:.2f} KB")
     
     else:
-        st.info("👆 กรุณาอัปโหลดไฟล์เพื่อเริ่มต้นใช้งาน")
+        st.info("กรุณาอัปโหลดไฟล์เพื่อเริ่มต้นใช้งาน")
+        
+        # Feature showcase
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("""
+            ### รองรับหลายรูปแบบ
+            - ไฟล์ CSV
+            - Excel (.xlsx, .xls)
+            - หลาย Sheet
+            - **เลือกไฟล์ที่ต้องการ**
+            """)
+        
+        with col2:
+            st.markdown("""
+            ### ตรวจสอบอัตโนมัติ
+            - เช็ค Header consistency
+            - **แสดงสี Headers ที่ไม่ match**
+            - ตัวอย่างข้อมูล
+            """)
+        
+        with col3:
+            st.markdown("""
+            ### ปรับแต่งได้
+            - **เลือก/ไม่เลือกไฟล์**
+            - Mapping Headers
+            - เลือก/ลบ Headers
+            - ดาวน์โหลดผลลัพธ์
+            """)
 
 # ===== MAIN APPLICATION =====
 def main():
