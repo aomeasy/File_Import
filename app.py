@@ -109,46 +109,62 @@ def get_procedure_parameters(procedure_name):
         return []
 
 def execute_procedure(procedure_name, parameters=None):
-    """Execute a stored procedure"""
+    """Execute a stored procedure with its own short-lived connection"""
     try:
         db_manager = DatabaseManager()
-        conn = db_manager.get_connection()
-        
-        if not conn:
-            return {'success': False, 'error': 'No database connection'}
-        
+
+        # ✅ เปิด connection ใหม่ เฉพาะงานนี้เท่านั้น (แยกจาก session_state.db_manager)
+        conn = mysql.connector.connect(
+            host=db_manager.connection_config['host'],
+            port=db_manager.connection_config.get('port', 3306),
+            database=db_manager.connection_config['database'],
+            user=db_manager.connection_config['user'],
+            password=db_manager.connection_config['password'],
+            charset=db_manager.connection_config.get('charset', 'utf8mb4'),
+            autocommit=False,          # ใช้ทรานแซกชันของตัวเอง
+            connection_timeout=10
+        )
+
         cursor = conn.cursor()
-        
-        # Build CALL statement
+
         if parameters:
             placeholders = ', '.join(['%s'] * len(parameters))
-            call_statement = f"CALL {procedure_name}({placeholders})"
-            cursor.execute(call_statement, parameters)
+            cursor.execute(f"CALL {procedure_name}({placeholders})", parameters)
         else:
-            call_statement = f"CALL {procedure_name}()"
-            cursor.execute(call_statement)
-        
-        # Fetch results if any
+            cursor.execute(f"CALL {procedure_name}()")
+
+        # ดึงผลลัพธ์ (ถ้ามี)
         results = []
         try:
             for result in cursor.stored_results():
                 results.append(result.fetchall())
-        except:
+        except Exception:
             pass
-        
-        conn.commit()
+
+        conn.commit()                 # ✅ จบทรานแซกชันของตัวเอง
         cursor.close()
-        
-        return {
-            'success': True,
-            'message': f'Procedure {procedure_name} executed successfully',
-            'results': results
-        }
-        
+        conn.close()                  # ✅ ปิดคอนเน็กชันทันที
+
+        return {'success': True, 'message': f'Procedure {procedure_name} executed successfully', 'results': results}
+
     except Error as e:
+        # 🔁 ถ้ามีเออเรอร์ให้ rollback และปิดคอนเน็กชัน
+        try:
+            conn.rollback()
+            cursor.close()
+            conn.close()
+        except Exception:
+            pass
         return {'success': False, 'error': str(e)}
     except Exception as e:
+        try:
+            conn.rollback()
+            cursor.close()
+            conn.close()
+        except Exception:
+            pass
         return {'success': False, 'error': str(e)}
+
 
 # ===== OPTIMIZATION 2: SIMPLIFIED CSS =====
 st.markdown("""
@@ -468,6 +484,13 @@ def render_import_tab():
 def render_procedures_tab():
     """Render the Procedures/Update tab"""
     st.header("⚙️ Database Procedures & Updates")
+
+    # 🔒 กดปุ่มเพื่อเปิดใช้งานเท่านั้น (ป้องกันรันทุกครั้งที่แอป rerun)
+    enabled = st.toggle("Enable this tab (load from DB)", value=False, help="Turn on only when you want to work with procedures")
+    if not enabled:
+        st.info("This tab is idle. Turn on the toggle to load procedures.")
+        return
+    
     
     # Initialize database manager
     if 'db_manager' not in st.session_state:
