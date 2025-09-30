@@ -11,10 +11,23 @@ from dotenv import load_dotenv  # <-- เพิ่มบรรทัดนี้
 load_dotenv()  # <-- เพิ่มบรรทัดนี้
 
 class DatabaseManager:
-    def __init__(self):
+def __init__(self):
+    # Try Streamlit secrets first, then environment variables
+    try:
+        self.connection_config = {
+            'host': st.secrets.get("DB_HOST") or os.getenv('DB_HOST'),
+            'port': int(st.secrets.get("DB_PORT", 3306) or os.getenv('DB_PORT', '3306')),
+            'database': st.secrets.get("DB_NAME") or os.getenv('DB_NAME'),
+            'user': st.secrets.get("DB_USER") or os.getenv('DB_USER'),
+            'password': st.secrets.get("DB_PASSWORD") or os.getenv('DB_PASSWORD'),
+            'charset': 'utf8mb4',
+            'autocommit': True,
+            'connection_timeout': 10
+        }
+    except:
         self.connection_config = {
             'host': os.getenv('DB_HOST'),
-            'port': int(os.getenv('DB_PORT', '33306')),
+            'port': int(os.getenv('DB_PORT', '3306')),
             'database': os.getenv('DB_NAME'),
             'user': os.getenv('DB_USER'),
             'password': os.getenv('DB_PASSWORD'),
@@ -22,7 +35,7 @@ class DatabaseManager:
             'autocommit': True,
             'connection_timeout': 10
         }
-        self.connection = None
+    self.connection = None
     
     def get_connection(self):
         """Get database connection with error handling"""
