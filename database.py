@@ -4,20 +4,37 @@ import pandas as pd
 import streamlit as st
 from typing import Dict, List, Optional, Any
 import logging
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 class DatabaseManager:
     def __init__(self):
+        """Initialize with environment variables only"""
+        
+        # Validate required environment variables
+        required_vars = ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD']
+        missing_vars = [var for var in required_vars if not os.getenv(var)]
+        
+        if missing_vars:
+            raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
+        
         self.connection_config = {
-            'host': '182.53.230.50',
-            'port': 33306,
-            'database': 'ntdatabase',
-            'user': 'mysqldb',
-            'password': 'h5DHtZ5TtssikBd',
+            'host': os.getenv('DB_HOST'),
+            'port': int(os.getenv('DB_PORT', '3306')),
+            'database': os.getenv('DB_NAME'),
+            'user': os.getenv('DB_USER'),
+            'password': os.getenv('DB_PASSWORD'),
             'charset': 'utf8mb4',
-            'autocommit': True,
-            'connection_timeout': 10
+            'autocommit': False,  # ← ปิด autocommit เพื่อควบคุม transaction
+            'connection_timeout': 10,
+            'use_pure': True,  # ← ใช้ pure Python implementation
+            'ssl_disabled': False  # ← เปิด SSL ถ้า database รองรับ
         }
         self.connection = None
+        self._connection_pool = None
     
     def get_connection(self):
         """Get database connection with error handling"""
@@ -26,7 +43,8 @@ class DatabaseManager:
                 self.connection = mysql.connector.connect(**self.connection_config)
             return self.connection
         except Error as e:
-            st.error(f"Database connection error: {e}")
+            logging.error(f"Database connection error: {e}")
+            st.error("Database connection failed. Please check configuration.")
             return None
     
     def test_connection(self) -> bool:
@@ -44,7 +62,7 @@ class DatabaseManager:
         return False
     
     def get_tables_with_info(self) -> List[Dict[str, Any]]:
-        """Get list of all tables with their information including last update"""
+        """Get list of all tables with their information"""
         try:
             conn = self.get_connection()
             if not conn:
@@ -52,10 +70,8 @@ class DatabaseManager:
             
             cursor = conn.cursor(dictionary=True)
             
-            # Try different queries based on MySQL version
-            queries = [
-                # Modern MySQL (5.7+)
-                """
+            # Use parameterized query
+            query = """
                 SELECT 
                     TABLE_NAME,
                     TABLE_ROWS,
@@ -67,274 +83,221 @@ class DatabaseManager:
                 WHERE TABLE_SCHEMA = %s 
                 AND TABLE_TYPE = 'BASE TABLE'
                 ORDER BY TABLE_NAME
-                """,
-                # Fallback query
-                """
-                SELECT 
-                    TABLE_NAME,
-                    TABLE_ROWS,
-                    DATA_LENGTH,
-                    INDEX_LENGTH,
-                    NULL as CREATE_TIME,
-                    NULL as UPDATE_TIME
-                FROM INFORMATION_SCHEMA.TABLES 
-                WHERE TABLE_SCHEMA = %s 
-                AND TABLE_TYPE = 'BASE TABLE'
-                ORDER BY TABLE_NAME
-                """
-            ]
+            """
             
-            for query in queries:
-                try:
-                    cursor.execute(query, (self.connection_config['database'],))
-                    tables_info = cursor.fetchall()
-                    cursor.close()
-                    
-                    # If we got results, return them
-                    if tables_info:
-                        return tables_info
-                except Error as e:
-                    # Try next query
-                    continue
-            
-            cursor.close()
-            return []
-            
-        except Error as e:
-            # If INFORMATION_SCHEMA doesn't work, try basic table list with manual timestamp check
-            try:
-                return self._get_basic_table_info()
-            except:
-                st.warning(f"Could not get detailed table information: {e}")
-                return []
-    
-    def _get_basic_table_info(self) -> List[Dict[str, Any]]:
-        """Fallback method to get basic table info"""
-        try:
-            conn = self.get_connection()
-            if not conn:
-                return []
-            
-            cursor = conn.cursor()
-            cursor.execute("SHOW TABLES")
-            table_names = [table[0] for table in cursor.fetchall()]
+            cursor.execute(query, (self.connection_config['database'],))
+            tables_info = cursor.fetchall()
             cursor.close()
             
-            tables_info = []
-            for table_name in table_names:
-                try:
-                    # Get row count
-                    cursor = conn.cursor()
-                    cursor.execute(f"SELECT COUNT(*) FROM `{table_name}`")
-                    row_count = cursor.fetchone()[0]
-                    cursor.close()
-                    
-                    tables_info.append({
-                        'TABLE_NAME': table_name,
-                        'TABLE_ROWS': row_count,
-                        'DATA_LENGTH': None,
-                        'INDEX_LENGTH': None,
-                        'CREATE_TIME': None,
-                        'UPDATE_TIME': None
-                    })
-                except:
-                    # Skip problematic tables
-                    continue
-            
-            return tables_info
+            return tables_info if tables_info else []
             
         except Error as e:
+            logging.error(f"Error getting tables: {e}")
             return []
     
     def get_table_preview(self, table_name: str, limit: int = 5) -> pd.DataFrame:
-        """Get preview of table data (last N rows) - FIXED VERSION"""
+        """Get preview of table data - SECURE VERSION"""
         try:
             conn = self.get_connection()
             if not conn:
-                st.warning("No database connection available")
                 return pd.DataFrame()
             
-            # Sanitize table name to prevent SQL injection
-            if not self._is_valid_table_name(table_name):
-                raise ValueError("Invalid table name")
+            # CRITICAL: Validate table exists in our database
+            if not self._validate_table_exists(table_name):
+                logging.warning(f"Attempt to access invalid table: {table_name}")
+                return pd.DataFrame()
             
-            # Try different query strategies for large tables
-            queries_to_try = [
-                # Strategy 1: Check if table has a primary key first
-                None,  # Will be determined dynamically
-                # Strategy 2: Simple LIMIT without ORDER BY (fastest for large tables)
-                f"SELECT * FROM `{table_name}` LIMIT %s",
-                # Strategy 3: Random sample
-                f"SELECT * FROM `{table_name}` ORDER BY RAND() LIMIT %s"
-            ]
+            # Whitelist approach - only allow tables from our database
+            valid_tables = [t['TABLE_NAME'] for t in self.get_tables_with_info()]
+            if table_name not in valid_tables:
+                logging.warning(f"Table not in whitelist: {table_name}")
+                return pd.DataFrame()
             
-            # First, try to find primary key for optimal ordering
-            try:
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute("""
-                    SELECT COLUMN_NAME 
-                    FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE 
-                    WHERE TABLE_SCHEMA = %s 
-                    AND TABLE_NAME = %s 
-                    AND CONSTRAINT_NAME = 'PRIMARY'
-                    ORDER BY ORDINAL_POSITION
-                    LIMIT 1
-                """, (self.connection_config['database'], table_name))
-                
-                primary_key = cursor.fetchone()
-                cursor.close()
-                
-                if primary_key:
-                    pk_column = primary_key['COLUMN_NAME']
-                    queries_to_try[0] = f"SELECT * FROM `{table_name}` ORDER BY `{pk_column}` DESC LIMIT %s"
-                else:
-                    # Try to find any indexed column
-                    cursor = conn.cursor(dictionary=True)
-                    cursor.execute(f"SHOW INDEX FROM `{table_name}` WHERE Key_name != 'PRIMARY' LIMIT 1")
-                    index_info = cursor.fetchone()
+            # Use prepared statement
+            cursor = conn.cursor()
+            
+            # Set timeout
+            cursor.execute("SET SESSION max_execution_time = 5000")
+            
+            # Get primary key safely
+            cursor.execute("""
+                SELECT COLUMN_NAME 
+                FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE 
+                WHERE TABLE_SCHEMA = %s 
+                AND TABLE_NAME = %s 
+                AND CONSTRAINT_NAME = 'PRIMARY'
+                LIMIT 1
+            """, (self.connection_config['database'], table_name))
+            
+            pk_result = cursor.fetchone()
+            
+            if pk_result:
+                # Build query with parameterized column name
+                pk_column = pk_result[0]
+                # Validate column name
+                if not self._is_valid_identifier(pk_column):
                     cursor.close()
+                    return pd.DataFrame()
                     
-                    if index_info:
-                        idx_column = index_info['Column_name']
-                        queries_to_try[0] = f"SELECT * FROM `{table_name}` ORDER BY `{idx_column}` DESC LIMIT %s"
-                    
-            except Error:
-                # If we can't get key info, skip the first strategy
-                pass
+                query = f"""
+                    SELECT * FROM `{self.connection_config['database']}`.`{table_name}` 
+                    ORDER BY `{pk_column}` DESC 
+                    LIMIT %s
+                """
+            else:
+                query = f"""
+                    SELECT * FROM `{self.connection_config['database']}`.`{table_name}` 
+                    LIMIT %s
+                """
             
-            # Remove None entries
-            queries_to_try = [q for q in queries_to_try if q is not None]
+            cursor.close()
             
-            last_error = None
+            # Execute with parameterized limit
+            df = pd.read_sql(query, conn, params=(limit,))
             
-            for i, query in enumerate(queries_to_try):
-                try:
-                    # Set timeout for large tables
-                    cursor = conn.cursor()
-                    cursor.execute("SET SESSION max_execution_time = 8000")  # 8 seconds timeout
-                    cursor.close()
-                    
-                    df = pd.read_sql(query, conn, params=[limit])
-                    
-                    if not df.empty:
-                        return df
-                    else:
-                        continue
-                        
-                except Error as e:
-                    last_error = str(e)
-                    if "timeout" in str(e).lower() or "execution time" in str(e).lower():
-                        # If timeout, try next strategy
-                        continue
-                    else:
-                        # For other errors, also try next strategy
-                        continue
-                except Exception as e:
-                    last_error = str(e)
-                    continue
-            
-            # If all queries failed, return empty DataFrame
-            if last_error:
-                st.error(f"Could not fetch table preview: {last_error}")
-            
-            return pd.DataFrame()
+            return df
             
         except Error as e:
-            st.error(f"Database error in table preview: {e}")
-            return pd.DataFrame()
-        except Exception as e:
-            st.error(f"Unexpected error in table preview: {e}")
+            logging.error(f"Error in get_table_preview: {e}")
             return pd.DataFrame()
     
     def get_table_columns(self, table_name: str) -> List[Dict[str, Any]]:
-        """Get table column information"""
+        """Get table column information - SECURE VERSION"""
         try:
             conn = self.get_connection()
             if not conn:
                 return []
             
-            if not self._is_valid_table_name(table_name):
-                raise ValueError("Invalid table name")
+            # Validate table exists
+            if not self._validate_table_exists(table_name):
+                return []
             
             cursor = conn.cursor(dictionary=True)
+            
+            # Use parameterized query
             query = """
-            SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, 
-                   CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE
-            FROM INFORMATION_SCHEMA.COLUMNS 
-            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
-            ORDER BY ORDINAL_POSITION
+                SELECT 
+                    COLUMN_NAME, 
+                    DATA_TYPE, 
+                    IS_NULLABLE, 
+                    COLUMN_DEFAULT,
+                    CHARACTER_MAXIMUM_LENGTH, 
+                    NUMERIC_PRECISION, 
+                    NUMERIC_SCALE
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = %s 
+                AND TABLE_NAME = %s
+                ORDER BY ORDINAL_POSITION
             """
+            
             cursor.execute(query, (self.connection_config['database'], table_name))
             columns = cursor.fetchall()
             cursor.close()
+            
             return columns
+            
         except Error as e:
-            st.error(f"Error fetching table columns: {e}")
+            logging.error(f"Error fetching columns: {e}")
             return []
     
     def import_data(self, table_name: str, df: pd.DataFrame, column_mapping: Dict[str, str]) -> Dict[str, Any]:
-        """Import data from DataFrame to database table"""
+        """Import data - SECURE VERSION with transaction"""
+        conn = None
+        cursor = None
+        
         try:
             conn = self.get_connection()
             if not conn:
                 return {'success': False, 'error': 'No database connection'}
             
-            if not self._is_valid_table_name(table_name):
+            # Validate table exists
+            if not self._validate_table_exists(table_name):
                 return {'success': False, 'error': 'Invalid table name'}
             
-            # Prepare data based on mapping
+            # Get valid columns from database
+            table_columns = self.get_table_columns(table_name)
+            valid_column_names = [col['COLUMN_NAME'] for col in table_columns]
+            
+            # Validate mapped columns
+            for db_col in column_mapping.values():
+                if db_col not in valid_column_names:
+                    return {'success': False, 'error': f'Invalid column: {db_col}'}
+            
+            # Prepare data
             mapped_df = pd.DataFrame()
             for file_col, db_col in column_mapping.items():
                 if file_col in df.columns:
                     mapped_df[db_col] = df[file_col]
             
             if mapped_df.empty:
-                return {'success': False, 'error': 'No data to import after mapping'}
+                return {'success': False, 'error': 'No data to import'}
             
-            # Clean data - handle NaN values
+            # Clean data
             mapped_df = mapped_df.fillna('')
             
-            # Get table columns to ensure we're only inserting valid columns
-            table_columns = self.get_table_columns(table_name)
-            valid_columns = [col['COLUMN_NAME'] for col in table_columns]
-            
-            # Filter mapped_df to only include valid columns
-            final_df = mapped_df[[col for col in mapped_df.columns if col in valid_columns]]
-            
-            if final_df.empty:
-                return {'success': False, 'error': 'No valid columns found for import'}
-            
-            # Create INSERT query
-            columns_str = '`, `'.join(final_df.columns)
-            placeholders = ', '.join(['%s'] * len(final_df.columns))
-            query = f"INSERT INTO `{table_name}` (`{columns_str}`) VALUES ({placeholders})"
+            # Start transaction
+            conn.start_transaction()
             
             cursor = conn.cursor()
             
-            # Convert DataFrame to list of tuples for executemany
-            data_tuples = [tuple(row) for row in final_df.values]
+            # Build parameterized INSERT query
+            columns_str = ', '.join([f'`{col}`' for col in mapped_df.columns])
+            placeholders = ', '.join(['%s'] * len(mapped_df.columns))
             
-            # Execute the insert
-            cursor.executemany(query, data_tuples)
-            rows_affected = cursor.rowcount
+            query = f"""
+                INSERT INTO `{self.connection_config['database']}`.`{table_name}` 
+                ({columns_str}) 
+                VALUES ({placeholders})
+            """
             
-            cursor.close()
+            # Convert to tuples
+            data_tuples = [tuple(row) for row in mapped_df.values]
+            
+            # Execute in batches for large datasets
+            batch_size = 1000
+            total_inserted = 0
+            
+            for i in range(0, len(data_tuples), batch_size):
+                batch = data_tuples[i:i+batch_size]
+                cursor.executemany(query, batch)
+                total_inserted += cursor.rowcount
+            
+            # Commit transaction
             conn.commit()
+            cursor.close()
             
             return {
                 'success': True,
-                'rows_affected': rows_affected,
-                'message': f'Successfully imported {rows_affected} rows'
+                'rows_affected': total_inserted,
+                'message': f'Successfully imported {total_inserted} rows'
             }
             
         except Error as e:
+            # Rollback on error
+            if conn:
+                conn.rollback()
+            logging.error(f"Import error: {e}")
             return {'success': False, 'error': f'Database error: {str(e)}'}
+            
         except Exception as e:
+            if conn:
+                conn.rollback()
+            logging.error(f"Unexpected error: {e}")
             return {'success': False, 'error': f'Unexpected error: {str(e)}'}
+        
+        finally:
+            if cursor:
+                cursor.close()
     
     def execute_query(self, query: str, params: Optional[tuple] = None) -> pd.DataFrame:
-        """Execute a SELECT query and return results as DataFrame"""
+        """Execute SELECT query - SECURE VERSION"""
         try:
+            # Validate query is SELECT only
+            query_upper = query.strip().upper()
+            if not query_upper.startswith('SELECT'):
+                logging.warning(f"Attempted non-SELECT query: {query[:50]}")
+                return pd.DataFrame()
+            
             conn = self.get_connection()
             if not conn:
                 return pd.DataFrame()
@@ -345,68 +308,170 @@ class DatabaseManager:
                 df = pd.read_sql(query, conn)
             
             return df
+            
         except Error as e:
-            st.error(f"Query execution error: {e}")
+            logging.error(f"Query error: {e}")
             return pd.DataFrame()
     
-    def get_tables(self) -> List[str]:
-        """Get list of all tables in the database (for backward compatibility)"""
-        try:
-            tables_info = self.get_tables_with_info()
-            return [table['TABLE_NAME'] for table in tables_info]
-        except Exception as e:
-            logging.error(f"Error in get_tables: {e}")
-            return []
-    
-    def get_table_info(self, table_name: str) -> Dict[str, Any]:
-        """Get detailed table information"""
+    def execute_stored_procedure(self, procedure_name: str, parameters: Optional[List] = None) -> Dict[str, Any]:
+        """Execute stored procedure - SECURE VERSION"""
+        conn = None
+        cursor = None
+        
         try:
             conn = self.get_connection()
             if not conn:
-                return {}
+                return {'success': False, 'error': 'No database connection'}
             
-            if not self._is_valid_table_name(table_name):
-                return {}
+            # Validate procedure exists
+            if not self._validate_procedure_exists(procedure_name):
+                return {'success': False, 'error': 'Invalid procedure name'}
             
-            cursor = conn.cursor(dictionary=True)
+            cursor = conn.cursor()
             
-            # Get row count
-            cursor.execute(f"SELECT COUNT(*) as row_count FROM `{table_name}`")
-            row_count = cursor.fetchone()['row_count']
+            # Start transaction
+            conn.start_transaction()
             
-            # Get table creation info
-            cursor.execute(f"SHOW CREATE TABLE `{table_name}`")
-            create_info = cursor.fetchone()
+            # Build CALL statement with placeholders
+            if parameters:
+                placeholders = ', '.join(['%s'] * len(parameters))
+                call_statement = f"CALL `{self.connection_config['database']}`.`{procedure_name}`({placeholders})"
+                cursor.execute(call_statement, parameters)
+            else:
+                call_statement = f"CALL `{self.connection_config['database']}`.`{procedure_name}`()"
+                cursor.execute(call_statement)
             
+            # Fetch results
+            results = []
+            try:
+                for result in cursor.stored_results():
+                    rows = result.fetchall()
+                    if rows:
+                        columns = [desc[0] for desc in result.description]
+                        results.append([dict(zip(columns, row)) for row in rows])
+            except:
+                pass
+            
+            rows_affected = cursor.rowcount
+            
+            # Get warnings
+            cursor.execute("SHOW WARNINGS")
+            warnings = cursor.fetchall()
+            
+            # Commit transaction
+            conn.commit()
             cursor.close()
             
             return {
-                'row_count': row_count,
-                'create_statement': create_info['Create Table'] if create_info else '',
-                'columns': self.get_table_columns(table_name)
+                'success': True,
+                'message': f'Procedure {procedure_name} executed successfully',
+                'results': results,
+                'rows_affected': rows_affected if rows_affected > 0 else None,
+                'warnings': warnings if warnings else []
             }
+            
         except Error as e:
-            st.error(f"Error getting table info: {e}")
-            return {}
+            if conn:
+                conn.rollback()
+                
+            error_details = {
+                'errno': e.errno if hasattr(e, 'errno') else None,
+                'sqlstate': e.sqlstate if hasattr(e, 'sqlstate') else None,
+                'msg': str(e)
+            }
+            
+            logging.error(f"Procedure execution error: {e}")
+            
+            return {
+                'success': False,
+                'error': str(e),
+                'error_details': error_details
+            }
+            
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            logging.error(f"Unexpected error: {e}")
+            return {'success': False, 'error': str(e)}
+        
+        finally:
+            if cursor:
+                cursor.close()
     
-    def _is_valid_table_name(self, table_name: str) -> bool:
-        """Validate table name to prevent SQL injection"""
-        if not table_name or not isinstance(table_name, str):
+    def _validate_table_exists(self, table_name: str) -> bool:
+        """Validate table exists in database - whitelist approach"""
+        try:
+            if not self._is_valid_identifier(table_name):
+                return False
+            
+            conn = self.get_connection()
+            if not conn:
+                return False
+            
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT COUNT(*) 
+                FROM INFORMATION_SCHEMA.TABLES 
+                WHERE TABLE_SCHEMA = %s 
+                AND TABLE_NAME = %s
+            """, (self.connection_config['database'], table_name))
+            
+            result = cursor.fetchone()
+            cursor.close()
+            
+            return result[0] > 0
+            
+        except Error:
+            return False
+    
+    def _validate_procedure_exists(self, procedure_name: str) -> bool:
+        """Validate procedure exists in database"""
+        try:
+            if not self._is_valid_identifier(procedure_name):
+                return False
+            
+            conn = self.get_connection()
+            if not conn:
+                return False
+            
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT COUNT(*) 
+                FROM INFORMATION_SCHEMA.ROUTINES 
+                WHERE ROUTINE_SCHEMA = %s 
+                AND ROUTINE_NAME = %s
+            """, (self.connection_config['database'], procedure_name))
+            
+            result = cursor.fetchone()
+            cursor.close()
+            
+            return result[0] > 0
+            
+        except Error:
+            return False
+    
+    def _is_valid_identifier(self, identifier: str) -> bool:
+        """Validate SQL identifier (table/column/procedure name)"""
+        if not identifier or not isinstance(identifier, str):
             return False
         
-        # Check if table name contains only allowed characters
+        # Only allow alphanumeric and underscore
+        # Must start with letter or underscore
+        # Max length 64 characters (MySQL limit)
         import re
-        pattern = r'^[a-zA-Z_][a-zA-Z0-9_]*$'
-        return bool(re.match(pattern, table_name))
+        pattern = r'^[a-zA-Z_][a-zA-Z0-9_]{0,63}$'
+        
+        return bool(re.match(pattern, identifier))
     
     def close_connection(self):
         """Close database connection"""
         try:
             if self.connection and self.connection.is_connected():
                 self.connection.close()
+                logging.info("Database connection closed")
         except Error as e:
             logging.error(f"Error closing connection: {e}")
     
     def __del__(self):
-        """Destructor to ensure connection is closed"""
+        """Destructor"""
         self.close_connection()
