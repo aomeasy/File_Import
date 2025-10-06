@@ -112,11 +112,9 @@ def get_procedure_parameters(procedure_name):
         return []
 
 def execute_procedure(procedure_name, parameters=None):
-    """Execute a stored procedure with its own short-lived connection"""
+    conn = cursor = None
     try:
         db_manager = DatabaseManager()
-
-        # ✅ เปิด connection ใหม่ เฉพาะงานนี้เท่านั้น (แยกจาก session_state.db_manager)
         conn = mysql.connector.connect(
             host=db_manager.connection_config['host'],
             port=db_manager.connection_config.get('port', 3306),
@@ -124,24 +122,46 @@ def execute_procedure(procedure_name, parameters=None):
             user=db_manager.connection_config['user'],
             password=db_manager.connection_config['password'],
             charset=db_manager.connection_config.get('charset', 'utf8mb4'),
-            autocommit=False,          # ใช้ทรานแซกชันของตัวเอง
-            connection_timeout=10
+            autocommit=False,
+            connection_timeout=10,
+            consume_results=True,          # ✅ ช่วยเคลียร์ผลลัพธ์อัตโนมัติ
         )
 
-        cursor = conn.cursor()
 
-        if parameters:
-            placeholders = ', '.join(['%s'] * len(parameters))
-            cursor.execute(f"CALL {procedure_name}({placeholders})", parameters)
-        else:
-            cursor.execute(f"CALL {procedure_name}()")
+        # ✅ ใช้ buffered + dictionary เพื่ออ่านผลลัพธ์ได้หมดและแปลงเป็น DataFrame สวย ๆ ได้
+        cursor = conn.cursor(buffered=True, dictionary=True)
 
-        # ดึงผลลัพธ์ (ถ้ามี)
+        # ✅ ใช้ callproc (ปลอดภัยกว่า execute("CALL ..."))
+        args = parameters or []
+        cursor.callproc(procedure_name, args)
+
         results = []
+        # ✅ เก็บทุก result set ที่โปรซีเยอร์ SELECT ออกมา
+        for result_cursor in cursor.stored_results():
+            rows = result_cursor.fetchall()
+            results.append(rows)
+
+        # ✅ เผื่อยังมี result set ค้างอยู่ (เช่น OK packet / status) ให้กวาดจนหมด
+        while cursor.nextset():
+            pass
+
+        conn.commit()
+        return {'success': True, 'message': f'Procedure {procedure_name} executed successfully', 'results': results}
+
+    except mysql.connector.Error as e:
+        if conn:
+            conn.rollback()
+        # ส่งรายละเอียด error กลับไปแสดง
+        return {'success': False, 'error': str(e), 'error_details': {'errno': e.errno, 'sqlstate': e.sqlstate, 'msg': e.msg}}
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return {'success': False, 'error': str(e)}
+    finally:
         try:
-            for result in cursor.stored_results():
-                results.append(result.fetchall())
-        except Exception:
+            if cursor: cursor.close()
+            if conn: conn.close()
+        except: 
             pass
 
         conn.commit()                 # ✅ จบทรานแซกชันของตัวเอง
