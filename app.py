@@ -112,7 +112,10 @@ def get_procedure_parameters(procedure_name):
         return []
 
 def execute_procedure(procedure_name, parameters=None):
-    conn = cursor = None
+    conn = None
+    cursor = None
+    results = []
+
     try:
         db_manager = DatabaseManager()
         conn = mysql.connector.connect(
@@ -124,69 +127,64 @@ def execute_procedure(procedure_name, parameters=None):
             charset=db_manager.connection_config.get('charset', 'utf8mb4'),
             autocommit=False,
             connection_timeout=10,
-            consume_results=True,          # ✅ ช่วยเคลียร์ผลลัพธ์อัตโนมัติ
         )
 
-
-        # ✅ ใช้ buffered + dictionary เพื่ออ่านผลลัพธ์ได้หมดและแปลงเป็น DataFrame สวย ๆ ได้
+        # ใช้ buffered เพื่อนำผลลัพธ์ออกมาให้หมด
         cursor = conn.cursor(buffered=True, dictionary=True)
 
-        # ✅ ใช้ callproc (ปลอดภัยกว่า execute("CALL ..."))
-        args = parameters or []
+        # เรียกด้วย callproc แทน execute("CALL ...")
+        args = parameters if parameters is not None else []
         cursor.callproc(procedure_name, args)
 
-        results = []
-        # ✅ เก็บทุก result set ที่โปรซีเยอร์ SELECT ออกมา
-        for result_cursor in cursor.stored_results():
-            rows = result_cursor.fetchall()
+        # เก็บทุก result set ที่โปรซีเยอร์ SELECT ออกมา
+        for rs in cursor.stored_results():
+            rows = rs.fetchall()
             results.append(rows)
 
-        # ✅ เผื่อยังมี result set ค้างอยู่ (เช่น OK packet / status) ให้กวาดจนหมด
-        while cursor.nextset():
+        # เคลียร์ result sets ที่อาจค้าง (OK packet/สถานะ)
+        try:
+            while cursor.nextset():
+                pass
+        except mysql.connector.Error:
             pass
 
         conn.commit()
-        return {'success': True, 'message': f'Procedure {procedure_name} executed successfully', 'results': results}
+        return {
+            'success': True,
+            'message': f'Procedure {procedure_name} executed successfully',
+            'results': results
+        }
 
     except mysql.connector.Error as e:
         if conn:
-            conn.rollback()
-        # ส่งรายละเอียด error กลับไปแสดง
-        return {'success': False, 'error': str(e), 'error_details': {'errno': e.errno, 'sqlstate': e.sqlstate, 'msg': e.msg}}
+            try: conn.rollback()
+            except Exception: pass
+        return {
+            'success': False,
+            'error': str(e),
+            'error_details': {
+                'errno': getattr(e, 'errno', None),
+                'sqlstate': getattr(e, 'sqlstate', None),
+                'msg': getattr(e, 'msg', str(e))
+            }
+        }
+
     except Exception as e:
         if conn:
-            conn.rollback()
+            try: conn.rollback()
+            except Exception: pass
         return {'success': False, 'error': str(e)}
+
     finally:
         try:
             if cursor: cursor.close()
+        except Exception:
+            pass
+        try:
             if conn: conn.close()
-        except: 
-            pass
-
-        conn.commit()                 # ✅ จบทรานแซกชันของตัวเอง
-        cursor.close()
-        conn.close()                  # ✅ ปิดคอนเน็กชันทันที
-
-        return {'success': True, 'message': f'Procedure {procedure_name} executed successfully', 'results': results}
-
-    except Error as e:
-        # 🔁 ถ้ามีเออเรอร์ให้ rollback และปิดคอนเน็กชัน
-        try:
-            conn.rollback()
-            cursor.close()
-            conn.close()
         except Exception:
             pass
-        return {'success': False, 'error': str(e)}
-    except Exception as e:
-        try:
-            conn.rollback()
-            cursor.close()
-            conn.close()
-        except Exception:
-            pass
-        return {'success': False, 'error': str(e)}
+
 
 
 # ===== CSS STYLING =====
