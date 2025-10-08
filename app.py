@@ -578,7 +578,7 @@ def render_procedures_tab():
         name_filter = st.text_input(
             "Procedure name (supports % wildcard)",
             value=st.session_state.get('last_proc_filter', ""),
-            placeholder="เช่น sp_% หรือระบุชื่อเต็ม"
+            placeholder="เช่น %R06% หรือระบุชื่อเต็ม"
         )
     with c2:
         limit = st.number_input("Limit", min_value=1, max_value=500, value=50, step=10, help="จำกัดจำนวนผลลัพธ์")
