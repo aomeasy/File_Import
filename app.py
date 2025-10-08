@@ -583,7 +583,7 @@ def render_procedures_tab():
     with c2:
         limit = st.number_input("Limit", min_value=1, max_value=500, value=50, step=10, help="จำกัดจำนวนผลลัพธ์")
     with c3:
-        exact_only = st.checkbox("Exact name", value=st.session_state.get('last_proc_exact', False), help="ติ๊ก ถ้าต้องการชื่อเป๊ะ ๆ")
+        exact_only = st.checkbox("Exact name", value=st.session_state.get('last_proc_exact', False), help="ติ๊กหากต้องการชื่อตรง")
     with c4:
         do_load = st.button("📥 Load", type="primary", use_container_width=True)
     with c5:
