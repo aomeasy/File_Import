@@ -31,6 +31,19 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ---- session defaults (safe) ----
+for k, v in {
+    'favorites': [],
+    'loaded_procedures': [],
+    'last_proc_filter': "",
+    'last_proc_exact': False,
+    'execution_history': [],
+    # event flags
+    'PROC_RUN_EVENT': None,       # {'name': str, 'params': list|None}
+    'PROC_ADD_FAV_EVENT': None,   # {'name': str}
+}.items():
+    st.session_state.setdefault(k, v)
+
 # ===== CACHING FUNCTIONS =====
 @st.cache_data(ttl=300)
 def get_cached_tables_info():
@@ -54,14 +67,16 @@ def get_cached_table_preview(table_name, limit=5):
     try:
         if 'db_manager' in st.session_state:
             return st.session_state.db_manager.get_table_preview(table_name, limit)
-        else:
-            db_manager = DatabaseManager()
-            return db_manager.get_table_preview(table_name, limit)
     except Exception as e:
         st.error(f"Preview error: {str(e)}")
+    # fallback
+    try:
+        db_manager = DatabaseManager()
+        return db_manager.get_table_preview(table_name, limit)
+    except Exception:
         return pd.DataFrame()
 
-# ---------- CHANGED: add filterable stored procedures ----------
+# ---------- Stored procedures (filter/load) ----------
 @st.cache_data(ttl=300)
 def get_stored_procedures(name_filter: str = "", limit: int = 50):
     """Get list of stored procedures from database with optional wildcard filter and limit"""
@@ -79,21 +94,18 @@ def get_stored_procedures(name_filter: str = "", limit: int = 50):
         WHERE ROUTINE_SCHEMA = %s
         """
         params = [db_manager.connection_config['database']]
-        if name_filter:
-            base_sql += " AND ROUTINE_NAME LIKE %s"
-            params.append(name_filter)
-        else:
-            base_sql += " AND ROUTINE_NAME LIKE %s"
-            params.append("%")
+        base_sql += " AND ROUTINE_NAME LIKE %s"
+        params.append(name_filter if name_filter else "%")
         base_sql += " ORDER BY ROUTINE_NAME LIMIT %s"
         params.append(limit)
         df = db_manager.execute_query(base_sql, tuple(params))
-        return df.to_dict('records') if not df.empty else []
+        return df.to_dict('records') if (df is not None and not df.empty) else []
     except Exception as e:
         st.error(f"Error getting procedures: {e}")
         return []
 
 def get_procedure_parameters(procedure_name):
+    """Get parameters for a stored procedure"""
     try:
         db_manager = DatabaseManager()
         query = """
@@ -110,12 +122,13 @@ def get_procedure_parameters(procedure_name):
         ORDER BY ORDINAL_POSITION
         """
         df = db_manager.execute_query(query, (db_manager.connection_config['database'], procedure_name))
-        return df.to_dict('records') if not df.empty else []
+        return df.to_dict('records') if (df is not None and not df.empty) else []
     except Exception as e:
         st.error(f"Error getting parameters: {e}")
         return []
 
 def execute_procedure(procedure_name, parameters=None):
+    """Original execute (kept, not used by the new UI flow but preserved to not break other logic)"""
     conn = None
     cursor = None
     results = []
@@ -197,6 +210,7 @@ def execute_procedure_with_progress(procedure_name, parameters=None, fetch_chunk
         args = parameters if parameters is not None else []
         cursor.callproc(procedure_name, args)
         stage_end  = 90
+        # fetch result sets
         for rs in cursor.stored_results():
             status.info("Fetching result set...")
             rows_acc = []
@@ -205,10 +219,9 @@ def execute_procedure_with_progress(procedure_name, parameters=None, fetch_chunk
                 if not rows:
                     break
                 rows_acc.extend(rows)
-                # bump progress a little each chunk (no total known)
-                # Streamlit doesn't expose progress value, so just step up modestly.
-                progress.progress(min(stage_end, progress_value_bump(progress, 5)))
+                progress.progress(min(stage_end, progress_value_bump(step=5)))
             results.append(rows_acc)
+        # clear pending sets (ok packets)
         try:
             while cursor.nextset():
                 pass
@@ -248,8 +261,8 @@ def execute_procedure_with_progress(procedure_name, parameters=None, fetch_chunk
             if conn: conn.close()
         except Exception: pass
 
-# Helper to bump progress value (since we don't know internal). We track in session.
-def progress_value_bump(progress_obj, step=5):
+def progress_value_bump(step=5):
+    """Track progress position in session since Streamlit bar doesn't expose current value."""
     if 'proc_progress_value' not in st.session_state:
         st.session_state['proc_progress_value'] = 20
     st.session_state['proc_progress_value'] = min(100, st.session_state['proc_progress_value'] + step)
@@ -294,14 +307,14 @@ def render_exec_result(proc_name: str, result: dict):
 
 # ---------- NEW: favorites helpers ----------
 def add_favorite(name: str):
-    favs = st.session_state.get('favorites', [])
-    s = set(favs); s.add(name)
-    st.session_state['favorites'] = list(s)
+    favs = set(st.session_state.get('favorites', []))
+    favs.add(name)
+    st.session_state['favorites'] = list(favs)
 
 def remove_favorite(name: str):
-    favs = st.session_state.get('favorites', [])
-    s = set(favs); s.discard(name)
-    st.session_state['favorites'] = list(s)
+    favs = set(st.session_state.get('favorites', []))
+    favs.discard(name)
+    st.session_state['favorites'] = list(favs)
 
 def render_favorites_block():
     st.subheader("⭐ Favorites")
@@ -315,8 +328,7 @@ def render_favorites_block():
             st.write(name)
         with c2:
             if st.button("▶️ Run", key=f"fav_run_{name}"):
-                result = execute_procedure_with_progress(name, None)
-                render_exec_result(name, result)
+                st.session_state['PROC_RUN_EVENT'] = {'name': name, 'params': None}
         with c3:
             if st.button("🗑️ Remove", key=f"fav_del_{name}"):
                 remove_favorite(name)
@@ -517,28 +529,27 @@ def render_import_tab():
                     st.success(f"✅ Mapped {len(column_mapping)} columns")
                     with st.expander("View Mapping Details"):
                         for file_col, db_col in column_mapping.items():
-                            st.write(f"**{file_col}** → **{db_col}**")
+                            st.write(f"**{file_col}** → **{db_column}**".replace("{db_column}", db_col))
                 else:
                     st.warning("⚠️ No columns mapped")
                 st.divider()
-                c1, c2, c3 = st.columns([1,1,2])
+                c1, c2, _ = st.columns([1,1,2])
                 with c1:
                     if st.button("🚀 Import Data", type="primary", disabled=len(column_mapping)==0):
                         if not column_mapping:
                             st.error("Please map at least one column")
                         else:
-                            from database import DatabaseManager
                             fresh_db = DatabaseManager()
                             with st.spinner(f"Importing {len(df)} rows..."):
                                 result = fresh_db.import_data(selected_table, df, column_mapping)
                             fresh_db.close_connection()
-                            if result['success']:
+                            if result.get('success'):
                                 st.success(f"✅ {result['message']}")
                                 st.balloons()
                                 st.cache_data.clear()
                                 st.metric("Rows Imported", result.get('rows_affected', 0))
                             else:
-                                st.error(f"❌ Import failed: {result['error']}")
+                                st.error(f"❌ Import failed: {result.get('error')}")
                 with c2:
                     if st.button("🔄 Reset", type="secondary"):
                         st.rerun()
@@ -546,64 +557,80 @@ def render_import_tab():
                 st.error(f"❌ Error processing file: {str(e)}")
                 st.exception(e)
 
-# ===== TAB 2: RUN PROCEDURES (REPLACED) =====
+# ===== TAB 2: RUN PROCEDURES (with event flags) =====
 def render_procedures_tab():
     st.header("⚙️ Database Procedures & Updates")
     enabled = st.toggle("Enable this tab (load from DB)", value=False, help="Turn on only when you want to work with procedures")
     if not enabled:
         st.info("This tab is idle. Turn on the toggle to load procedures.")
         return
+
     if 'db_manager' not in st.session_state:
         st.session_state.db_manager = DatabaseManager()
-    if 'execution_history' not in st.session_state:
-        st.session_state.execution_history = []
+
     # Favorites on top
     render_favorites_block()
     st.divider()
 
     st.subheader("🔎 Search / Load Procedures (Lazy-load)")
-    c1, c2, c3, c4 = st.columns([2,1,1,1])
+    c1, c2, c3, c4, c5 = st.columns([2,1,1,1,1])
     with c1:
-        name_filter = st.text_input("Procedure name (supports % wildcard)", value="", placeholder="เช่น sp_% หรือระบุชื่อเต็ม")
+        name_filter = st.text_input(
+            "Procedure name (supports % wildcard)",
+            value=st.session_state.get('last_proc_filter', ""),
+            placeholder="เช่น sp_% หรือระบุชื่อเต็ม"
+        )
     with c2:
         limit = st.number_input("Limit", min_value=1, max_value=500, value=50, step=10, help="จำกัดจำนวนผลลัพธ์")
     with c3:
-        exact_only = st.checkbox("Exact name", value=False, help="ติ๊ก ถ้าต้องการชื่อเป๊ะ ๆ")
+        exact_only = st.checkbox("Exact name", value=st.session_state.get('last_proc_exact', False), help="ติ๊ก ถ้าต้องการชื่อเป๊ะ ๆ")
     with c4:
         do_load = st.button("📥 Load", type="primary", use_container_width=True)
+    with c5:
+        do_clear_loaded = st.button("🧹 Clear Loaded", use_container_width=True)
 
-    procedures = []
+    if do_clear_loaded:
+        st.session_state.loaded_procedures = []
+        st.session_state['last_proc_filter'] = ""
+        st.session_state['last_proc_exact'] = False
+        st.toast("Cleared loaded procedures")
+
     if do_load:
         pattern = name_filter or "%"
         if exact_only and name_filter:
             pattern = name_filter
-        procedures = get_stored_procedures(pattern, limit)
-        if procedures:
-            st.success(f"Loaded {len(procedures)} procedure(s)")
+        procs = get_stored_procedures(pattern, limit)
+        st.session_state.loaded_procedures = procs
+        st.session_state['last_proc_filter'] = name_filter
+        st.session_state['last_proc_exact'] = exact_only
+        if procs:
+            st.success(f"Loaded {len(procs)} procedure(s)")
         else:
             st.warning("No procedures matched your filter.")
 
+    # Always use the list persisted in session
+    procedures = st.session_state.loaded_procedures
+
+    # Quick Run
     with st.expander("⚡ Quick Run (run by name directly)"):
         quick_name = st.text_input("Procedure name to run (exact)", key="quick_run_name")
         if st.button("▶️ Run Now", key="quick_run_btn", type="primary"):
             if quick_name.strip():
-                # reset progress baseline
-                st.session_state['proc_progress_value'] = 20
-                result = execute_procedure_with_progress(quick_name.strip(), parameters=None)
-                render_exec_result(quick_name.strip(), result)
+                st.session_state['PROC_RUN_EVENT'] = {'name': quick_name.strip(), 'params': None}
             else:
                 st.error("กรุณาระบุชื่อ procedure ให้ถูกต้อง")
 
     st.divider()
-
     col1, col2 = st.columns([2, 1])
 
+    # List & buttons
     with col1:
         st.subheader("🔧 Stored Procedures")
         if procedures:
             st.info(f"Found {len(procedures)} stored procedures (loaded)")
             search_query = st.text_input("Filter in results (client-side)", placeholder="พิมพ์คัดกรองผลที่โหลดมา", key="search_proc_client")
             filtered_procedures = [p for p in procedures if (search_query.lower() in p['ROUTINE_NAME'].lower())] if search_query else procedures
+
             for proc in filtered_procedures:
                 with st.expander(f"📦 {proc['ROUTINE_NAME']} ({proc['ROUTINE_TYPE']})"):
                     col_info, col_exec = st.columns([1, 1])
@@ -633,22 +660,35 @@ def render_procedures_tab():
                         else:
                             st.info("No parameters required")
                             param_values = None
+
                     st.divider()
                     col_btns = st.columns([1,1,1])
+                    # Set events instead of executing inside loop
                     with col_btns[0]:
-                        if st.button(f"▶️ Execute", key=f"exec_{proc['ROUTINE_NAME']}", type="primary", use_container_width=True):
-                            st.session_state['proc_progress_value'] = 20
-                            result = execute_procedure_with_progress(proc['ROUTINE_NAME'], param_values if params else None)
-                            render_exec_result(proc['ROUTINE_NAME'], result)
+                        if st.button("▶️ Execute", key=f"exec_{proc['ROUTINE_NAME']}", type="primary", use_container_width=True):
+                            st.session_state['PROC_RUN_EVENT'] = {'name': proc['ROUTINE_NAME'], 'params': (param_values if params else None)}
                     with col_btns[1]:
                         if st.button("⭐ Add to Favorites", key=f"fav_{proc['ROUTINE_NAME']}"):
-                            add_favorite(proc['ROUTINE_NAME'])
-                            st.toast(f"Added {proc['ROUTINE_NAME']} to Favorites")
+                            st.session_state['PROC_ADD_FAV_EVENT'] = {'name': proc['ROUTINE_NAME']}
                     with col_btns[2]:
                         if st.button("🔄 Refresh Params", key=f"ref_params_{proc['ROUTINE_NAME']}"):
-                            st.experimental_rerun() if hasattr(st, "experimental_rerun") else st.rerun()
+                            st.rerun()
         else:
             st.warning("⚠️ No procedures loaded. ใส่ชื่อแล้วกด Load ก่อน")
+
+        # ===== Handle events after list render =====
+        event_run = st.session_state.get('PROC_RUN_EVENT')
+        if event_run:
+            st.session_state['proc_progress_value'] = 20
+            result = execute_procedure_with_progress(event_run['name'], event_run.get('params'))
+            render_exec_result(event_run['name'], result)
+            st.session_state['PROC_RUN_EVENT'] = None
+
+        event_fav = st.session_state.get('PROC_ADD_FAV_EVENT')
+        if event_fav:
+            add_favorite(event_fav['name'])
+            st.toast(f"Added {event_fav['name']} to Favorites")
+            st.session_state['PROC_ADD_FAV_EVENT'] = None
 
     with col2:
         st.subheader("📊 Quick Stats")
@@ -665,7 +705,9 @@ def render_procedures_tab():
         if st.button("🗑️ Clear History", use_container_width=True):
             st.session_state.execution_history = []; st.rerun()
         if st.button("🔄 Clear Cache (procedures)", use_container_width=True):
-            get_stored_procedures.clear(); st.toast("Cleared cached procedures")
+            get_stored_procedures.clear()
+            st.session_state.loaded_procedures = []
+            st.toast("Cleared cached procedures & session list")
 
 # ===== TAB 3: FILE MERGER =====
 def render_merger_tab():
@@ -778,7 +820,6 @@ def render_merger_tab():
                     output = BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
                         merged_df.to_excel(writer, index=False, sheet_name='Merged Data')
-                        workbook = writer.book
                         worksheet = writer.sheets['Merged Data']
                         for column in worksheet.columns:
                             max_length = 0
@@ -808,6 +849,7 @@ def main():
             <p>Complete data management system with import, procedures, and file merger</p>
         </div>
         """, unsafe_allow_html=True)
+
         if 'db_manager' not in st.session_state:
             try:
                 st.session_state.db_manager = DatabaseManager()
@@ -820,25 +862,31 @@ def main():
             except Exception as e:
                 st.error(f"Failed to initialize FileProcessor: {e}")
                 return
+
         with st.sidebar:
             st.header("⚙️ Configuration")
             if 'connection_status' not in st.session_state:
                 try:
                     st.session_state.connection_status = st.session_state.db_manager.test_connection()
-                except Exception as e:
+                except Exception:
                     st.session_state.connection_status = False
+
             if st.session_state.connection_status:
                 st.markdown('<div class="status-success">✅ Database Connected</div>', unsafe_allow_html=True)
             else:
                 st.markdown('<div class="status-error">❌ Database Connection Failed</div>', unsafe_allow_html=True)
+
             if st.button("🔄 Refresh", key="refresh_sidebar"):
                 st.cache_data.clear(); st.rerun()
+
             try:
                 tables_info = get_cached_tables_info()
                 tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
-            except Exception as e:
+            except Exception:
                 tables = []; tables_info = []
+
             st.write(f"📊 Available Tables: {len(tables)}")
+
         tab1, tab2, tab3 = st.tabs(["📁 Import Data", "⚙️ Run Procedures", "🔗 File Merger"])
         with tab1:
             render_import_tab()
