@@ -529,7 +529,7 @@ def render_import_tab():
                     st.success(f"✅ Mapped {len(column_mapping)} columns")
                     with st.expander("View Mapping Details"):
                         for file_col, db_col in column_mapping.items():
-                            st.write(f"**{file_col}** → **{db_column}**".replace("{db_column}", db_col))
+                            st.write(f"**{file_col}** → **{db_col}**")
                 else:
                     st.warning("⚠️ No columns mapped")
                 st.divider()
