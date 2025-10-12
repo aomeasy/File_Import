@@ -9,6 +9,7 @@ import base64
 from functools import lru_cache
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO  # ✅ เพิ่มเพื่อใช้รีเซ็ต pointer และอ่านเป็น bytes
 
 # Import modules with error handling
 try:
@@ -286,7 +287,7 @@ def render_exec_result(proc_name: str, result: dict):
                     key=f"download_csv_{proc_name}_{idx}"
                 )
         if result.get('rows_affected'):
-            st.info(f"Rows affected: {result['rows_affected']}")
+            st.info(f"Rows affected: {result.get('rows_affected')}")
         if result.get('warnings'):
             with st.expander("⚠️ Warnings"):
                 for warning in result['warnings']:
@@ -347,6 +348,37 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ===== Utility: Safe CSV reader (ใหม่) =====
+def read_csv_safely(file_or_bytes, *, sep=None):
+    """อ่าน CSV โดยลองหลาย encoding ที่พบบ่อยในไฟล์ไทย และกันบรรทัด/อักขระเสียโดยไม่ให้ล้ม"""
+    if hasattr(file_or_bytes, "getvalue"):
+        raw = file_or_bytes.getvalue()
+    elif hasattr(file_or_bytes, "read"):
+        raw = file_or_bytes.read()
+    else:
+        raw = file_or_bytes  # assume bytes
+
+    encodings_try = ['utf-8-sig', 'cp874', 'tis-620', 'iso-8859-11', 'utf-16', 'utf-16le', 'utf-16be', 'latin1']
+    last_err = None
+    for enc in encodings_try:
+        try:
+            buf = BytesIO(raw)
+            df = pd.read_csv(
+                buf,
+                encoding=enc,
+                encoding_errors='replace',
+                engine='python',
+                sep=sep,                 # sniff ถ้า None
+                on_bad_lines='skip',     # ข้ามบรรทัดพิกล
+                dtype=str                # กัน type เพี้ยน
+            )
+            df.attrs['__encoding__'] = enc
+            return df
+        except Exception as e:
+            last_err = e
+            continue
+    raise last_err or Exception("Cannot decode CSV with known Thai encodings")
+
 # ===== FILE MERGER CLASS =====
 class FileMerger:
     def __init__(self):
@@ -354,27 +386,16 @@ class FileMerger:
         self.processed_data = {}
         self.merged_df = None
         self.header_mapping = {}
+
     def process_uploaded_files(self, files):
         processed = {}
         for file in files:
             file_info = {'name': file.name, 'size': file.size, 'type': self.get_file_type(file.name)}
             try:
                 if file_info['type'] == 'csv':
-                    # อ่านเป็น bytes แล้วลองหลาย encoding
-                    raw = file.getvalue() if hasattr(file, "getvalue") else file.read()
-                    encodings_try = ['utf-8-sig', 'cp874', 'tis-620', 'iso-8859-11', 'latin1']
-                    last_err = None
-                    for enc in encodings_try:
-                        try:
-                            buf = BytesIO(raw)  # reset pointerทุกครั้ง
-                            df = pd.read_csv(buf, encoding=enc, encoding_errors='replace', engine='python')
-                            file_info['succeeded_encoding'] = enc
-                            break
-                        except Exception as e:
-                            last_err = e
-                            df = None
-                    if df is None:
-                        raise last_err or Exception("Cannot decode CSV with known Thai encodings")
+                    # ✅ ใช้ตัวอ่านแบบปลอดภัย
+                    df = read_csv_safely(file)
+                    file_info['succeeded_encoding'] = getattr(df.attrs, '__encoding__', 'unknown')
                     file_info['sheets'] = ['Sheet1']
                     file_info['data'] = {'Sheet1': df}
 
@@ -382,18 +403,22 @@ class FileMerger:
                     # Excel ปกติไม่ติด encoding
                     excel_file = pd.ExcelFile(file)
                     file_info['sheets'] = excel_file.sheet_names
-                    file_info['data'] = {sheet: pd.read_excel(excel_file, sheet_name=sheet)
-                                         for sheet in excel_file.sheet_names}
+                    file_info['data'] = {
+                        sheet: pd.read_excel(excel_file, sheet_name=sheet)
+                        for sheet in excel_file.sheet_names
+                    }
 
                 processed[file.name] = file_info
 
             except Exception as e:
                 st.error(f"Error processing {file.name}: {str(e)}")
         return processed
+
     def get_file_type(self, filename):
         if filename.lower().endswith('.csv'): return 'csv'
         elif filename.lower().endswith(('.xlsx', '.xls')): return 'excel'
         return 'unknown'
+
     def analyze_headers(self, processed_data, selected_sheets, selected_files):
         all_headers = set(); file_headers = {}; has_mismatch = False
         for filename, file_info in processed_data.items():
@@ -410,6 +435,7 @@ class FileMerger:
                 if set(headers) != reference_headers:
                     has_mismatch = True; break
         return list(all_headers), has_mismatch, file_headers
+
     def merge_files(self, processed_data, selected_sheets, selected_files, header_mapping=None, excluded_headers=None):
         merged_dfs = []
         for filename, file_info in processed_data.items():
@@ -447,17 +473,21 @@ def render_import_tab():
     with col_stat3:
         if st.button("🔄 Refresh All", use_container_width=True, key="refresh_import_top"):
             st.cache_data.clear(); st.rerun()
+
     st.divider()
     st.header("📁 File Import to Database")
+
     if 'db_manager' not in st.session_state:
         st.session_state.db_manager = DatabaseManager()
     if 'file_processor' not in st.session_state:
         st.session_state.file_processor = FileProcessor()
+
     try:
         tables_info = get_cached_tables_info()
         tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
     except Exception as e:
         st.warning(f"Could not get table info: {e}"); tables = []; tables_info = []
+
     selected_table = st.selectbox("🎯 Select Target Table", options=[""] + tables, help="Choose the table where you want to import your data")
     if selected_table:
         if tables_info:
@@ -483,6 +513,7 @@ def render_import_tab():
                     if data_length > 0:
                         size_mb = data_length / (1024 * 1024)
                         st.metric("💾 Size", f"{size_mb:.0f} MB")
+
         st.subheader(f"👀 Preview: {selected_table}")
         if st.button("🔄 Show Preview", type="secondary"):
             try:
@@ -495,6 +526,7 @@ def render_import_tab():
                     st.warning("📭 Table is empty or preview unavailable")
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
+
         st.subheader("📤 Upload File")
         uploaded_file = st.file_uploader("Choose a file to import", type=['csv', 'xlsx', 'xls'], help="Max size: 200MB", key="import_uploader")
         if uploaded_file:
@@ -508,12 +540,17 @@ def render_import_tab():
             try:
                 with st.spinner("Reading file..."):
                     if uploaded_file.name.endswith('.csv'):
-                        df = pd.read_csv(uploaded_file)
+                        # ✅ ใช้อ่านแบบปลอดภัยเพื่อกัน error utf-8
+                        df = read_csv_safely(uploaded_file)
                     else:
                         df = pd.read_excel(uploaded_file)
+
                 st.success(f"✅ File loaded: {len(df)} rows, {len(df.columns)} columns")
+                st.caption(f"Encoding: {getattr(df.attrs, '__encoding__', 'auto') if uploaded_file.name.endswith('.csv') else 'n/a'}")
+
                 st.subheader("📋 Data Preview")
                 st.dataframe(df.head(10), use_container_width=True)
+
                 st.subheader("🔗 Column Mapping")
                 table_columns = get_cached_table_columns(selected_table)
                 if not table_columns:
@@ -521,6 +558,7 @@ def render_import_tab():
                 db_column_names = [col['COLUMN_NAME'] for col in table_columns]
                 file_columns = list(df.columns)
                 st.info(f"**File Columns:** {len(file_columns)} | **Table Columns:** {len(db_column_names)}")
+
                 column_mapping = {}
                 col1, col2 = st.columns(2)
                 with col1: st.write("**File Column**")
@@ -541,6 +579,7 @@ def render_import_tab():
                         )
                         if selected_db_col != "-- Skip --":
                             column_mapping[file_col] = selected_db_col
+
                 if column_mapping:
                     st.success(f"✅ Mapped {len(column_mapping)} columns")
                     with st.expander("View Mapping Details"):
@@ -548,6 +587,7 @@ def render_import_tab():
                             st.write(f"**{file_col}** → **{db_col}**")
                 else:
                     st.warning("⚠️ No columns mapped")
+
                 st.divider()
                 c1, c2, _ = st.columns([1,1,2])
                 with c1:
@@ -738,8 +778,10 @@ def render_merger_tab():
     if 'merger_selected_files' not in st.session_state:
         st.session_state.merger_selected_files = {}
     merger = st.session_state.merger
+
     st.subheader("📤 อัปโหลดไฟล์")
     uploaded_files = st.file_uploader("เลือกไฟล์ CSV หรือ Excel", type=['csv', 'xlsx', 'xls'], accept_multiple_files=True, help="รองรับไฟล์ CSV และ Excel หลายไฟล์", key="merger_uploader")
+
     if uploaded_files:
         if len(uploaded_files) != len(st.session_state.get('merger_last_uploaded', [])):
             with st.spinner("กำลังประมวลผลไฟล์..."):
@@ -747,6 +789,7 @@ def render_merger_tab():
                 st.session_state.merger_last_uploaded = uploaded_files
                 st.session_state.merger_merged_df = None
                 st.session_state.merger_selected_files = {f.name: True for f in uploaded_files}
+
     if st.session_state.merger_processed_data:
         if len(st.session_state.merger_processed_data) > 1:
             st.subheader("🎯 เลือกไฟล์สำหรับการรวม")
@@ -761,6 +804,7 @@ def render_merger_tab():
         else:
             filename = list(st.session_state.merger_processed_data.keys())[0]
             st.session_state.merger_selected_files = {filename: True}
+
         st.subheader("📋 ไฟล์ที่อัปโหลด")
         col1, col2 = st.columns([2, 1])
         with col1:
@@ -771,6 +815,8 @@ def render_merger_tab():
                     col_info, col_sheet = st.columns([2, 1])
                     with col_info:
                         st.markdown(f"**ขนาด:** {file_info['size']/1024:.2f} KB  \n**ประเภท:** {file_info['type'].upper()}  \n**จำนวน Sheets:** {len(file_info['sheets'])}")
+                        if 'succeeded_encoding' in file_info:
+                            st.caption(f"Encoding: {file_info.get('succeeded_encoding','auto')}")
                     with col_sheet:
                         if len(file_info['sheets']) > 1:
                             selected_sheet = st.selectbox("เลือก Sheet:", file_info['sheets'], key=f"merger_sheet_{filename}", disabled=not is_selected)
@@ -784,6 +830,7 @@ def render_merger_tab():
                             df = file_info['data'][sheet_name]
                             st.write(f"**Preview ({len(df)} แถว, {len(df.columns)} คอลัมน์):**")
                             st.dataframe(df.head(5), use_container_width=True)
+
         with col2:
             selected_files_data = {k: v for k, v in st.session_state.merger_processed_data.items() if st.session_state.merger_selected_files.get(k, True)}
             total_files = len(selected_files_data)
@@ -793,6 +840,7 @@ def render_merger_tab():
                 if selected_sheets.get(filename, file_info['sheets'][0]) in file_info['data']
             ]) if selected_files_data else 0
             st.markdown(f"""<div class="metric-card"><h3>📊 สถิติ</h3><p><strong>ไฟล์ที่เลือก:</strong> {total_files}</p><p><strong>จำนวนแถวรวม:</strong> {total_records:,}</p></div>""", unsafe_allow_html=True)
+
         st.header("🔍 การวิเคราะห์ Headers")
         all_headers, has_mismatch, file_headers = merger.analyze_headers(st.session_state.merger_processed_data, selected_sheets, st.session_state.merger_selected_files)
         if has_mismatch and len(file_headers) > 1:
@@ -804,12 +852,14 @@ def render_merger_tab():
             st.info("💡 คุณสามารถรวมไฟล์ได้ทันที Headers ที่ไม่ตรงกันจะเป็นค่าว่าง")
         elif len(file_headers) > 1:
             st.success("✅ Headers ทั้งหมดสอดคล้องกัน")
+
         st.header("⚙️ การรวมไฟล์")
         if st.button("🚀 เริ่มรวมไฟล์", type="primary", use_container_width=True, key="merge_files_btn"):
             with st.spinner("กำลังรวมไฟล์..."):
                 merged_df = merger.merge_files(st.session_state.merger_processed_data, selected_sheets, st.session_state.merger_selected_files)
                 st.session_state.merger_merged_df = merged_df
                 st.success(f"✅ รวมไฟล์สำเร็จ! {len(merged_df):,} แถว")
+
         if st.session_state.merger_merged_df is not None:
             st.header("📊 ผลลัพธ์การรวมไฟล์")
             merged_df = st.session_state.merger_merged_df
@@ -819,6 +869,7 @@ def render_merger_tab():
             with c3: st.metric("ไฟล์ที่รวม", sum(st.session_state.merger_selected_files.values()))
             st.subheader("ตัวอย่างข้อมูล")
             st.dataframe(merged_df.head(100), use_container_width=True)
+
             st.header("⬇️ ดาวน์โหลด")
             d1, d2 = st.columns([1,2])
             with d1:
@@ -832,7 +883,6 @@ def render_merger_tab():
                     st.download_button(label="📥 ดาวน์โหลดไฟล์ CSV", data=csv_data, file_name=filename, mime="text/csv", type="primary", use_container_width=True, key="download_merged_csv")
                 else:
                     filename = f"merged_file_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-                    from io import BytesIO
                     output = BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
                         merged_df.to_excel(writer, index=False, sheet_name='Merged Data')
