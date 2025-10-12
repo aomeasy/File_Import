@@ -357,20 +357,36 @@ class FileMerger:
     def process_uploaded_files(self, files):
         processed = {}
         for file in files:
-            file_info = {'name': file.name,'size': file.size,'type': self.get_file_type(file.name)}
+            file_info = {'name': file.name, 'size': file.size, 'type': self.get_file_type(file.name)}
             try:
                 if file_info['type'] == 'csv':
-                    df = pd.read_csv(file)
+                    # อ่านเป็น bytes แล้วลองหลาย encoding
+                    raw = file.getvalue() if hasattr(file, "getvalue") else file.read()
+                    encodings_try = ['utf-8-sig', 'cp874', 'tis-620', 'iso-8859-11', 'latin1']
+                    last_err = None
+                    for enc in encodings_try:
+                        try:
+                            buf = BytesIO(raw)  # reset pointerทุกครั้ง
+                            df = pd.read_csv(buf, encoding=enc, encoding_errors='replace', engine='python')
+                            file_info['succeeded_encoding'] = enc
+                            break
+                        except Exception as e:
+                            last_err = e
+                            df = None
+                    if df is None:
+                        raise last_err or Exception("Cannot decode CSV with known Thai encodings")
                     file_info['sheets'] = ['Sheet1']
                     file_info['data'] = {'Sheet1': df}
+
                 elif file_info['type'] == 'excel':
+                    # Excel ปกติไม่ติด encoding
                     excel_file = pd.ExcelFile(file)
                     file_info['sheets'] = excel_file.sheet_names
-                    file_info['data'] = {}
-                    for sheet in excel_file.sheet_names:
-                        df = pd.read_excel(file, sheet_name=sheet)
-                        file_info['data'][sheet] = df
+                    file_info['data'] = {sheet: pd.read_excel(excel_file, sheet_name=sheet)
+                                         for sheet in excel_file.sheet_names}
+
                 processed[file.name] = file_info
+
             except Exception as e:
                 st.error(f"Error processing {file.name}: {str(e)}")
         return processed
