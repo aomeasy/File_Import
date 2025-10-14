@@ -1,0 +1,11 @@
+services:
+  file_import:
+    build: .
+    container_name: file-import
+    env_file:
+      - .env
+    ports:
+      - "8510:8501"
+    restart: unless-stopped
+    volumes:
+      - .:/app
