@@ -907,9 +907,10 @@ def render_merger_tab():
         st.info("👆 กรุณาอัปโหลดไฟล์เพื่อเริ่มต้นใช้งาน")
 
 import re
+import time
+from datetime import datetime
 import streamlit as st
 import pandas as pd
-import time
 import mysql.connector
 
 def render_data_editor_tab():
@@ -1015,7 +1016,7 @@ def render_data_editor_tab():
         except Exception as e:
             st.error(f"Query error: {e}")
             return
-        time.sleep(0.3)  # เพื่อให้เห็น animation spinner เล็กน้อย
+        time.sleep(0.3)
 
     if df is None or df.empty:
         st.warning("📭 No records found.")
@@ -1093,17 +1094,45 @@ def render_data_editor_tab():
                             cursor.close()
                             conn.close()
 
-                        # ✅ UX หลังบันทึกแบบ Professional
+                        # ✅ UX หลังบันทึกแบบ Professional (ไม่รีเฟรชทันที)
+                        st.session_state["last_save_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        st.session_state["save_status"] = "success"
                         st.success("✅ Data updated successfully.")
                         st.toast("💾 Changes saved!", icon="✅")
-                        time.sleep(1)
-                        st.experimental_rerun()
 
                     except Exception as e:
+                        st.session_state["save_status"] = f"error: {e}"
                         st.error(f"❌ Update failed: {e}")
+
             with c2:
                 if st.button("❌ Discard Changes", type="secondary", use_container_width=True):
                     st.experimental_rerun()
+
+    # ----------------------------
+    # 🕒 แสดงสถานะล่าสุดหลังจาก Save
+    # ----------------------------
+    if "save_status" in st.session_state:
+        if st.session_state["save_status"] == "success":
+            st.markdown(
+                f"<div style='background:#d1fae5;padding:10px;border-radius:8px;margin-top:10px;'>"
+                f"<b>💾 Saved successfully.</b> "
+                f"<small>Last updated at {st.session_state.get('last_save_time','')}</small>"
+                f"</div>", unsafe_allow_html=True
+            )
+        elif st.session_state["save_status"].startswith("error"):
+            st.markdown(
+                f"<div style='background:#fee2e2;padding:10px;border-radius:8px;margin-top:10px;'>"
+                f"<b>❌ Save failed:</b> {st.session_state['save_status']}</div>",
+                unsafe_allow_html=True
+            )
+
+    # ----------------------------
+    # 🔄 ปุ่ม Refresh Data เฉพาะตาราง
+    # ----------------------------
+    if st.button("🔁 Refresh Table Data", use_container_width=True):
+        st.session_state.pop("save_status", None)
+        st.session_state.pop("last_save_time", None)
+        st.experimental_rerun()
 
 
 
