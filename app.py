@@ -914,226 +914,223 @@ import pandas as pd
 import mysql.connector
 
 def render_data_editor_tab():
-    st.header("🧾 View & Edit Database Records")
+    # === HEADER SECTION ===
+    st.markdown("""
+        <div style="background:linear-gradient(90deg,#667eea,#764ba2);
+                    padding:1rem;border-radius:10px;margin-bottom:1rem;
+                    text-align:center;color:white;">
+            <h2 style="margin-bottom:0;">🧾 Data Management Console</h2>
+            <p style="margin-top:4px;font-size:0.9rem;">View, search, and edit data directly from your database — NT Dashboard Edition</p>
+        </div>
+    """, unsafe_allow_html=True)
 
-    # ✅ ตรวจสอบการเชื่อมต่อ
+    # === DATABASE CONNECTION ===
     if 'db_manager' not in st.session_state:
         st.session_state.db_manager = DatabaseManager()
     db = st.session_state.db_manager
 
-    # ✅ โหลดชื่อ Tables
-    try:
-        tables_info = get_cached_tables_info()
-        tables = [t['TABLE_NAME'] for t in tables_info] if tables_info else []
-    except Exception as e:
-        st.error(f"Cannot get tables: {e}")
-        tables = []
+    # === TABLE SELECTION PANEL ===
+    with st.container():
+        st.markdown("### 📂 Select Target Table")
+        try:
+            tables_info = get_cached_tables_info()
+            tables = [t['TABLE_NAME'] for t in tables_info] if tables_info else []
+        except Exception as e:
+            st.error(f"Cannot get tables: {e}")
+            tables = []
 
-    # ✅ เลือกตาราง
-    selected_table = st.selectbox("📋 Select a table to view/edit:", [""] + tables)
-    if not selected_table:
-        st.info("👆 Please select a table to start.")
-        return
+        selected_table = st.selectbox("Select a table to view/edit", [""] + tables, key="table_selector")
+        if not selected_table:
+            st.info("👆 Please select a table to start.")
+            return
 
-    # ✅ ดึง Columns
-    columns = [col['COLUMN_NAME'] for col in get_cached_table_columns(selected_table)]
-    columns_lower = [c.lower() for c in columns]
+        columns = [col['COLUMN_NAME'] for col in get_cached_table_columns(selected_table)]
+        columns_lower = [c.lower() for c in columns]
 
-    # ----------------------------
-    # 🔍 SMART SEARCH PANEL
-    # ----------------------------
-    st.markdown("### 🔍 Smart Search")
-    st.caption("พิมพ์คำใด ๆ ก็ได้ หรือใช้รูปแบบ **field=value , field2=value2** เพื่อค้นหาแบบกำหนดเงื่อนไข")
+    # === DASHBOARD LAYOUT ===
+    left, right = st.columns([1.2, 3])
 
-    col_search1, col_search2 = st.columns([3, 1])
-    with col_search1:
+    # ==========================================
+    # 🔍 LEFT: SEARCH & FILTER PANEL
+    # ==========================================
+    with left:
+        st.markdown("#### 🔍 Smart Search")
+        st.caption("พิมพ์คำใด ๆ ก็ได้ หรือใช้รูปแบบ **field=value , field2=value2** เพื่อค้นหาแบบกำหนดเงื่อนไข")
+
         search_input = st.text_input(
             "Enter keywords or conditions",
-            placeholder="เช่น service_type=FTTx , mm=สิงหาคม2025 หรือพิมพ์คำทั่วไป เช่น datacom"
+            placeholder="เช่น service_type=FTTx , mm=สิงหาคม2025 หรือพิมพ์คำทั่วไป เช่น datacom",
+            key="search_input_field"
         )
-    with col_search2:
-        match_mode = st.radio("Match Mode", options=["AND", "OR"], index=0, horizontal=True)
 
-    col_limit, col_refresh = st.columns([1, 1])
-    with col_limit:
-        row_limit_label = st.selectbox("Show rows", options=["10", "100", "1000", "10000", "All"], index=0)
+        match_mode = st.radio("Match Mode", ["AND", "OR"], horizontal=True, key="match_mode_radio")
+
+        row_limit_label = st.selectbox("Show rows", ["10", "100", "1000", "10000", "All"], index=0)
         row_limit = None if row_limit_label == "All" else int(row_limit_label)
-    with col_refresh:
+
+        st.divider()
         if st.button("🔄 Refresh Data", use_container_width=True):
             st.cache_data.clear()
             st.experimental_rerun()
 
-    # ----------------------------
-    # ⚙️ สร้าง SQL Query อัตโนมัติ
-    # ----------------------------
-    query = f"SELECT * FROM `{selected_table}`"
-    params = []
+        # Styling card
+        st.markdown("""
+            <style>
+            div[data-testid="stSidebar"] {
+                background-color: #f9f9ff !important;
+            }
+            .stRadio > div{flex-direction:row;}
+            </style>
+        """, unsafe_allow_html=True)
 
-    if search_input.strip():
-        conditions = []
-        parts = [p.strip() for p in re.split('[,;]', search_input) if p.strip()]
-        has_explicit_condition = any('=' in p for p in parts)
+    # ==========================================
+    # 📊 RIGHT: DATA DISPLAY & EDIT PANEL
+    # ==========================================
+    with right:
+        # ---- Build SQL ----
+        query = f"SELECT * FROM `{selected_table}`"
+        params = []
+        if search_input.strip():
+            conditions = []
+            parts = [p.strip() for p in re.split('[,;]', search_input) if p.strip()]
+            has_explicit_condition = any('=' in p for p in parts)
+            if has_explicit_condition:
+                joiner = f" {match_mode} "
+                for cond in parts:
+                    if '=' in cond:
+                        key, value = [x.strip() for x in cond.split('=', 1)]
+                        if key.lower() in columns_lower:
+                            real_col = columns[columns_lower.index(key.lower())]
+                            conditions.append(f"`{real_col}` LIKE %s")
+                            params.append(f"%{value}%")
+                        else:
+                            st.warning(f"⚠️ Column `{key}` not found — ignored.")
+                if conditions:
+                    query += " WHERE " + joiner.join(conditions)
+            else:
+                like_clauses = f" {match_mode} ".join([f"`{col}` LIKE %s" for col in columns])
+                query += f" WHERE {like_clauses}"
+                params = [f"%{search_input}%"] * len(columns)
+        if row_limit:
+            query += f" LIMIT {row_limit}"
 
-        if has_explicit_condition:
-            joiner = f" {match_mode} "
-            for cond in parts:
-                if '=' in cond:
-                    key, value = [x.strip() for x in cond.split('=', 1)]
-                    if key.lower() in columns_lower:
-                        real_col = columns[columns_lower.index(key.lower())]
-                        conditions.append(f"`{real_col}` LIKE %s")
-                        params.append(f"%{value}%")
-                    else:
-                        st.warning(f"⚠️ Column `{key}` not found — ignored.")
-                else:
-                    st.warning(f"⚠️ Invalid condition format: {cond}")
-            if conditions:
-                query += " WHERE " + joiner.join(conditions)
-        else:
-            like_clauses = f" {match_mode} ".join([f"`{col}` LIKE %s" for col in columns])
-            query += f" WHERE {like_clauses}"
-            params = [f"%{search_input}%"] * len(columns)
+        formatted_query = query
+        for p in params:
+            formatted_query = formatted_query.replace("%s", f"'{p}'", 1)
 
-    if row_limit:
-        query += f" LIMIT {row_limit}"
+        with st.expander("🧠 SQL Query Used", expanded=False):
+            st.code(formatted_query, language="sql")
 
-    # ----------------------------
-    # 🧠 แสดง SQL Query ที่ใช้ค้นหา
-    # ----------------------------
-    formatted_query = query
-    for p in params:
-        formatted_query = formatted_query.replace("%s", f"'{p}'", 1)
+        # ---- Load Data ----
+        with st.spinner("🔎 Searching database... Please wait."):
+            try:
+                df = db.execute_query(query, tuple(params))
+            except Exception as e:
+                st.error(f"Query error: {e}")
+                return
+            time.sleep(0.2)
 
-    with st.expander("🧠 SQL Query Used for Search", expanded=False):
-        st.code(formatted_query, language="sql")
-
-    # ----------------------------
-    # ⏳ แสดงสถานะการโหลดข้อมูล
-    # ----------------------------
-    with st.spinner("🔎 Searching and loading data..."):
-        try:
-            df = db.execute_query(query, tuple(params))
-        except Exception as e:
-            st.error(f"Query error: {e}")
-            return
-        time.sleep(0.3)
-
-    if df is None or df.empty:
-        st.warning("📭 No records found.")
-        return
-
-    st.success(f"✅ Found {len(df)} records from `{selected_table}`")
-
-    # ----------------------------
-    # 📋 DATA EDITOR (Editable Table)
-    # ----------------------------
-    st.subheader("📋 Current Data (Editable)")
-    edited_df = st.data_editor(
-        df,
-        num_rows="dynamic",
-        use_container_width=True,
-        key="edit_data_editor"
-    )
-
-    # ----------------------------
-    # 💾 DETECT AND PREVIEW CHANGES
-    # ----------------------------
-    if not edited_df.equals(df):
-        st.info("📝 Detected unsaved changes!")
-
-        # ✅ หาคอลัมน์ Primary Key อัตโนมัติ
-        pk_col = None
-        for candidate in ['id', 'ID', 'Id', 'Ticket No', 'ticket_no', 'no', 'No']:
-            if candidate in columns:
-                pk_col = candidate
-                break
-
-        if pk_col is None:
-            st.error("⚠️ Cannot find unique ID column (e.g. id or Ticket No).")
+        if df is None or df.empty:
+            st.warning("📭 No records found.")
             return
 
-        # ✅ ตรวจสอบ Duplicate PK
-        if edited_df[pk_col].duplicated().any():
-            st.warning(f"⚠️ Duplicate values found in `{pk_col}`. Please fix before updating.")
-            return
+        st.success(f"✅ Found {len(df)} records from `{selected_table}`")
 
-        update_queries = []
-        update_params = []
-        affected_keys = []
+        # ---- Show as interactive table ----
+        st.markdown("### 🧮 Editable Records")
+        st.caption("Double-click to edit any cell. Changes will highlight automatically.")
+        edited_df = st.data_editor(
+            df,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="data_editor_panel",
+            hide_index=True
+        )
 
-        for i, row in edited_df.iterrows():
-            if i < len(df) and not row.equals(df.iloc[i]):
-                set_clause = ", ".join([f"`{c}`=%s" for c in columns if c != pk_col])
-                update_query = f"UPDATE `{selected_table}` SET {set_clause} WHERE `{pk_col}`=%s"
-                vals = [row[c] for c in columns if c != pk_col] + [row[pk_col]]
-                update_queries.append(update_query)
-                update_params.append(vals)
-                affected_keys.append(row[pk_col])
+        # ---- Detect & Show Changes ----
+        if not edited_df.equals(df):
+            st.info("📝 Detected unsaved changes!")
 
-        if update_queries:
-            st.subheader("🧩 SQL Preview (before saving)")
-            for i, q in enumerate(update_queries):
-                formatted_sql = q.replace("%s", "'{}'").format(*[str(v) for v in update_params[i]])
-                st.code(formatted_sql, language="sql")
+            pk_col = None
+            for candidate in ['id', 'ID', 'Id', 'Ticket No', 'ticket_no', 'no', 'No']:
+                if candidate in columns:
+                    pk_col = candidate
+                    break
+            if pk_col is None:
+                st.error("⚠️ Cannot find primary key column.")
+                return
 
-            st.markdown(f"🧠 **Affected Rows:** {len(affected_keys)} → `{', '.join(map(str, affected_keys[:10]))}`" +
-                        (" ..." if len(affected_keys) > 10 else ""))
+            update_queries, update_params, affected_keys = [], [], []
+            for i, row in edited_df.iterrows():
+                if i < len(df) and not row.equals(df.iloc[i]):
+                    set_clause = ", ".join([f"`{c}`=%s" for c in columns if c != pk_col])
+                    update_query = f"UPDATE `{selected_table}` SET {set_clause} WHERE `{pk_col}`=%s"
+                    vals = [row[c] for c in columns if c != pk_col] + [row[pk_col]]
+                    update_queries.append(update_query)
+                    update_params.append(vals)
+                    affected_keys.append(row[pk_col])
 
-            confirm = st.checkbox("✅ Confirm these SQL statements before saving", key="confirm_sql")
+            if update_queries:
+                with st.expander("🧩 SQL Preview (before saving)", expanded=True):
+                    for i, q in enumerate(update_queries):
+                        formatted_sql = q.replace("%s", "'{}'").format(*[str(v) for v in update_params[i]])
+                        st.code(formatted_sql, language="sql")
 
-            c1, c2 = st.columns(2)
-            with c1:
-                if st.button("💾 Save Changes", type="primary", use_container_width=True, disabled=not confirm):
-                    try:
-                        with st.spinner("💾 Updating database..."):
-                            conn = db.get_connection()
-                            cursor = conn.cursor()
-                            for q, vals in zip(update_queries, update_params):
-                                cursor.execute(q, vals)
-                            conn.commit()
-                            cursor.close()
-                            conn.close()
+                st.markdown(
+                    f"🧠 **Affected Rows:** {len(affected_keys)} | "
+                    f"Keys: `{', '.join(map(str, affected_keys[:10]))}`"
+                )
 
-                        # ✅ UX หลังบันทึกแบบ Professional (ไม่รีเฟรชทันที)
-                        st.session_state["last_save_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        st.session_state["save_status"] = "success"
-                        st.success("✅ Data updated successfully.")
-                        st.toast("💾 Changes saved!", icon="✅")
+                confirm = st.checkbox("✅ Confirm update queries before saving", key="confirm_update")
 
-                    except Exception as e:
-                        st.session_state["save_status"] = f"error: {e}"
-                        st.error(f"❌ Update failed: {e}")
+                c1, c2 = st.columns([1, 1])
+                with c1:
+                    if st.button("💾 Save Changes", type="primary", use_container_width=True, disabled=not confirm):
+                        try:
+                            with st.spinner("💾 Applying changes to database..."):
+                                conn = db.get_connection()
+                                cursor = conn.cursor()
+                                for q, vals in zip(update_queries, update_params):
+                                    cursor.execute(q, vals)
+                                conn.commit()
+                                cursor.close()
+                                conn.close()
 
-            with c2:
-                if st.button("❌ Discard Changes", type="secondary", use_container_width=True):
-                    st.experimental_rerun()
+                            st.session_state["last_save_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            st.session_state["save_status"] = "success"
+                            st.success("✅ Data updated successfully.")
+                            st.toast("💾 Changes saved!", icon="✅")
 
-    # ----------------------------
-    # 🕒 แสดงสถานะล่าสุดหลังจาก Save
-    # ----------------------------
-    if "save_status" in st.session_state:
-        if st.session_state["save_status"] == "success":
-            st.markdown(
-                f"<div style='background:#d1fae5;padding:10px;border-radius:8px;margin-top:10px;'>"
-                f"<b>💾 Saved successfully.</b> "
-                f"<small>Last updated at {st.session_state.get('last_save_time','')}</small>"
-                f"</div>", unsafe_allow_html=True
-            )
-        elif st.session_state["save_status"].startswith("error"):
-            st.markdown(
-                f"<div style='background:#fee2e2;padding:10px;border-radius:8px;margin-top:10px;'>"
-                f"<b>❌ Save failed:</b> {st.session_state['save_status']}</div>",
-                unsafe_allow_html=True
-            )
+                        except Exception as e:
+                            st.session_state["save_status"] = f"error: {e}"
+                            st.error(f"❌ Update failed: {e}")
 
-    # ----------------------------
-    # 🔄 ปุ่ม Refresh Data เฉพาะตาราง
-    # ----------------------------
-    if st.button("🔁 Refresh Table Data", use_container_width=True):
-        st.session_state.pop("save_status", None)
-        st.session_state.pop("last_save_time", None)
-        st.experimental_rerun()
+                with c2:
+                    if st.button("❌ Discard Changes", type="secondary", use_container_width=True):
+                        st.experimental_rerun()
 
+        # ---- Show status bar ----
+        st.markdown("---")
+        if "save_status" in st.session_state:
+            if st.session_state["save_status"] == "success":
+                st.markdown(
+                    f"<div style='background:#d1fae5;padding:10px;border-radius:8px;'>"
+                    f"💾 <b>Saved successfully.</b> "
+                    f"<small>Last updated at {st.session_state.get('last_save_time','')}</small></div>",
+                    unsafe_allow_html=True
+                )
+            elif st.session_state["save_status"].startswith("error"):
+                st.markdown(
+                    f"<div style='background:#fee2e2;padding:10px;border-radius:8px;'>"
+                    f"❌ <b>Save failed:</b> {st.session_state['save_status']}</div>",
+                    unsafe_allow_html=True
+                )
+
+        # ---- Bottom bar ----
+        st.markdown(
+            "<div style='text-align:right;color:gray;font-size:0.85rem;margin-top:10px;'>"
+            "📅 Last refreshed: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S") +
+            "</div>", unsafe_allow_html=True)
 
 
 
