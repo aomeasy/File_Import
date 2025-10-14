@@ -906,6 +906,112 @@ def render_merger_tab():
     else:
         st.info("👆 กรุณาอัปโหลดไฟล์เพื่อเริ่มต้นใช้งาน")
 
+def render_data_editor_tab():
+    st.header("🧾 View & Edit Database Records")
+
+    # ✅ ตรวจสอบการเชื่อมต่อ
+    if 'db_manager' not in st.session_state:
+        st.session_state.db_manager = DatabaseManager()
+    db = st.session_state.db_manager
+
+    # ✅ โหลดรายการตาราง
+    try:
+        tables_info = get_cached_tables_info()
+        tables = [t['TABLE_NAME'] for t in tables_info] if tables_info else []
+    except Exception as e:
+        st.error(f"Cannot get tables: {e}")
+        tables = []
+
+    # ✅ เลือกตาราง
+    selected_table = st.selectbox("📋 Select a table to view/edit:", [""] + tables)
+    if not selected_table:
+        st.info("👆 Please select a table to start.")
+        return
+
+    # ✅ ดึง columns สำหรับ filter
+    columns = [col['COLUMN_NAME'] for col in get_cached_table_columns(selected_table)]
+    col_filter, col_keyword = st.columns([1, 2])
+    with col_filter:
+        filter_col = st.selectbox("Filter column", [""] + columns)
+    with col_keyword:
+        keyword = st.text_input("Keyword")
+
+    # ✅ Query ข้อมูล
+    query = f"SELECT * FROM `{selected_table}`"
+    params = []
+    if filter_col and keyword:
+        query += f" WHERE `{filter_col}` LIKE %s"
+        params.append(f"%{keyword}%")
+    query += " LIMIT 100"
+
+    try:
+        df = db.execute_query(query, tuple(params))
+    except Exception as e:
+        st.error(f"Query error: {e}")
+        return
+
+    if df is None or df.empty:
+        st.warning("📭 No records found.")
+        return
+
+    st.success(f"✅ Showing {len(df)} rows from `{selected_table}`")
+    st.dataframe(df, use_container_width=True)
+
+    # ✅ แก้ไขข้อมูล
+    edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key="edit_data_editor")
+
+    if not edited_df.equals(df):
+        st.info("Detected unsaved changes!")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("💾 Save Changes", type="primary", use_container_width=True):
+                try:
+                    conn = db.get_connection()
+                    cursor = conn.cursor()
+                    # ✅ อัปเดตแต่ละแถว (ต้องมี primary key)
+                    pk_col = columns[0]  # สมมติว่าคอลัมน์แรกเป็น PK
+                    for i, row in edited_df.iterrows():
+                        if i < len(df):  # เฉพาะแถวเดิม
+                            set_clause = ", ".join([f"`{c}`=%s" for c in columns if c != pk_col])
+                            update_query = f"UPDATE `{selected_table}` SET {set_clause} WHERE `{pk_col}`=%s"
+                            vals = [row[c] for c in columns if c != pk_col] + [row[pk_col]]
+                            cursor.execute(update_query, vals)
+                    conn.commit()
+                    st.success("✅ Data updated successfully.")
+                    st.cache_data.clear()
+                except Exception as e:
+                    st.error(f"Update failed: {e}")
+                finally:
+                    cursor.close()
+                    conn.close()
+
+        with c2:
+            if st.button("❌ Discard Changes", type="secondary", use_container_width=True):
+                st.rerun()
+
+    # ✅ ปุ่มลบแถว
+    st.divider()
+    st.subheader("🗑️ Delete Record")
+    pk_col = columns[0] if columns else None
+    if pk_col:
+        pk_value = st.text_input(f"Enter {pk_col} to delete:")
+        if st.button("🗑️ Delete", type="primary", use_container_width=True):
+            try:
+                conn = db.get_connection()
+                cursor = conn.cursor()
+                cursor.execute(f"DELETE FROM `{selected_table}` WHERE `{pk_col}` = %s", (pk_value,))
+                conn.commit()
+                st.success(f"✅ Deleted record where {pk_col}={pk_value}")
+                st.cache_data.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Delete failed: {e}")
+            finally:
+                cursor.close()
+                conn.close()
+
+
 # ===== MAIN APPLICATION =====
 def main():
     try:
@@ -953,13 +1059,20 @@ def main():
 
             st.write(f"📊 Available Tables: {len(tables)}")
 
-        tab1, tab2, tab3 = st.tabs(["📁 Import Data", "⚙️ Run Procedures", "🔗 File Merger"])
-        with tab1:
-            render_import_tab()
-        with tab2:
-            render_procedures_tab()
-        with tab3:
-            render_merger_tab()
+            tab1, tab2, tab3, tab4 = st.tabs([
+                "📁 Import Data", 
+                "⚙️ Run Procedures", 
+                "🔗 File Merger", 
+                "🧾 View & Edit Data"
+            ])
+            with tab1:
+                render_import_tab()
+            with tab2:
+                render_procedures_tab()
+            with tab3:
+                render_merger_tab()
+            with tab4:
+                render_data_editor_tab()  # ✅ เพิ่มใหม่
     except Exception as e:
         st.error(f"Application error: {e}")
 
