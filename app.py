@@ -1059,20 +1059,15 @@ def main():
 
             st.write(f"📊 Available Tables: {len(tables)}")
 
-            tab1, tab2, tab3, tab4 = st.tabs([
-                "📁 Import Data", 
-                "⚙️ Run Procedures", 
-                "🔗 File Merger", 
-                "🧾 View & Edit Data"
-            ])
-            with tab1:
-                render_import_tab()
-            with tab2:
-                render_procedures_tab()
-            with tab3:
-                render_merger_tab()
-            with tab4:
-                render_data_editor_tab()  # ✅ เพิ่มใหม่
+        tab1, tab2, tab3, tab4 = st.tabs([ "📁 Import Data", "⚙️ Run Procedures", "🔗 File Merger",  "🧾 View & Edit Data"])
+        with tab1:
+            render_import_tab()
+        with tab2:
+            render_procedures_tab()
+        with tab3:
+            render_merger_tab()
+        with tab4:
+            render_data_editor_tab()  # ✅ เพิ่มใหม่
     except Exception as e:
         st.error(f"Application error: {e}")
 
