@@ -613,6 +613,25 @@ def render_import_tab():
                 st.error(f"❌ Error processing file: {str(e)}")
                 st.exception(e)
 
+def log_activity(username, action, target, details=None):
+    """บันทึก Log ลงในฐานข้อมูล"""
+    try:
+        db = st.session_state.get('db_manager') or DatabaseManager()
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        ip = st.session_state.get('client_ip', 'unknown')
+        sql = """
+            INSERT INTO activity_log (username, action, target, ip_address, details)
+            VALUES (%s, %s, %s, %s, %s)
+        """
+        cursor.execute(sql, (username, action, target, ip, str(details)))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        st.warning(f"⚠️ Failed to write activity log: {e}")
+
+
 # ===== TAB 2: RUN PROCEDURES (with event flags) =====
 def render_procedures_tab():
     st.header("⚙️ Database Procedures & Updates")
@@ -721,31 +740,66 @@ def render_procedures_tab():
                     col_btns = st.columns([1,1,1])
                     # Set events instead of executing inside loop
                     with col_btns[0]:
-                        # ✅ ช่องกรอกรหัสลับ
-                        secret_key = st.text_input(
-                            f"Secret Key for {proc['ROUTINE_NAME']}",
-                            type="password",
-                            key=f"secret_key_{proc['ROUTINE_NAME']}",
-                            label_visibility="collapsed",
-                            placeholder="Enter secret key to enable execute"
-                        )
-                    
-                        # ✅ ปุ่ม Execute (ถูก disable จนกว่ารหัสจะถูกต้อง)
-                        execute_disabled = secret_key.strip() != "adcharaporn.u"
-                        if execute_disabled:
-                            st.warning("🔒 Enter correct key to unlock Execute button.", icon="🔑")
-                    
-                        if st.button(
-                            "▶️ Execute",
-                            key=f"exec_{proc['ROUTINE_NAME']}",
-                            type="primary",
-                            use_container_width=True,
-                            disabled=execute_disabled
-                        ):
-                            st.session_state['PROC_RUN_EVENT'] = {
-                                'name': proc['ROUTINE_NAME'],
-                                'params': (param_values if params else None)
-                            }
+                    # ✅ รายชื่อผู้ใช้ที่อนุญาต (สามารถเพิ่มได้หลายคน)
+                    authorized_users = {
+                        "adcharaporn.u": "Admin",
+                        "thitiporn.k": "Engineer",
+                        "somsak.t": "Operator",
+                    }
+                
+                    # ✅ ช่องกรอกรหัสลับ
+                    secret_key = st.text_input(
+                        f"Secret Key for {proc['ROUTINE_NAME']}",
+                        type="password",
+                        key=f"secret_key_{proc['ROUTINE_NAME']}",
+                        label_visibility="collapsed",
+                        placeholder="Enter your secret key to unlock execute"
+                    )
+                
+                    # ✅ ตรวจสอบสิทธิ์ผู้ใช้
+                    user_role = authorized_users.get(secret_key.strip())
+                    execute_disabled = user_role is None
+                
+                    if execute_disabled:
+                        st.warning("🔒 Enter correct key to unlock Execute button.", icon="🔑")
+                    else:
+                        st.success(f"✅ Authorized as **{user_role}**")
+                
+                    # ✅ ปุ่ม Execute
+                    if st.button(
+                        "▶️ Execute",
+                        key=f"exec_{proc['ROUTINE_NAME']}",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=execute_disabled
+                    ):
+                        # ===== LOG ACTIVITY =====
+                        try:
+                            username = secret_key.strip()
+                            db = st.session_state.get('db_manager') or DatabaseManager()
+                            conn = db.get_connection()
+                            cursor = conn.cursor()
+                            cursor.execute("""
+                                INSERT INTO activity_log (username, action, target, ip_address, details)
+                                VALUES (%s, %s, %s, %s, %s)
+                            """, (
+                                username,
+                                "Execute Procedure",
+                                proc['ROUTINE_NAME'],
+                                st.session_state.get('client_ip', 'unknown'),
+                                str({'params': param_values})
+                            ))
+                            conn.commit()
+                            cursor.close()
+                            conn.close()
+                        except Exception as log_err:
+                            st.warning(f"⚠️ Failed to write log: {log_err}")
+                
+                        # ===== EXECUTE PROCEDURE =====
+                        st.session_state['PROC_RUN_EVENT'] = {
+                            'name': proc['ROUTINE_NAME'],
+                            'params': (param_values if params else None)
+                        }
 
                     with col_btns[1]:
                         if st.button("⭐ Add to Favorites", key=f"fav_{proc['ROUTINE_NAME']}"):
@@ -1173,7 +1227,14 @@ def render_data_editor_tab():
 
 
 
-
+def render_log_tab():
+    st.header("📜 Activity Log")
+    db = st.session_state.db_manager
+    df = db.execute_query("SELECT * FROM activity_log ORDER BY timestamp DESC LIMIT 200")
+    if df is not None and not df.empty:
+        st.dataframe(df, use_container_width=True)
+    else:
+        st.info("No activity logs yet.")
 
 
 # ===== MAIN APPLICATION =====
@@ -1186,6 +1247,12 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
+        if 'client_ip' not in st.session_state:
+            try:
+                import requests
+                st.session_state['client_ip'] = requests.get('https://api.ipify.org').text
+            except:
+                st.session_state['client_ip'] = 'unknown'
         if 'db_manager' not in st.session_state:
             try:
                 st.session_state.db_manager = DatabaseManager()
@@ -1223,7 +1290,7 @@ def main():
 
             st.write(f"📊 Available Tables: {len(tables)}")
 
-        tab1, tab2, tab3, tab4 = st.tabs([ "📁 Import Data", "⚙️ Run Procedures","🧾 View & Edit Data","🔗 File Merger"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([ "📁 Import Data", "⚙️ Run Procedures","🧾 View & Edit Data","🔗 File Merger","📜 Logs"])
         with tab1:
             render_import_tab()
         with tab2:
@@ -1232,6 +1299,8 @@ def main():
             render_data_editor_tab()  # ✅ เพิ่มใหม่
         with tab4:
             render_merger_tab() 
+        with tab5:
+            render_log_tab()
     except Exception as e:
         st.error(f"Application error: {e}")
 
