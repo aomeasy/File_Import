@@ -909,12 +909,12 @@ def render_merger_tab():
 def render_data_editor_tab():
     st.header("🧾 View & Edit Database Records")
 
-    # ✅ ตรวจสอบการเชื่อมต่อ
+    # ✅ ตรวจสอบการเชื่อมต่อ Database
     if 'db_manager' not in st.session_state:
         st.session_state.db_manager = DatabaseManager()
     db = st.session_state.db_manager
 
-    # ✅ โหลดตาราง
+    # ✅ โหลดชื่อ Table ทั้งหมด
     try:
         tables_info = get_cached_tables_info()
         tables = [t['TABLE_NAME'] for t in tables_info] if tables_info else []
@@ -922,22 +922,23 @@ def render_data_editor_tab():
         st.error(f"Cannot get tables: {e}")
         tables = []
 
-    # ✅ เลือกตาราง
+    # ✅ ให้ผู้ใช้เลือกตาราง
     selected_table = st.selectbox("📋 Select a table to view/edit:", [""] + tables)
     if not selected_table:
         st.info("👆 Please select a table to start.")
         return
 
-    # ✅ ดึง columns
+    # ✅ ดึง Columns ของตาราง
     columns = [col['COLUMN_NAME'] for col in get_cached_table_columns(selected_table)]
 
-    # ✅ Smart Search
+    # ✅ ช่องค้นหาอัจฉริยะ
     st.markdown("🔍 **Smart Search:** พิมพ์คำใด ๆ ก็ได้ ระบบจะค้นหาจากทุกคอลัมน์อัตโนมัติ")
     keyword = st.text_input(
         "Search keyword (auto-search across all columns)",
         placeholder="เช่น ชื่อ, เบอร์โทร, จังหวัด, รหัสลูกค้า ฯลฯ"
     )
 
+    # ✅ สร้าง SQL สำหรับค้นหา
     query = f"SELECT * FROM `{selected_table}`"
     params = []
     if keyword.strip():
@@ -946,6 +947,7 @@ def render_data_editor_tab():
         params = [f"%{keyword}%"] * len(columns)
     query += " LIMIT 100"
 
+    # ✅ ดึงข้อมูล
     try:
         df = db.execute_query(query, tuple(params))
     except Exception as e:
@@ -957,36 +959,65 @@ def render_data_editor_tab():
         return
 
     st.success(f"✅ Showing {len(df)} rows from `{selected_table}`")
-    st.dataframe(df, use_container_width=True)
 
-    # ✅ แก้ไขข้อมูล
-    edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key="edit_data_editor")
+    # ✅ แสดงข้อมูล Editable
+    st.subheader("📋 Current Data (Editable)")
+    edited_df = st.data_editor(
+        df,
+        num_rows="dynamic",
+        use_container_width=True,
+        key="edit_data_editor"
+    )
 
+    # ✅ ตรวจสอบการเปลี่ยนแปลง
     if not edited_df.equals(df):
         st.info("📝 Detected unsaved changes!")
 
-        pk_col = columns[0]  # สมมติคอลัมน์แรกคือ Primary Key
+        # ✅ หาคอลัมน์ Primary Key อัตโนมัติ
+        pk_col = None
+        for candidate in ['id','number','Service_ID','CAT_PROPERTY','no2','TicketNo', 'ID', 'Id', 'Ticket No', 'ticket_no', 'no', 'No']:
+            if candidate in columns:
+                pk_col = candidate
+                break
+
+        if pk_col is None:
+            st.error("⚠️ Cannot find a unique identifier column (like 'id' or 'Ticket No'). Please add one to allow safe updates.")
+            return
+
+        # ✅ ตรวจสอบค่าซ้ำในคอลัมน์ PK
+        if edited_df[pk_col].duplicated().any():
+            st.warning(f"⚠️ Duplicate values found in `{pk_col}`. Updates may affect multiple rows. Please fix duplicates first.")
+            return
+
         update_queries = []
         update_params = []
+        affected_keys = []
 
+        # ✅ ตรวจสอบเฉพาะแถวที่เปลี่ยนจริง
         for i, row in edited_df.iterrows():
-            if i < len(df) and not row.equals(df.iloc[i]):  # มีการเปลี่ยนจริง
+            if i < len(df) and not row.equals(df.iloc[i]):
                 set_clause = ", ".join([f"`{c}`=%s" for c in columns if c != pk_col])
                 update_query = f"UPDATE `{selected_table}` SET {set_clause} WHERE `{pk_col}`=%s"
                 vals = [row[c] for c in columns if c != pk_col] + [row[pk_col]]
                 update_queries.append(update_query)
                 update_params.append(vals)
+                affected_keys.append(row[pk_col])
 
+        # ✅ แสดง SQL Preview
         if update_queries:
             st.subheader("🧩 SQL Preview (before saving)")
             for i, q in enumerate(update_queries):
                 formatted_sql = q.replace("%s", "'{}'").format(*[str(v) for v in update_params[i]])
                 st.code(formatted_sql, language="sql")
 
+            st.markdown(f"🧠 **Affected Rows:** {len(affected_keys)} → `{', '.join(map(str, affected_keys[:10]))}`" +
+                        (" ..." if len(affected_keys) > 10 else ""))
+
             confirm = st.checkbox("✅ Confirm these SQL statements before saving", key="confirm_sql")
 
-            col1, col2 = st.columns(2)
-            with col1:
+            # ✅ ปุ่มบันทึกและยกเลิก
+            c1, c2 = st.columns(2)
+            with c1:
                 if st.button("💾 Save Changes", type="primary", use_container_width=True, disabled=not confirm):
                     try:
                         conn = db.get_connection()
@@ -1003,11 +1034,11 @@ def render_data_editor_tab():
                         cursor.close()
                         conn.close()
 
-            with col2:
+            with c2:
                 if st.button("❌ Discard Changes", type="secondary", use_container_width=True):
                     st.rerun()
 
-    # ✅ ลบข้อมูล
+    # ✅ ฟังก์ชันลบข้อมูล
     st.divider()
     st.subheader("🗑️ Delete Record")
     pk_col = columns[0] if columns else None
