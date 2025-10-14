@@ -721,8 +721,32 @@ def render_procedures_tab():
                     col_btns = st.columns([1,1,1])
                     # Set events instead of executing inside loop
                     with col_btns[0]:
-                        if st.button("▶️ Execute", key=f"exec_{proc['ROUTINE_NAME']}", type="primary", use_container_width=True):
-                            st.session_state['PROC_RUN_EVENT'] = {'name': proc['ROUTINE_NAME'], 'params': (param_values if params else None)}
+                        # ✅ ช่องกรอกรหัสลับ
+                        secret_key = st.text_input(
+                            f"Secret Key for {proc['ROUTINE_NAME']}",
+                            type="password",
+                            key=f"secret_key_{proc['ROUTINE_NAME']}",
+                            label_visibility="collapsed",
+                            placeholder="Enter secret key to enable execute"
+                        )
+                    
+                        # ✅ ปุ่ม Execute (ถูก disable จนกว่ารหัสจะถูกต้อง)
+                        execute_disabled = secret_key.strip() != "adcharaporn.u"
+                        if execute_disabled:
+                            st.warning("🔒 Enter correct key to unlock Execute button.", icon="🔑")
+                    
+                        if st.button(
+                            "▶️ Execute",
+                            key=f"exec_{proc['ROUTINE_NAME']}",
+                            type="primary",
+                            use_container_width=True,
+                            disabled=execute_disabled
+                        ):
+                            st.session_state['PROC_RUN_EVENT'] = {
+                                'name': proc['ROUTINE_NAME'],
+                                'params': (param_values if params else None)
+                            }
+
                     with col_btns[1]:
                         if st.button("⭐ Add to Favorites", key=f"fav_{proc['ROUTINE_NAME']}"):
                             st.session_state['PROC_ADD_FAV_EVENT'] = {'name': proc['ROUTINE_NAME']}
