@@ -743,8 +743,8 @@ def render_procedures_tab():
                         # ✅ รายชื่อผู้ใช้ที่อนุญาต (สามารถเพิ่มได้หลายคน)
                         authorized_users = {
                             "adcharaporn.u": "Admin",
-                            "thitiporn.k": "Engineer",
-                            "somsak.t": "Operator",
+                            "Che": "Admin",
+                            "Plai": "Operator",
                     }
                 
                     # ✅ ช่องกรอกรหัสลับ
