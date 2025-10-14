@@ -906,6 +906,8 @@ def render_merger_tab():
     else:
         st.info("👆 กรุณาอัปโหลดไฟล์เพื่อเริ่มต้นใช้งาน")
 
+import re
+
 def render_data_editor_tab():
     st.header("🧾 View & Edit Database Records")
 
@@ -931,23 +933,74 @@ def render_data_editor_tab():
     # ✅ ดึง Columns ของตาราง
     columns = [col['COLUMN_NAME'] for col in get_cached_table_columns(selected_table)]
 
-    # ✅ ช่องค้นหาอัจฉริยะ
-    st.markdown("🔍 **Smart Search:** พิมพ์คำใด ๆ ก็ได้ ระบบจะค้นหาจากทุกคอลัมน์อัตโนมัติ")
-    keyword = st.text_input(
-        "Search keyword (auto-search across all columns)",
-        placeholder="เช่น ชื่อ, เบอร์โทร, จังหวัด, รหัสลูกค้า ฯลฯ"
-    )
+    # ----------------------------
+    # 🔍 SMART SEARCH PANEL
+    # ----------------------------
+    st.markdown("### 🔍 Smart Search")
+    st.caption("พิมพ์คำใด ๆ ก็ได้ หรือใช้รูปแบบ `field=value , field2=value2` เพื่อค้นหาแบบระบุเงื่อนไข")
 
-    # ✅ สร้าง SQL สำหรับค้นหา
+    col_search1, col_search2 = st.columns([3, 1])
+    with col_search1:
+        search_input = st.text_input(
+            "Enter keywords or conditions",
+            placeholder="เช่น  service_type=FTTx , mm=สิงหาคม2025  หรือพิมพ์คำค้นทั่ว ๆ ไป เช่น datacom"
+        )
+    with col_search2:
+        match_mode = st.radio("Match Mode", options=["AND", "OR"], index=0, horizontal=True)
+
+    col_limit, col_refresh = st.columns([1, 1])
+    with col_limit:
+        row_limit_label = st.selectbox("Show rows", options=["10", "100", "1000", "10000", "All"], index=0)
+        row_limit = 10 if row_limit_label == "10" else (
+            100 if row_limit_label == "100" else (
+                1000 if row_limit_label == "1000" else (
+                    10000 if row_limit_label == "10000" else None
+                )
+            )
+        )
+    with col_refresh:
+        if st.button("🔄 Refresh Data", use_container_width=True):
+            st.cache_data.clear()
+            st.experimental_rerun()
+
+    # ----------------------------
+    # 🧮 สร้าง SQL Query อัตโนมัติ
+    # ----------------------------
     query = f"SELECT * FROM `{selected_table}`"
     params = []
-    if keyword.strip():
-        like_clauses = " OR ".join([f"`{col}` LIKE %s" for col in columns])
-        query += f" WHERE {like_clauses}"
-        params = [f"%{keyword}%"] * len(columns)
-    query += " LIMIT 100"
 
-    # ✅ ดึงข้อมูล
+    if search_input.strip():
+        conditions = []
+        parts = [p.strip() for p in re.split('[,;]', search_input) if p.strip()]
+        has_explicit_condition = any('=' in p for p in parts)
+
+        if has_explicit_condition:
+            # ใช้ AND/OR ตามที่ผู้ใช้เลือก
+            joiner = f" {match_mode} "
+            for cond in parts:
+                if '=' in cond:
+                    key, value = [x.strip() for x in cond.split('=', 1)]
+                    if key in columns:
+                        conditions.append(f"`{key}` LIKE %s")
+                        params.append(f"%{value}%")
+                    else:
+                        st.warning(f"⚠️ Column `{key}` not found — ignored.")
+                else:
+                    st.warning(f"⚠️ Invalid condition format: {cond}")
+            if conditions:
+                query += " WHERE " + joiner.join(conditions)
+        else:
+            # fallback: search all columns
+            like_clauses = f" {match_mode} ".join([f"`{col}` LIKE %s" for col in columns])
+            query += f" WHERE {like_clauses}"
+            params = [f"%{search_input}%"] * len(columns)
+
+    if row_limit:
+        query += f" LIMIT {row_limit}"
+
+    # ----------------------------
+    # 🚀 Execute query
+    # ----------------------------
     try:
         df = db.execute_query(query, tuple(params))
     except Exception as e:
@@ -960,7 +1013,9 @@ def render_data_editor_tab():
 
     st.success(f"✅ Showing {len(df)} rows from `{selected_table}`")
 
-    # ✅ แสดงข้อมูล Editable
+    # ----------------------------
+    # 📋 DATA EDITOR (Editable Table)
+    # ----------------------------
     st.subheader("📋 Current Data (Editable)")
     edited_df = st.data_editor(
         df,
@@ -969,13 +1024,15 @@ def render_data_editor_tab():
         key="edit_data_editor"
     )
 
-    # ✅ ตรวจสอบการเปลี่ยนแปลง
+    # ----------------------------
+    # 💾 DETECT AND PREVIEW CHANGES
+    # ----------------------------
     if not edited_df.equals(df):
         st.info("📝 Detected unsaved changes!")
 
         # ✅ หาคอลัมน์ Primary Key อัตโนมัติ
         pk_col = None
-        for candidate in ['id','number','Service_ID','CAT_PROPERTY','no2','TicketNo', 'ID', 'Id', 'Ticket No', 'ticket_no', 'no', 'No']:
+        for candidate in ['id', 'ID', 'Id','TicketNo','Ticket No', 'ticket_no', 'no', 'No']:
             if candidate in columns:
                 pk_col = candidate
                 break
@@ -993,7 +1050,6 @@ def render_data_editor_tab():
         update_params = []
         affected_keys = []
 
-        # ✅ ตรวจสอบเฉพาะแถวที่เปลี่ยนจริง
         for i, row in edited_df.iterrows():
             if i < len(df) and not row.equals(df.iloc[i]):
                 set_clause = ", ".join([f"`{c}`=%s" for c in columns if c != pk_col])
@@ -1003,7 +1059,6 @@ def render_data_editor_tab():
                 update_params.append(vals)
                 affected_keys.append(row[pk_col])
 
-        # ✅ แสดง SQL Preview
         if update_queries:
             st.subheader("🧩 SQL Preview (before saving)")
             for i, q in enumerate(update_queries):
@@ -1015,7 +1070,6 @@ def render_data_editor_tab():
 
             confirm = st.checkbox("✅ Confirm these SQL statements before saving", key="confirm_sql")
 
-            # ✅ ปุ่มบันทึกและยกเลิก
             c1, c2 = st.columns(2)
             with c1:
                 if st.button("💾 Save Changes", type="primary", use_container_width=True, disabled=not confirm):
@@ -1036,28 +1090,8 @@ def render_data_editor_tab():
 
             with c2:
                 if st.button("❌ Discard Changes", type="secondary", use_container_width=True):
-                    st.rerun()
+                    st.experimental_rerun()
 
-    # ✅ ฟังก์ชันลบข้อมูล
-    st.divider()
-    st.subheader("🗑️ Delete Record")
-    pk_col = columns[0] if columns else None
-    if pk_col:
-        pk_value = st.text_input(f"Enter {pk_col} to delete:")
-        if st.button("🗑️ Delete", type="primary", use_container_width=True):
-            try:
-                conn = db.get_connection()
-                cursor = conn.cursor()
-                cursor.execute(f"DELETE FROM `{selected_table}` WHERE `{pk_col}` = %s", (pk_value,))
-                conn.commit()
-                st.success(f"✅ Deleted record where {pk_col}={pk_value}")
-                st.cache_data.clear()
-                st.rerun()
-            except Exception as e:
-                st.error(f"Delete failed: {e}")
-            finally:
-                cursor.close()
-                conn.close()
 
 
 
