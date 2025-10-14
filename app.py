@@ -907,16 +907,20 @@ def render_merger_tab():
         st.info("👆 กรุณาอัปโหลดไฟล์เพื่อเริ่มต้นใช้งาน")
 
 import re
+import streamlit as st
+import pandas as pd
+import time
+import mysql.connector
 
 def render_data_editor_tab():
     st.header("🧾 View & Edit Database Records")
 
-    # ✅ ตรวจสอบการเชื่อมต่อ Database
+    # ✅ ตรวจสอบการเชื่อมต่อ
     if 'db_manager' not in st.session_state:
         st.session_state.db_manager = DatabaseManager()
     db = st.session_state.db_manager
 
-    # ✅ โหลดชื่อ Table ทั้งหมด
+    # ✅ โหลดชื่อ Tables
     try:
         tables_info = get_cached_tables_info()
         tables = [t['TABLE_NAME'] for t in tables_info] if tables_info else []
@@ -924,27 +928,27 @@ def render_data_editor_tab():
         st.error(f"Cannot get tables: {e}")
         tables = []
 
-    # ✅ ให้ผู้ใช้เลือกตาราง
+    # ✅ เลือกตาราง
     selected_table = st.selectbox("📋 Select a table to view/edit:", [""] + tables)
     if not selected_table:
         st.info("👆 Please select a table to start.")
         return
 
-    # ✅ ดึง Columns ของตาราง
+    # ✅ ดึง Columns
     columns = [col['COLUMN_NAME'] for col in get_cached_table_columns(selected_table)]
-    columns_lower = [c.lower() for c in columns]  # 👈 ใช้ตรวจแบบไม่สนพิมพ์เล็กใหญ่
+    columns_lower = [c.lower() for c in columns]
 
     # ----------------------------
     # 🔍 SMART SEARCH PANEL
     # ----------------------------
     st.markdown("### 🔍 Smart Search")
-    st.caption("พิมพ์คำใด ๆ ก็ได้ หรือใช้รูปแบบ **field=value , field2=value2** เพื่อค้นหาแบบระบุเงื่อนไข")
+    st.caption("พิมพ์คำใด ๆ ก็ได้ หรือใช้รูปแบบ **field=value , field2=value2** เพื่อค้นหาแบบกำหนดเงื่อนไข")
 
     col_search1, col_search2 = st.columns([3, 1])
     with col_search1:
         search_input = st.text_input(
             "Enter keywords or conditions",
-            placeholder="เช่น service_type=FTTx , mm=สิงหาคม2025  หรือพิมพ์คำค้นทั่วไป เช่น datacom"
+            placeholder="เช่น service_type=FTTx , mm=สิงหาคม2025 หรือพิมพ์คำทั่วไป เช่น datacom"
         )
     with col_search2:
         match_mode = st.radio("Match Mode", options=["AND", "OR"], index=0, horizontal=True)
@@ -959,7 +963,7 @@ def render_data_editor_tab():
             st.experimental_rerun()
 
     # ----------------------------
-    # 🧮 สร้าง SQL Query อัตโนมัติ
+    # ⚙️ สร้าง SQL Query อัตโนมัติ
     # ----------------------------
     query = f"SELECT * FROM `{selected_table}`"
     params = []
@@ -974,7 +978,6 @@ def render_data_editor_tab():
             for cond in parts:
                 if '=' in cond:
                     key, value = [x.strip() for x in cond.split('=', 1)]
-                    # ✅ ตรวจชื่อคอลัมน์แบบไม่สนพิมพ์เล็กใหญ่
                     if key.lower() in columns_lower:
                         real_col = columns[columns_lower.index(key.lower())]
                         conditions.append(f"`{real_col}` LIKE %s")
@@ -1004,19 +1007,21 @@ def render_data_editor_tab():
         st.code(formatted_query, language="sql")
 
     # ----------------------------
-    # 🚀 Execute query
+    # ⏳ แสดงสถานะการโหลดข้อมูล
     # ----------------------------
-    try:
-        df = db.execute_query(query, tuple(params))
-    except Exception as e:
-        st.error(f"Query error: {e}")
-        return
+    with st.spinner("🔎 Searching and loading data..."):
+        try:
+            df = db.execute_query(query, tuple(params))
+        except Exception as e:
+            st.error(f"Query error: {e}")
+            return
+        time.sleep(0.3)  # เพื่อให้เห็น animation spinner เล็กน้อย
 
     if df is None or df.empty:
         st.warning("📭 No records found.")
         return
 
-    st.success(f"✅ Showing {len(df)} rows from `{selected_table}`")
+    st.success(f"✅ Found {len(df)} records from `{selected_table}`")
 
     # ----------------------------
     # 📋 DATA EDITOR (Editable Table)
@@ -1043,12 +1048,12 @@ def render_data_editor_tab():
                 break
 
         if pk_col is None:
-            st.error("⚠️ Cannot find a unique identifier column (like 'id' or 'Ticket No'). Please add one to allow safe updates.")
+            st.error("⚠️ Cannot find unique ID column (e.g. id or Ticket No).")
             return
 
-        # ✅ ตรวจสอบค่าซ้ำในคอลัมน์ PK
+        # ✅ ตรวจสอบ Duplicate PK
         if edited_df[pk_col].duplicated().any():
-            st.warning(f"⚠️ Duplicate values found in `{pk_col}`. Updates may affect multiple rows. Please fix duplicates first.")
+            st.warning(f"⚠️ Duplicate values found in `{pk_col}`. Please fix before updating.")
             return
 
         update_queries = []
@@ -1079,23 +1084,27 @@ def render_data_editor_tab():
             with c1:
                 if st.button("💾 Save Changes", type="primary", use_container_width=True, disabled=not confirm):
                     try:
-                        conn = db.get_connection()
-                        cursor = conn.cursor()
-                        for q, vals in zip(update_queries, update_params):
-                            cursor.execute(q, vals)
-                        conn.commit()
-                        st.success("✅ Data updated successfully.")
-                        st.cache_data.clear()
-                        st.balloons()
-                    except Exception as e:
-                        st.error(f"Update failed: {e}")
-                    finally:
-                        cursor.close()
-                        conn.close()
+                        with st.spinner("💾 Updating database..."):
+                            conn = db.get_connection()
+                            cursor = conn.cursor()
+                            for q, vals in zip(update_queries, update_params):
+                                cursor.execute(q, vals)
+                            conn.commit()
+                            cursor.close()
+                            conn.close()
 
+                        # ✅ UX หลังบันทึกแบบ Professional
+                        st.success("✅ Data updated successfully.")
+                        st.toast("💾 Changes saved!", icon="✅")
+                        time.sleep(1)
+                        st.experimental_rerun()
+
+                    except Exception as e:
+                        st.error(f"❌ Update failed: {e}")
             with c2:
                 if st.button("❌ Discard Changes", type="secondary", use_container_width=True):
                     st.experimental_rerun()
+
 
 
 
