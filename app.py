@@ -932,18 +932,19 @@ def render_data_editor_tab():
 
     # ✅ ดึง Columns ของตาราง
     columns = [col['COLUMN_NAME'] for col in get_cached_table_columns(selected_table)]
+    columns_lower = [c.lower() for c in columns]  # 👈 ใช้ตรวจแบบไม่สนพิมพ์เล็กใหญ่
 
     # ----------------------------
     # 🔍 SMART SEARCH PANEL
     # ----------------------------
     st.markdown("### 🔍 Smart Search")
-    st.caption("พิมพ์คำใด ๆ ก็ได้ หรือใช้รูปแบบ `field=value , field2=value2` เพื่อค้นหาแบบระบุเงื่อนไข")
+    st.caption("พิมพ์คำใด ๆ ก็ได้ หรือใช้รูปแบบ **field=value , field2=value2** เพื่อค้นหาแบบระบุเงื่อนไข")
 
     col_search1, col_search2 = st.columns([3, 1])
     with col_search1:
         search_input = st.text_input(
             "Enter keywords or conditions",
-            placeholder="เช่น  service_type=FTTx , mm=สิงหาคม2025  หรือพิมพ์คำค้นทั่ว ๆ ไป เช่น datacom"
+            placeholder="เช่น service_type=FTTx , mm=สิงหาคม2025  หรือพิมพ์คำค้นทั่วไป เช่น datacom"
         )
     with col_search2:
         match_mode = st.radio("Match Mode", options=["AND", "OR"], index=0, horizontal=True)
@@ -951,13 +952,7 @@ def render_data_editor_tab():
     col_limit, col_refresh = st.columns([1, 1])
     with col_limit:
         row_limit_label = st.selectbox("Show rows", options=["10", "100", "1000", "10000", "All"], index=0)
-        row_limit = 10 if row_limit_label == "10" else (
-            100 if row_limit_label == "100" else (
-                1000 if row_limit_label == "1000" else (
-                    10000 if row_limit_label == "10000" else None
-                )
-            )
-        )
+        row_limit = None if row_limit_label == "All" else int(row_limit_label)
     with col_refresh:
         if st.button("🔄 Refresh Data", use_container_width=True):
             st.cache_data.clear()
@@ -979,8 +974,10 @@ def render_data_editor_tab():
             for cond in parts:
                 if '=' in cond:
                     key, value = [x.strip() for x in cond.split('=', 1)]
-                    if key in columns:
-                        conditions.append(f"`{key}` LIKE %s")
+                    # ✅ ตรวจชื่อคอลัมน์แบบไม่สนพิมพ์เล็กใหญ่
+                    if key.lower() in columns_lower:
+                        real_col = columns[columns_lower.index(key.lower())]
+                        conditions.append(f"`{real_col}` LIKE %s")
                         params.append(f"%{value}%")
                     else:
                         st.warning(f"⚠️ Column `{key}` not found — ignored.")
@@ -1099,6 +1096,7 @@ def render_data_editor_tab():
             with c2:
                 if st.button("❌ Discard Changes", type="secondary", use_container_width=True):
                     st.experimental_rerun()
+
 
 
 
