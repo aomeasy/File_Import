@@ -981,42 +981,42 @@ def render_data_editor_tab():
     # 📊 RIGHT: DATA DISPLAY & EDIT PANEL
     # ==========================================
     with right:
-    # ---- Build SQL ----
-    query = f"SELECT * FROM `{selected_table}`"
-    params = []
-    
-    if search_input.strip():
-        # แยกคำค้น (รองรับหลายคำด้วย , หรือ ;)
-        parts = [p.strip() for p in re.split('[,;]', search_input) if p.strip()]
-    
-        # ตรวจสอบว่ามีรูปแบบ field=value หรือไม่
-        has_explicit_condition = any('=' in p for p in parts)
-    
-        if has_explicit_condition:
-            # === Mode: Field=value ===
-            conditions = []
-            joiner = f" {match_mode} "
-            for cond in parts:
-                if '=' in cond:
-                    key, value = [x.strip() for x in cond.split('=', 1)]
-                    if key.lower() in columns_lower:
-                        real_col = columns[columns_lower.index(key.lower())]
-                        conditions.append(f"`{real_col}` LIKE %s")
-                        params.append(f"%{value}%")
+        # ---- Build SQL ----
+        query = f"SELECT * FROM `{selected_table}`"
+        params = []
+        
+        if search_input.strip():
+            # แยกคำค้น (รองรับหลายคำด้วย , หรือ ;)
+            parts = [p.strip() for p in re.split('[,;]', search_input) if p.strip()]
+        
+            # ตรวจสอบว่ามีรูปแบบ field=value หรือไม่
+            has_explicit_condition = any('=' in p for p in parts)
+        
+            if has_explicit_condition:
+                # === Mode: Field=value ===
+                conditions = []
+                joiner = f" {match_mode} "
+                for cond in parts:
+                    if '=' in cond:
+                        key, value = [x.strip() for x in cond.split('=', 1)]
+                        if key.lower() in columns_lower:
+                            real_col = columns[columns_lower.index(key.lower())]
+                            conditions.append(f"`{real_col}` LIKE %s")
+                            params.append(f"%{value}%")
+                        else:
+                            st.warning(f"⚠️ Column `{key}` not found — ignored.")
                     else:
-                        st.warning(f"⚠️ Column `{key}` not found — ignored.")
-                else:
-                    st.warning(f"⚠️ Invalid condition format: {cond}")
-            if conditions:
-                query += " WHERE " + joiner.join(conditions)
-        else:
-            # === Mode: Auto-search all columns ===
-            like_clauses = f" {match_mode} ".join([f"`{col}` LIKE %s" for col in columns])
-            query += f" WHERE {like_clauses}"
-            params = [f"%{search_input}%"] * len(columns)
-    
-    if row_limit:
-        query += f" LIMIT {row_limit}"
+                        st.warning(f"⚠️ Invalid condition format: {cond}")
+                if conditions:
+                    query += " WHERE " + joiner.join(conditions)
+            else:
+                # === Mode: Auto-search all columns ===
+                like_clauses = f" {match_mode} ".join([f"`{col}` LIKE %s" for col in columns])
+                query += f" WHERE {like_clauses}"
+                params = [f"%{search_input}%"] * len(columns)
+        
+        if row_limit:
+            query += f" LIMIT {row_limit}"
 
 
         # ---- Format SQL for display ----
