@@ -913,41 +913,32 @@ import streamlit as st
 import pandas as pd
 import mysql.connector
 
-def render_data_editor_tab():
-    # === HEADER SECTION ===
-    st.markdown("""
-        <div style="background:linear-gradient(90deg,#667eea,#764ba2);
-                    padding:1rem;border-radius:10px;margin-bottom:1rem;
-                    text-align:center;color:white;">
-            <h2 style="margin-bottom:0;">🧾 Data Management Console</h2>
-            <p style="margin-top:4px;font-size:0.9rem;">View, search, and edit data directly from your database — NT Dashboard Edition</p>
-        </div>
-    """, unsafe_allow_html=True)
 
+def render_data_editor_tab():
     # === DATABASE CONNECTION ===
     if 'db_manager' not in st.session_state:
         st.session_state.db_manager = DatabaseManager()
     db = st.session_state.db_manager
 
     # === TABLE SELECTION PANEL ===
-    with st.container():
-        st.markdown("### 📂 Select Target Table")
-        try:
-            tables_info = get_cached_tables_info()
-            tables = [t['TABLE_NAME'] for t in tables_info] if tables_info else []
-        except Exception as e:
-            st.error(f"Cannot get tables: {e}")
-            tables = []
+    st.markdown("### 📂 Select Target Table", help="เลือกตารางที่ต้องการดูหรือแก้ไขข้อมูล")
+    try:
+        tables_info = get_cached_tables_info()
+        tables = [t['TABLE_NAME'] for t in tables_info] if tables_info else []
+    except Exception as e:
+        st.error(f"Cannot get tables: {e}")
+        tables = []
 
-        selected_table = st.selectbox("Select a table to view/edit", [""] + tables, key="table_selector")
-        if not selected_table:
-            st.info("👆 Please select a table to start.")
-            return
+    selected_table = st.selectbox("Select a table to view/edit", [""] + tables, key="table_selector")
+    if not selected_table:
+        st.info("👆 Please select a table to start.")
+        return
 
-        columns = [col['COLUMN_NAME'] for col in get_cached_table_columns(selected_table)]
-        columns_lower = [c.lower() for c in columns]
+    columns = [col['COLUMN_NAME'] for col in get_cached_table_columns(selected_table)]
+    columns_lower = [c.lower() for c in columns]
 
     # === DASHBOARD LAYOUT ===
+    st.markdown("---")
     left, right = st.columns([1.2, 3])
 
     # ==========================================
@@ -973,11 +964,14 @@ def render_data_editor_tab():
             st.cache_data.clear()
             st.experimental_rerun()
 
-        # Styling card
+        # Soft styling (background tone)
         st.markdown("""
             <style>
-            div[data-testid="stSidebar"] {
-                background-color: #f9f9ff !important;
+            div[data-testid="stColumn"]:first-child {
+                background: #fafbff;
+                border-radius: 10px;
+                padding: 15px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.05);
             }
             .stRadio > div{flex-direction:row;}
             </style>
@@ -1014,6 +1008,7 @@ def render_data_editor_tab():
         if row_limit:
             query += f" LIMIT {row_limit}"
 
+        # ---- Format SQL for display ----
         formatted_query = query
         for p in params:
             formatted_query = formatted_query.replace("%s", f"'{p}'", 1)
@@ -1036,9 +1031,10 @@ def render_data_editor_tab():
 
         st.success(f"✅ Found {len(df)} records from `{selected_table}`")
 
-        # ---- Show as interactive table ----
+        # ---- Editable Table ----
         st.markdown("### 🧮 Editable Records")
         st.caption("Double-click to edit any cell. Changes will highlight automatically.")
+
         edited_df = st.data_editor(
             df,
             num_rows="dynamic",
@@ -1047,10 +1043,13 @@ def render_data_editor_tab():
             hide_index=True
         )
 
-        # ---- Detect & Show Changes ----
+        # ==========================================
+        # 💾 Detect & Preview Changes
+        # ==========================================
         if not edited_df.equals(df):
             st.info("📝 Detected unsaved changes!")
 
+            # 🔑 หาคอลัมน์ Primary Key
             pk_col = None
             for candidate in ['id', 'ID', 'Id', 'Ticket No', 'ticket_no', 'no', 'No']:
                 if candidate in columns:
@@ -1070,6 +1069,7 @@ def render_data_editor_tab():
                     update_params.append(vals)
                     affected_keys.append(row[pk_col])
 
+            # ---- Preview SQL ----
             if update_queries:
                 with st.expander("🧩 SQL Preview (before saving)", expanded=True):
                     for i, q in enumerate(update_queries):
@@ -1096,6 +1096,7 @@ def render_data_editor_tab():
                                 cursor.close()
                                 conn.close()
 
+                            # Success UX
                             st.session_state["last_save_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             st.session_state["save_status"] = "success"
                             st.success("✅ Data updated successfully.")
@@ -1109,7 +1110,9 @@ def render_data_editor_tab():
                     if st.button("❌ Discard Changes", type="secondary", use_container_width=True):
                         st.experimental_rerun()
 
-        # ---- Show status bar ----
+        # ==========================================
+        # 🕒 Status Summary
+        # ==========================================
         st.markdown("---")
         if "save_status" in st.session_state:
             if st.session_state["save_status"] == "success":
@@ -1126,11 +1129,12 @@ def render_data_editor_tab():
                     unsafe_allow_html=True
                 )
 
-        # ---- Bottom bar ----
+        # ---- Footer ----
         st.markdown(
             "<div style='text-align:right;color:gray;font-size:0.85rem;margin-top:10px;'>"
             "📅 Last refreshed: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S") +
             "</div>", unsafe_allow_html=True)
+
 
 
 
