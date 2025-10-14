@@ -914,7 +914,7 @@ def render_data_editor_tab():
         st.session_state.db_manager = DatabaseManager()
     db = st.session_state.db_manager
 
-    # ✅ โหลดรายการตาราง
+    # ✅ โหลดตาราง
     try:
         tables_info = get_cached_tables_info()
         tables = [t['TABLE_NAME'] for t in tables_info] if tables_info else []
@@ -928,20 +928,22 @@ def render_data_editor_tab():
         st.info("👆 Please select a table to start.")
         return
 
-    # ✅ ดึง columns สำหรับ filter
+    # ✅ ดึง columns
     columns = [col['COLUMN_NAME'] for col in get_cached_table_columns(selected_table)]
-    col_filter, col_keyword = st.columns([1, 2])
-    with col_filter:
-        filter_col = st.selectbox("Filter column", [""] + columns)
-    with col_keyword:
-        keyword = st.text_input("Keyword")
 
-    # ✅ Query ข้อมูล
+    # ✅ Smart Search
+    st.markdown("🔍 **Smart Search:** พิมพ์คำใด ๆ ก็ได้ ระบบจะค้นหาจากทุกคอลัมน์อัตโนมัติ")
+    keyword = st.text_input(
+        "Search keyword (auto-search across all columns)",
+        placeholder="เช่น ชื่อ, เบอร์โทร, จังหวัด, รหัสลูกค้า ฯลฯ"
+    )
+
     query = f"SELECT * FROM `{selected_table}`"
     params = []
-    if filter_col and keyword:
-        query += f" WHERE `{filter_col}` LIKE %s"
-        params.append(f"%{keyword}%")
+    if keyword.strip():
+        like_clauses = " OR ".join([f"`{col}` LIKE %s" for col in columns])
+        query += f" WHERE {like_clauses}"
+        params = [f"%{keyword}%"] * len(columns)
     query += " LIMIT 100"
 
     try:
@@ -961,36 +963,51 @@ def render_data_editor_tab():
     edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key="edit_data_editor")
 
     if not edited_df.equals(df):
-        st.info("Detected unsaved changes!")
+        st.info("📝 Detected unsaved changes!")
 
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("💾 Save Changes", type="primary", use_container_width=True):
-                try:
-                    conn = db.get_connection()
-                    cursor = conn.cursor()
-                    # ✅ อัปเดตแต่ละแถว (ต้องมี primary key)
-                    pk_col = columns[0]  # สมมติว่าคอลัมน์แรกเป็น PK
-                    for i, row in edited_df.iterrows():
-                        if i < len(df):  # เฉพาะแถวเดิม
-                            set_clause = ", ".join([f"`{c}`=%s" for c in columns if c != pk_col])
-                            update_query = f"UPDATE `{selected_table}` SET {set_clause} WHERE `{pk_col}`=%s"
-                            vals = [row[c] for c in columns if c != pk_col] + [row[pk_col]]
-                            cursor.execute(update_query, vals)
-                    conn.commit()
-                    st.success("✅ Data updated successfully.")
-                    st.cache_data.clear()
-                except Exception as e:
-                    st.error(f"Update failed: {e}")
-                finally:
-                    cursor.close()
-                    conn.close()
+        pk_col = columns[0]  # สมมติคอลัมน์แรกคือ Primary Key
+        update_queries = []
+        update_params = []
 
-        with c2:
-            if st.button("❌ Discard Changes", type="secondary", use_container_width=True):
-                st.rerun()
+        for i, row in edited_df.iterrows():
+            if i < len(df) and not row.equals(df.iloc[i]):  # มีการเปลี่ยนจริง
+                set_clause = ", ".join([f"`{c}`=%s" for c in columns if c != pk_col])
+                update_query = f"UPDATE `{selected_table}` SET {set_clause} WHERE `{pk_col}`=%s"
+                vals = [row[c] for c in columns if c != pk_col] + [row[pk_col]]
+                update_queries.append(update_query)
+                update_params.append(vals)
 
-    # ✅ ปุ่มลบแถว
+        if update_queries:
+            st.subheader("🧩 SQL Preview (before saving)")
+            for i, q in enumerate(update_queries):
+                formatted_sql = q.replace("%s", "'{}'").format(*[str(v) for v in update_params[i]])
+                st.code(formatted_sql, language="sql")
+
+            confirm = st.checkbox("✅ Confirm these SQL statements before saving", key="confirm_sql")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("💾 Save Changes", type="primary", use_container_width=True, disabled=not confirm):
+                    try:
+                        conn = db.get_connection()
+                        cursor = conn.cursor()
+                        for q, vals in zip(update_queries, update_params):
+                            cursor.execute(q, vals)
+                        conn.commit()
+                        st.success("✅ Data updated successfully.")
+                        st.cache_data.clear()
+                        st.balloons()
+                    except Exception as e:
+                        st.error(f"Update failed: {e}")
+                    finally:
+                        cursor.close()
+                        conn.close()
+
+            with col2:
+                if st.button("❌ Discard Changes", type="secondary", use_container_width=True):
+                    st.rerun()
+
+    # ✅ ลบข้อมูล
     st.divider()
     st.subheader("🗑️ Delete Record")
     pk_col = columns[0] if columns else None
@@ -1010,6 +1027,7 @@ def render_data_editor_tab():
             finally:
                 cursor.close()
                 conn.close()
+
 
 
 # ===== MAIN APPLICATION =====
@@ -1059,15 +1077,15 @@ def main():
 
             st.write(f"📊 Available Tables: {len(tables)}")
 
-        tab1, tab2, tab3, tab4 = st.tabs([ "📁 Import Data", "⚙️ Run Procedures", "🔗 File Merger",  "🧾 View & Edit Data"])
+        tab1, tab2, tab3, tab4 = st.tabs([ "📁 Import Data", "⚙️ Run Procedures","🧾 View & Edit Data","🔗 File Merger"])
         with tab1:
             render_import_tab()
         with tab2:
             render_procedures_tab()
         with tab3:
-            render_merger_tab()
-        with tab4:
             render_data_editor_tab()  # ✅ เพิ่มใหม่
+        with tab4:
+            render_merger_tab() 
     except Exception as e:
         st.error(f"Application error: {e}")
 
