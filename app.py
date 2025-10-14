@@ -740,11 +740,11 @@ def render_procedures_tab():
                     col_btns = st.columns([1,1,1])
                     # Set events instead of executing inside loop
                     with col_btns[0]:
-                    # ✅ รายชื่อผู้ใช้ที่อนุญาต (สามารถเพิ่มได้หลายคน)
-                    authorized_users = {
-                        "adcharaporn.u": "Admin",
-                        "thitiporn.k": "Engineer",
-                        "somsak.t": "Operator",
+                        # ✅ รายชื่อผู้ใช้ที่อนุญาต (สามารถเพิ่มได้หลายคน)
+                        authorized_users = {
+                            "adcharaporn.u": "Admin",
+                            "thitiporn.k": "Engineer",
+                            "somsak.t": "Operator",
                     }
                 
                     # ✅ ช่องกรอกรหัสลับ
