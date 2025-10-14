@@ -975,7 +975,6 @@ def render_data_editor_tab():
         has_explicit_condition = any('=' in p for p in parts)
 
         if has_explicit_condition:
-            # ใช้ AND/OR ตามที่ผู้ใช้เลือก
             joiner = f" {match_mode} "
             for cond in parts:
                 if '=' in cond:
@@ -990,13 +989,22 @@ def render_data_editor_tab():
             if conditions:
                 query += " WHERE " + joiner.join(conditions)
         else:
-            # fallback: search all columns
             like_clauses = f" {match_mode} ".join([f"`{col}` LIKE %s" for col in columns])
             query += f" WHERE {like_clauses}"
             params = [f"%{search_input}%"] * len(columns)
 
     if row_limit:
         query += f" LIMIT {row_limit}"
+
+    # ----------------------------
+    # 🧠 แสดง SQL Query ที่ใช้ค้นหา
+    # ----------------------------
+    formatted_query = query
+    for p in params:
+        formatted_query = formatted_query.replace("%s", f"'{p}'", 1)
+
+    with st.expander("🧠 SQL Query Used for Search", expanded=False):
+        st.code(formatted_query, language="sql")
 
     # ----------------------------
     # 🚀 Execute query
@@ -1032,7 +1040,7 @@ def render_data_editor_tab():
 
         # ✅ หาคอลัมน์ Primary Key อัตโนมัติ
         pk_col = None
-        for candidate in ['id', 'ID', 'Id','TicketNo','Ticket No', 'ticket_no', 'no', 'No']:
+        for candidate in ['id', 'ID', 'Id', 'Ticket No', 'ticket_no', 'no', 'No']:
             if candidate in columns:
                 pk_col = candidate
                 break
@@ -1091,6 +1099,7 @@ def render_data_editor_tab():
             with c2:
                 if st.button("❌ Discard Changes", type="secondary", use_container_width=True):
                     st.experimental_rerun()
+
 
 
 
