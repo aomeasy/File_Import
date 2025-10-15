@@ -1322,18 +1322,32 @@ def render_data_editor_tab():
             "<div style='text-align:right;color:gray;font-size:0.85rem;margin-top:10px;'>"
             "📅 Last refreshed: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S") +
             "</div>", unsafe_allow_html=True)
-
-
-
+ 
 
 def render_log_tab():
     st.header("📜 Activity Log")
     db = st.session_state.db_manager
     df = db.execute_query("SELECT * FROM activity_log ORDER BY timestamp DESC LIMIT 200")
+
+    def mask_username(name: str):
+        """ซ่อนตัวอักษรตรงกลางของ username  
+        if not name or not isinstance(name, str):
+            return ""
+        if len(name) <= 2:
+            return name[0] + "*" if len(name) == 2 else name
+        return name[0] + "*" * (len(name) - 2) + name[-1]
+
     if df is not None and not df.empty:
-        st.dataframe(df, use_container_width=True)
+        # ✅ สร้างสำเนาและ mask เฉพาะคอลัมน์ username
+        if "username" in df.columns:
+            df = df.copy()
+            df["username"] = df["username"].apply(mask_username)
+
+        # ✅ แสดงตารางแบบสวยงาม
+        st.dataframe(df, use_container_width=True, hide_index=True)
     else:
         st.info("No activity logs yet.")
+
 
 
 # ===== MAIN APPLICATION =====
