@@ -843,7 +843,8 @@ def render_procedures_tab():
         st.session_state['last_proc_exact'] = False
         st.toast("Cleared loaded procedures")
 
-    if do_load:
+ 
+    if do_load or auto_trigger:
         pattern = name_filter or "%"
         if exact_only and name_filter:
             pattern = name_filter
@@ -855,6 +856,7 @@ def render_procedures_tab():
             st.success(f"Loaded {len(procs)} procedure(s)")
         else:
             st.warning("No procedures matched your filter.")
+
 
     # ===== PROCEDURE LIST =====
     procedures = st.session_state.loaded_procedures
