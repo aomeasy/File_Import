@@ -1050,16 +1050,7 @@ import pandas as pd
 import mysql.connector
 
 
-def render_data_editor_tab():
-    # === DATABASE CONNECTION ===
-    if 'db_manager' not in st.session_state:
-        st.session_state.db_manager = DatabaseManager()
-    db = st.session_state.db_manager
-
-    # === TABLE SELECTION PANEL ===
-    st.markdown("### 📂 Select Target Table", help="เลือกตารางที่ต้องการดูหรือแก้ไขข้อมูล")
-    try:
-        tables_info = get_cached_tables_info()
+d_tables_info()
         tables = [t['TABLE_NAME'] for t in tables_info] if tables_info else []
     except Exception as e:
         st.error(f"Cannot get tables: {e}")
@@ -1100,7 +1091,7 @@ def render_data_editor_tab():
             st.cache_data.clear()
             st.experimental_rerun()
 
-        # Soft styling (background tone)
+        # Soft styling
         st.markdown("""
             <style>
             div[data-testid="stColumn"]:first-child {
@@ -1122,10 +1113,8 @@ def render_data_editor_tab():
         params = []
         
         if search_input.strip():
-            # แยกคำค้น (รองรับหลายคำด้วย , หรือ ;)
+            # แยกคำค้น
             parts = [p.strip() for p in re.split('[,;]', search_input) if p.strip()]
-        
-            # ตรวจสอบว่ามีรูปแบบ field=value หรือไม่
             has_explicit_condition = any('=' in p for p in parts)
         
             if has_explicit_condition:
@@ -1153,7 +1142,6 @@ def render_data_editor_tab():
         
         if row_limit:
             query += f" LIMIT {row_limit}"
-
 
         # ---- Format SQL for display ----
         formatted_query = query
@@ -1191,12 +1179,12 @@ def render_data_editor_tab():
         )
 
         # ==========================================
-        # 💾 Detect & Preview Changes
+        # 💾 Detect & Preview Changes + Secret Key
         # ==========================================
         if not edited_df.equals(df):
             st.info("📝 Detected unsaved changes!")
 
-            # 🔑 หาคอลัมน์ Primary Key
+            # 🔑 Primary Key detection
             pk_col = None
             for candidate in ['id', 'ID', 'Id', 'Ticket No', 'ticket_no', 'no', 'No']:
                 if candidate in columns:
@@ -1216,7 +1204,7 @@ def render_data_editor_tab():
                     update_params.append(vals)
                     affected_keys.append(row[pk_col])
 
-            # ---- Preview SQL ----
+            # ---- SQL Preview ----
             if update_queries:
                 with st.expander("🧩 SQL Preview (before saving)", expanded=True):
                     for i, q in enumerate(update_queries):
@@ -1224,15 +1212,39 @@ def render_data_editor_tab():
                         st.code(formatted_sql, language="sql")
 
                 st.markdown(
-                    f"🧠 **Affected Rows:** {len(affected_keys)} | "
-                    f"Keys: `{', '.join(map(str, affected_keys[:10]))}`"
+                    f"🧠 **Affected Rows:** {len(affected_keys)} | Keys: `{', '.join(map(str, affected_keys[:10]))}`"
                 )
+
+                # === Secret Key Authorization ===
+                authorized_users = {
+                    "adcharaporn.u": "Admin",
+                    "Che": "Admin",
+                    "Plai": "Operator",
+                }
+
+                st.divider()
+                st.markdown("#### 🔐 Authorization Required")
+
+                secret_key = st.text_input(
+                    "Enter your secret key to unlock saving",
+                    type="password",
+                    placeholder="Enter your secret key",
+                    key="editor_secret_key"
+                )
+
+                user_role = authorized_users.get(secret_key.strip())
+                save_disabled = user_role is None
+
+                if save_disabled:
+                    st.warning("🔒 Enter correct key to unlock Save Changes button.", icon="🔑")
+                else:
+                    st.success(f"✅ Authorized as **{user_role}**")
 
                 confirm = st.checkbox("✅ Confirm update queries before saving", key="confirm_update")
 
                 c1, c2 = st.columns([1, 1])
                 with c1:
-                    if st.button("💾 Save Changes", type="primary", use_container_width=True, disabled=not confirm):
+                    if st.button("💾 Save Changes", type="primary", use_container_width=True, disabled=(save_disabled or not confirm)):
                         try:
                             with st.spinner("💾 Applying changes to database..."):
                                 conn = db.get_connection()
@@ -1243,7 +1255,27 @@ def render_data_editor_tab():
                                 cursor.close()
                                 conn.close()
 
-                            # Success UX
+                            # 🧾 Log Activity
+                            try:
+                                username = secret_key.strip()
+                                log_conn = db.get_connection()
+                                log_cursor = log_conn.cursor()
+                                log_cursor.execute("""
+                                    INSERT INTO activity_log (username, action, target, ip_address, details)
+                                    VALUES (%s, %s, %s, %s, %s)
+                                """, (
+                                    username,
+                                    "Edit Data",
+                                    selected_table,
+                                    st.session_state.get('client_ip', 'unknown'),
+                                    f"rows={len(affected_keys)}, keys={affected_keys[:10]}"
+                                ))
+                                log_conn.commit()
+                                log_cursor.close()
+                                log_conn.close()
+                            except Exception as log_err:
+                                st.warning(f"⚠️ Failed to write log: {log_err}")
+
                             st.session_state["last_save_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             st.session_state["save_status"] = "success"
                             st.success("✅ Data updated successfully.")
@@ -1281,7 +1313,6 @@ def render_data_editor_tab():
             "<div style='text-align:right;color:gray;font-size:0.85rem;margin-top:10px;'>"
             "📅 Last refreshed: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S") +
             "</div>", unsafe_allow_html=True)
-
 
 
 
