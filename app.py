@@ -1260,6 +1260,7 @@ def render_data_editor_tab():
         with st.spinner("🔎 Searching database..."):
             try:
                 df = db.execute_query(query, tuple(params))
+                df = df.astype(str)  # ✅ บังคับให้ทุกคอลัมน์เป็น string ก่อนแสดงผล
             except Exception as e:
                 st.error(f"Query error: {e}")
                 return
