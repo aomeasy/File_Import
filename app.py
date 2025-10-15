@@ -1057,7 +1057,7 @@ def render_data_editor_tab():
     db = st.session_state.db_manager
 
     # === TABLE SELECTION PANEL ===
-    st.markdown("### 📂 Select Target Table", help="เลือกตารางที่ต้องการดูหรือแก้ไขข้อมูล")
+    st.markdown("### 📂 Select Target Table")
     try:
         tables_info = get_cached_tables_info()
         tables = [t['TABLE_NAME'] for t in tables_info] if tables_info else []
@@ -1149,7 +1149,7 @@ def render_data_editor_tab():
         st.success(f"✅ Found {len(df)} records from `{selected_table}`")
 
         # ==========================================
-        # 🔐 Authorization for Full Access
+        # 🔐 Authorization
         # ==========================================
         st.markdown("#### 🔐 Authorization (optional)")
         authorized_users = {
@@ -1162,7 +1162,7 @@ def render_data_editor_tab():
             "Enter Secret Key (optional)",
             type="password",
             placeholder="Leave empty to view only 5 records",
-            key="auth_key_view"
+            key="auth_key_editor"
         )
 
         user_info = authorized_users.get(secret_key.strip())
@@ -1171,10 +1171,10 @@ def render_data_editor_tab():
         is_authorized = user_info is not None
 
         if is_authorized:
-            st.success(f"✅ Authorized as **{user_role}** — full data visible & downloadable.")
+            st.success(f"✅ Authorized as {username} ({user_role}) — full access granted.")
             display_df = df
         else:
-            st.info("👁 Showing only first 5 rows (limited download).")
+            st.info("👁 Showing only first 5 rows (limited access).")
             display_df = df.head(5)
 
         # ==========================================
@@ -1194,7 +1194,7 @@ def render_data_editor_tab():
         # ==========================================
         if not edited_df.equals(display_df):
             if not is_authorized:
-                st.warning("🔒 Editing disabled. Please enter valid key for full access.", icon="🔑")
+                st.warning("🔒 Editing disabled — enter valid key for edit privileges.", icon="🔑")
             else:
                 st.info("📝 Detected unsaved changes!")
 
@@ -1213,21 +1213,27 @@ def render_data_editor_tab():
                         update_params.append(vals)
                         affected_keys.append(row[pk_col])
 
-                if update_queries:
-                    confirm = st.checkbox("✅ Confirm update before saving", key="confirm_update")
+                # ✅ SQL Preview ก่อนบันทึก
+                with st.expander("🧩 SQL Preview (before saving)", expanded=True):
+                    for i, q in enumerate(update_queries):
+                        formatted_sql = q.replace("%s", "'{}'").format(*[str(v) for v in update_params[i]])
+                        st.code(formatted_sql, language="sql")
 
-                    if st.button("💾 Save Changes", type="primary", use_container_width=True, disabled=not confirm):
+                confirm = st.checkbox("✅ Confirm update queries before saving", key="confirm_update")
+
+                if st.button("💾 Save Changes", type="primary", use_container_width=True, disabled=not confirm):
+                    try:
+                        with st.spinner("💾 Applying changes..."):
+                            conn = db.get_connection()
+                            cursor = conn.cursor()
+                            for q, vals in zip(update_queries, update_params):
+                                cursor.execute(q, vals)
+                            conn.commit()
+                            cursor.close()
+                            conn.close()
+
+                        # ✅ Log Activity (บันทึก username จริง)
                         try:
-                            with st.spinner("💾 Applying changes..."):
-                                conn = db.get_connection()
-                                cursor = conn.cursor()
-                                for q, vals in zip(update_queries, update_params):
-                                    cursor.execute(q, vals)
-                                conn.commit()
-                                cursor.close()
-                                conn.close()
-
-                            # Log edit activity
                             log_conn = db.get_connection()
                             log_cursor = log_conn.cursor()
                             log_cursor.execute("""
@@ -1238,28 +1244,27 @@ def render_data_editor_tab():
                                 "Edit Data",
                                 selected_table,
                                 st.session_state.get('client_ip', 'unknown'),
-                                f"rows={len(affected_keys)}, role={user_role}"
+                                f"rows={len(affected_keys)}"
                             ))
                             log_conn.commit()
                             log_cursor.close()
                             log_conn.close()
+                        except Exception as log_err:
+                            st.warning(f"⚠️ Failed to write log: {log_err}")
 
-                            st.success("✅ Data updated successfully.")
-                            st.toast("💾 Changes saved!", icon="✅")
+                        st.success("✅ Data updated successfully.")
+                        st.toast("💾 Changes saved!", icon="✅")
 
-                        except Exception as e:
-                            st.error(f"❌ Update failed: {e}")
+                    except Exception as e:
+                        st.error(f"❌ Update failed: {e}")
 
         # ==========================================
-        # 📊 Download Control (built-in Streamlit)
+        # 📊 Data Display & Download
         # ==========================================
         st.markdown("---")
-        st.caption("💡 Use the download icon on the top-right of the table to export the data shown.")
+        st.caption("💡 Use the built-in download icon on top-right to export the visible data.")
 
-        # ถ้า authorized → แสดงครบ โหลดครบ
-        # ถ้าไม่ → แสดง 5 แถว โหลด 5 แถว (Streamlit ทำให้โดยอัตโนมัติ)
-
-        # ✅ Log full view access
+        # ✅ Log full access (เฉพาะ authorized)
         if is_authorized and secret_key.strip():
             try:
                 conn = db.get_connection()
@@ -1272,7 +1277,7 @@ def render_data_editor_tab():
                     "View Full Data",
                     selected_table,
                     st.session_state.get('client_ip', 'unknown'),
-                    f"rows={len(df)}, role={user_role}"
+                    f"rows={len(df)}"
                 ))
                 conn.commit()
                 cursor.close()
