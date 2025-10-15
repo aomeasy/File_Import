@@ -635,6 +635,7 @@ def log_activity(username, action, target, details=None):
 # ===== TAB 2: RUN PROCEDURES (with event flags) =====
 def render_procedures_tab():
     st.header("⚙️ Database Procedures & Updates")
+
     enabled = st.toggle("Enable this tab (load from DB)", value=False, help="Turn on only when you want to work with procedures")
     if not enabled:
         st.info("This tab is idle. Turn on the toggle to load procedures.")
@@ -643,10 +644,11 @@ def render_procedures_tab():
     if 'db_manager' not in st.session_state:
         st.session_state.db_manager = DatabaseManager()
 
-    # Favorites on top
+    # ===== FAVORITES SECTION =====
     render_favorites_block()
     st.divider()
 
+    # ===== SEARCH / LOAD =====
     st.subheader("🔎 Search / Load Procedures (Lazy-load)")
     c1, c2, c3, c4, c5 = st.columns([2,1,1,1,1])
     with c1:
@@ -683,10 +685,10 @@ def render_procedures_tab():
         else:
             st.warning("No procedures matched your filter.")
 
-    # Always use the list persisted in session
+    # ===== PROCEDURE LIST =====
     procedures = st.session_state.loaded_procedures
 
-    # Quick Run
+    # Quick Run (manual)
     with st.expander("⚡ Quick Run (run by name directly)"):
         quick_name = st.text_input("Procedure name to run (exact)", key="quick_run_name")
         if st.button("▶️ Run Now", key="quick_run_btn", type="primary"):
@@ -698,7 +700,7 @@ def render_procedures_tab():
     st.divider()
     col1, col2 = st.columns([2, 1])
 
-    # List & buttons
+    # ===== LEFT: LIST =====
     with col1:
         st.subheader("🔧 Stored Procedures")
         if procedures:
@@ -715,102 +717,84 @@ def render_procedures_tab():
                             st.write(f"**Description:** {proc['ROUTINE_COMMENT']}")
                         if proc.get('CREATED'):
                             st.write(f"**Created:** {proc['CREATED']}")
+
                     with col_exec:
-                        params = get_procedure_parameters(proc['ROUTINE_NAME'])
-                        if params:
-                            st.write(f"**Parameters:** {len(params)}")
-                            param_values = []
-                            for param in params:
-                                param_name = param['PARAMETER_NAME']; param_type = param['DATA_TYPE']
-                                if param_type in ['int', 'bigint', 'smallint']:
-                                    val = st.number_input(f"{param_name} ({param_type})", value=0, key=f"param_{proc['ROUTINE_NAME']}_{param_name}")
-                                elif param_type in ['decimal', 'float', 'double']:
-                                    val = st.number_input(f"{param_name} ({param_type})", value=0.0, format="%.2f", key=f"param_{proc['ROUTINE_NAME']}_{param_name}")
-                                elif param_type in ['date', 'datetime', 'timestamp']:
-                                    v = st.date_input(f"{param_name} ({param_type})", key=f"param_{proc['ROUTINE_NAME']}_{param_name}")
-                                    val = v.strftime("%Y-%m-%d")
-                                else:
-                                    val = st.text_input(f"{param_name} ({param_type})", key=f"param_{proc['ROUTINE_NAME']}_{param_name}")
-                                param_values.append(val)
-                        else:
-                            st.info("No parameters required")
-                            param_values = None
+                        st.info("No parameters required")
+                        param_values = None
 
                     st.divider()
-                    col_btns = st.columns([1,1,1])
-                    # Set events instead of executing inside loop
+                    col_btns = st.columns([1,1])
+
+                    # --- LEFT BUTTONS ---
                     with col_btns[0]:
-                        # ✅ รายชื่อผู้ใช้ที่อนุญาต (สามารถเพิ่มได้หลายคน)
                         authorized_users = {
                             "adcharaporn.u": "Admin",
                             "Che": "Admin",
                             "Plai": "Operator",
-                    }
-                
-                    # ✅ ช่องกรอกรหัสลับ
-                    secret_key = st.text_input(
-                        f"Secret Key for {proc['ROUTINE_NAME']}",
-                        type="password",
-                        key=f"secret_key_{proc['ROUTINE_NAME']}",
-                        label_visibility="collapsed",
-                        placeholder="Enter your secret key to unlock execute"
-                    )
-                
-                    # ✅ ตรวจสอบสิทธิ์ผู้ใช้
-                    user_role = authorized_users.get(secret_key.strip())
-                    execute_disabled = user_role is None
-                
-                    if execute_disabled:
-                        st.warning("🔒 Enter correct key to unlock Execute button.", icon="🔑")
-                    else:
-                        st.success(f"✅ Authorized as **{user_role}**")
-                
-                    # ✅ ปุ่ม Execute
-                    if st.button(
-                        "▶️ Execute",
-                        key=f"exec_{proc['ROUTINE_NAME']}",
-                        type="primary",
-                        use_container_width=True,
-                        disabled=execute_disabled
-                    ):
-                        # ===== LOG ACTIVITY =====
-                        try:
-                            username = secret_key.strip()
-                            db = st.session_state.get('db_manager') or DatabaseManager()
-                            conn = db.get_connection()
-                            cursor = conn.cursor()
-                            cursor.execute("""
-                                INSERT INTO activity_log (username, action, target, ip_address, details)
-                                VALUES (%s, %s, %s, %s, %s)
-                            """, (
-                                username,
-                                "Execute Procedure",
-                                proc['ROUTINE_NAME'],
-                                st.session_state.get('client_ip', 'unknown'),
-                                str({'params': param_values})
-                            ))
-                            conn.commit()
-                            cursor.close()
-                            conn.close()
-                        except Exception as log_err:
-                            st.warning(f"⚠️ Failed to write log: {log_err}")
-                
-                        # ===== EXECUTE PROCEDURE =====
-                        st.session_state['PROC_RUN_EVENT'] = {
-                            'name': proc['ROUTINE_NAME'],
-                            'params': (param_values if params else None)
                         }
 
+                        # Secret Key
+                        secret_key = st.text_input(
+                            f"Secret Key for {proc['ROUTINE_NAME']}",
+                            type="password",
+                            key=f"secret_key_{proc['ROUTINE_NAME']}",
+                            label_visibility="collapsed",
+                            placeholder="Enter your secret key to unlock execute"
+                        )
+
+                        user_role = authorized_users.get(secret_key.strip())
+                        execute_disabled = user_role is None
+
+                        if execute_disabled:
+                            st.warning("🔒 Enter correct key to unlock Execute button.", icon="🔑")
+                        else:
+                            st.success(f"✅ Authorized as **{user_role}**")
+
+                        # Execute Button
+                        if st.button(
+                            "▶️ Execute",
+                            key=f"exec_{proc['ROUTINE_NAME']}",
+                            type="primary",
+                            use_container_width=True,
+                            disabled=execute_disabled
+                        ):
+                            # Log Activity
+                            try:
+                                username = secret_key.strip()
+                                db = st.session_state.get('db_manager') or DatabaseManager()
+                                conn = db.get_connection()
+                                cursor = conn.cursor()
+                                cursor.execute("""
+                                    INSERT INTO activity_log (username, action, target, ip_address, details)
+                                    VALUES (%s, %s, %s, %s, %s)
+                                """, (
+                                    username,
+                                    "Execute Procedure",
+                                    proc['ROUTINE_NAME'],
+                                    st.session_state.get('client_ip', 'unknown'),
+                                    '{}'
+                                ))
+                                conn.commit()
+                                cursor.close()
+                                conn.close()
+                            except Exception as log_err:
+                                st.warning(f"⚠️ Failed to write log: {log_err}")
+
+                            # Execute Procedure
+                            st.session_state['PROC_RUN_EVENT'] = {
+                                'name': proc['ROUTINE_NAME'],
+                                'params': None
+                            }
+
+                    # --- RIGHT BUTTONS ---
                     with col_btns[1]:
                         if st.button("⭐ Add to Favorites", key=f"fav_{proc['ROUTINE_NAME']}"):
                             st.session_state['PROC_ADD_FAV_EVENT'] = {'name': proc['ROUTINE_NAME']}
-                    with col_btns[2]:
-                        if st.button("🔄 Refresh Params", key=f"ref_params_{proc['ROUTINE_NAME']}"):
-                            st.rerun()
+
         else:
             st.warning("⚠️ No procedures loaded. ใส่ชื่อแล้วกด Load ก่อน")
 
-        # ===== Handle events after list render =====
+        # ===== EVENT HANDLING =====
         event_run = st.session_state.get('PROC_RUN_EVENT')
         if event_run:
             st.session_state['proc_progress_value'] = 20
@@ -824,6 +808,7 @@ def render_procedures_tab():
             st.toast(f"Added {event_fav['name']} to Favorites")
             st.session_state['PROC_ADD_FAV_EVENT'] = None
 
+    # ===== RIGHT: STATS =====
     with col2:
         st.subheader("📊 Quick Stats")
         if procedures:
@@ -837,7 +822,8 @@ def render_procedures_tab():
             with c_f: st.metric("❌ Failed", failed_count)
         st.divider()
         if st.button("🗑️ Clear History", use_container_width=True):
-            st.session_state.execution_history = []; st.rerun()
+            st.session_state.execution_history = []
+            st.rerun()
         if st.button("🔄 Clear Cache (procedures)", use_container_width=True):
             get_stored_procedures.clear()
             st.session_state.loaded_procedures = []
