@@ -1494,8 +1494,8 @@ def render_log_tab():
         if not name or not isinstance(name, str):
             return ""
         if len(name) <= 2:
-            return name[0] + "*" if len(name) == 2 else name
-        return name[0] + "*" * (len(name) - 2) + name[-1]
+            return name[0] + "**" if len(name) == 2 else name
+        return name[0] + "**" * (len(name) - 2) + name[-1]
 
     if df is not None and not df.empty:
         df = df.copy()
