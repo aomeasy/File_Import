@@ -1575,6 +1575,97 @@ def get_user_permission(secret_key: str):
     user_perms = st.session_state.get('user_permissions', {})
     return user_perms.get(key)
 
+# ==========================================
+# 👤 USER MANAGEMENT TAB (ADMIN ONLY)
+# ==========================================
+def render_user_management_tab():
+    st.markdown("## 👤 User Management")
+    st.caption("สำหรับผู้ดูแลระบบเท่านั้น (Admin)")
+
+    # ✅ ตรวจสิทธิ์ผู้ใช้ก่อน
+    secret_key = st.text_input(
+        "Enter Admin Secret Key",
+        type="password",
+        placeholder="Enter your admin key",
+        key="admin_secret_key"
+    )
+    user_perm = get_user_permission(secret_key)
+
+    if not user_perm or user_perm["role"] != "Admin":
+        st.warning("🚫 Access denied. Only Admin can view this tab.")
+        st.stop()
+
+    st.success(f"✅ Authorized as Admin: {secret_key.strip()}")
+
+    db = st.session_state.db_manager
+
+    # โหลดข้อมูลทั้งหมด
+    try:
+        df = db.execute_query("SELECT * FROM user_permissions ORDER BY role, username")
+    except Exception as e:
+        st.error(f"Cannot load users: {e}")
+        return
+
+    # ✅ แสดงข้อมูลทั้งหมดใน data_editor
+    st.markdown("### 📋 Current Users")
+    edited_df = st.data_editor(
+        df,
+        num_rows="dynamic",
+        use_container_width=True,
+        key="user_editor",
+        hide_index=True
+    )
+
+    # --- ปุ่มบันทึกการแก้ไข ---
+    if st.button("💾 Save Changes to Database", type="primary"):
+        try:
+            # ลบทั้งหมดก่อน แล้ว insert ใหม่ (วิธีง่ายและปลอดภัยในกรณี user ไม่มาก)
+            db.execute_nonquery("DELETE FROM user_permissions")
+            for _, row in edited_df.iterrows():
+                query = """
+                    INSERT INTO user_permissions
+                    (id, username, role, allowed_tables, allowed_procedures, allowed_edit_tables, created_at, updated_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,NOW(),NOW())
+                """
+                params = (
+                    int(row["id"]) if not pd.isna(row["id"]) else None,
+                    row["username"],
+                    row["role"],
+                    row.get("allowed_tables", None),
+                    row.get("allowed_procedures", None),
+                    row.get("allowed_edit_tables", None)
+                )
+                db.execute_nonquery(query, params)
+            st.success("✅ User permissions updated successfully!")
+            st.session_state.user_permissions = load_user_permissions(db)
+        except Exception as e:
+            st.error(f"❌ Failed to update users: {e}")
+
+    # --- ฟอร์มเพิ่มผู้ใช้ใหม่ ---
+    with st.expander("➕ Add New User"):
+        with st.form("add_user_form", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                new_username = st.text_input("Username", placeholder="เช่น adcharaporn.u")
+                new_role = st.selectbox("Role", ["Viewer", "Operator", "Admin"])
+            with col2:
+                allowed_tables = st.text_input("Allowed Tables (comma-separated)")
+                allowed_procs = st.text_input("Allowed Procedures (comma-separated)")
+                allowed_edit = st.text_input("Allowed Edit Tables (comma-separated)")
+
+            submitted = st.form_submit_button("Add User")
+            if submitted:
+                try:
+                    query = """
+                        INSERT INTO user_permissions
+                        (username, role, allowed_tables, allowed_procedures, allowed_edit_tables)
+                        VALUES (%s,%s,%s,%s,%s)
+                    """
+                    db.execute_nonquery(query, (new_username, new_role, allowed_tables, allowed_procs, allowed_edit))
+                    st.success(f"✅ Added new user: {new_username}")
+                    st.session_state.user_permissions = load_user_permissions(db)
+                except Exception as e:
+                    st.error(f"❌ Failed to add user: {e}")
 
 
 
@@ -1714,7 +1805,7 @@ def main():
             """, unsafe_allow_html=True)
 
 
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([ "📁 Import Data", "⚙️ Run Procedures","🧾 View & Edit Data","🔗 File Merger","📜 Logs"])
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([ "📁 Import Data", "⚙️ Run Procedures","🧾 View & Edit Data","🔗 File Merger","📜 Logs","👤 User Management"])
         with tab1:
             render_import_tab()
         with tab2:
@@ -1725,6 +1816,8 @@ def main():
             render_merger_tab() 
         with tab5:
             render_log_tab()
+        with tab6:
+            render_user_management_tab()
     except Exception as e:
         st.error(f"Application error: {e}")
 
