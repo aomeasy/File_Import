@@ -1154,8 +1154,7 @@ def render_data_editor_tab():
         st.markdown("#### 🔐 Authorization (optional)")
         authorized_users = {
             "adcharaporn.u": ("Adcharaporn", "Admin"),
-            "Che": ("Che@_NT", "Operator"),
-            "Plai": ("Plai", "Operator"),
+            "Che": ("Che@_NT", "Operator"), 
         }
 
         secret_key = st.text_input(
@@ -1174,8 +1173,8 @@ def render_data_editor_tab():
             st.success(f"✅ Authorized as {username} ({user_role}) — full access granted.")
             display_df = df
         else:
-            st.info("👁 Showing only first 5 rows (limited access).")
-            display_df = df.head(5)
+            st.info("👁 Showing only first 10 rows (limited access).")
+            display_df = df.head(10)
 
         # ==========================================
         # 🧮 Editable Data
