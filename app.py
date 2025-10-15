@@ -489,9 +489,18 @@ class FileMerger:
                         df.rename(columns=header_mapping[filename], inplace=True)
                     df['_source_file'] = filename
                     merged_dfs.append(df)
+
+
         if merged_dfs:
-            return pd.concat(merged_dfs, ignore_index=True, sort=False)
+            merged_df = pd.concat(merged_dfs, ignore_index=True, sort=False)
+        
+            # ✅ บังคับทุก column ให้เป็น string ป้องกันจุดทศนิยม / ศูนย์หาย
+            merged_df = merged_df.applymap(lambda x: str(x).strip() if pd.notna(x) else "")
+        
+            return merged_df
+        
         return pd.DataFrame()
+
 
 # ===== TAB 1: IMPORT DATA =====
 def render_import_tab():
