@@ -1470,28 +1470,108 @@ def main():
                 return
 
         with st.sidebar:
+            # === CONFIGURATION SECTION ===
             st.header("⚙️ Configuration")
             if 'connection_status' not in st.session_state:
                 try:
                     st.session_state.connection_status = st.session_state.db_manager.test_connection()
                 except Exception:
                     st.session_state.connection_status = False
-
+        
             if st.session_state.connection_status:
                 st.markdown('<div class="status-success">✅ Database Connected</div>', unsafe_allow_html=True)
             else:
                 st.markdown('<div class="status-error">❌ Database Connection Failed</div>', unsafe_allow_html=True)
-
+        
             if st.button("🔄 Refresh", key="refresh_sidebar"):
-                st.cache_data.clear(); st.rerun()
-
+                st.cache_data.clear()
+                st.rerun()
+        
             try:
                 tables_info = get_cached_tables_info()
                 tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
             except Exception:
-                tables = []; tables_info = []
-
+                tables = []
+                tables_info = []
+        
             st.write(f"📊 Available Tables: {len(tables)}")
+        
+            # === SMART AI ASSISTANT ===
+            st.markdown("---")
+            st.subheader("🧠 Smart AI Assistant")
+            st.caption("พิมพ์คำถามเพื่อให้ AI วิเคราะห์หรืออธิบายข้อมูลในฐานข้อมูล เช่น:")
+            st.caption("• ตารางไหนอัปเดตล่าสุด\n• วิเคราะห์ข้อมูลจาก R06\n• สร้าง SQL สำหรับหายอดรวมรายเดือน")
+        
+            user_query = st.text_area(
+                "💬 Ask AI",
+                placeholder="เช่น “แสดง 5 ตารางที่อัปเดตล่าสุด” หรือ “SQL หายอดรวมจากตาราง datacomNT”",
+                key="ai_assistant_query",
+                height=80
+            )
+        
+            if st.button("🚀 Analyze with AI", use_container_width=True):
+                if not user_query.strip():
+                    st.warning("⚠️ กรุณาพิมพ์คำถามก่อน", icon="💡")
+                else:
+                    with st.spinner("🤖 AI กำลังวิเคราะห์ข้อมูล..."):
+                        # Mockup AI Response (ยังไม่เชื่อมจริง)
+                        st.success("✨ AI Suggestion:")
+                        st.write("```sql\nSELECT * FROM datacomNT ORDER BY timestamp DESC LIMIT 5;\n```")
+                        st.caption("💡 นี่เป็นตัวอย่าง SQL ที่ AI แนะนำ — คุณสามารถนำไปใช้ในหน้า Run Procedures ได้เลย")
+        
+            # === RECENT ACTIVITY ===
+            st.markdown("---")
+            st.subheader("🕓 Recent Activity")
+        
+            try:
+                db = st.session_state.get('db_manager')
+                if db:
+                    df_log = db.execute_query("""
+                        SELECT username, action, target, timestamp
+                        FROM activity_log
+                        ORDER BY timestamp DESC
+                        LIMIT 5
+                    """)
+                else:
+                    df_log = None
+            except Exception as e:
+                df_log = None
+                st.warning(f"⚠️ Cannot load activity log: {e}")
+        
+            if df_log is not None and not df_log.empty:
+                # ซ่อน username กลาง
+                def mask_username(name: str):
+                    if not name or not isinstance(name, str): return ""
+                    if len(name) <= 2: return name[0] + "*" if len(name) == 2 else name
+                    return name[0] + "*" * (len(name) - 2) + name[-1]
+        
+                df_log["username"] = df_log["username"].apply(mask_username)
+                for _, row in df_log.iterrows():
+                    st.markdown(
+                        f"• **{row['action']}** → `{row['target']}`  \n"
+                        f"<span style='color:gray;font-size:0.85em;'>👤 {row['username']} — 🕒 {row['timestamp']}</span>",
+                        unsafe_allow_html=True
+                    )
+            else:
+                st.info("ยังไม่มีบันทึกกิจกรรมล่าสุด")
+        
+            # === STYLING ===
+            st.markdown("""
+            <style>
+            [data-testid="stSidebar"] {
+                background: linear-gradient(180deg, #f9fafc 0%, #eef1f9 100%);
+                padding: 1rem 1.2rem;
+                font-family: 'Sarabun', sans-serif;
+            }
+            [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] h4 {
+                color: #3b3b98;
+            }
+            [data-testid="stSidebar"] button {
+                border-radius: 8px !important;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+
 
         tab1, tab2, tab3, tab4, tab5 = st.tabs([ "📁 Import Data", "⚙️ Run Procedures","🧾 View & Edit Data","🔗 File Merger","📜 Logs"])
         with tab1:
