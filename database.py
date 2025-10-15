@@ -304,6 +304,28 @@ class DatabaseManager:
             logging.error(f"Query error: {e}")
             return pd.DataFrame()
 
+    def execute_nonquery(self, query, params=None):
+        """ใช้สำหรับคำสั่ง INSERT / UPDATE / DELETE ที่ไม่ต้องการผลลัพธ์"""
+        conn = None
+        cursor = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            if params:
+                cursor.execute(query, params)
+            else:
+                cursor.execute(query)
+            conn.commit()
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            raise e
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+
 
 
     # ---------- Stored Procedure ----------
