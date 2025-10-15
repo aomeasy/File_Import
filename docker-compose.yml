@@ -6,6 +6,10 @@ services:
       - .env
     ports:
       - "8510:8501"
+    environment:
+      - TZ=Asia/Bangkok
+    command:
+      --default-time-zone=Asia/Bangkok  
     restart: unless-stopped
     volumes:
       - .:/app
