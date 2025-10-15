@@ -1325,11 +1325,58 @@ def render_data_editor_tab():
 
 def render_log_tab():
     st.header("📜 Activity Log")
-    db = st.session_state.db_manager
-    df = db.execute_query("SELECT * FROM activity_log ORDER BY timestamp DESC LIMIT 200")
 
+    db = st.session_state.db_manager
+
+    # ---- Filter Controls ----
+    with st.expander("🔍 Filter Logs", expanded=False):
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            search_action = st.text_input("Action", placeholder="เช่น Import Data, Edit Data")
+        with col2:
+            search_target = st.text_input("Target", placeholder="เช่น datacomNT, LK_Ticket")
+        with col3:
+            search_user = st.text_input("Username", placeholder="ชื่อหรือบางส่วน (mask จะยังทำงาน)")
+        with col4:
+            limit_per_page = st.selectbox("Rows per page", [50, 100, 200, 500], index=1)
+
+    # ---- Build SQL dynamically ----
+    where_clauses = []
+    params = []
+    if search_action:
+        where_clauses.append("action LIKE %s")
+        params.append(f"%{search_action}%")
+    if search_target:
+        where_clauses.append("target LIKE %s")
+        params.append(f"%{search_target}%")
+    if search_user:
+        where_clauses.append("username LIKE %s")
+        params.append(f"%{search_user}%")
+
+    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+    # ---- Count total rows ----
+    count_query = f"SELECT COUNT(*) as total FROM activity_log {where_sql}"
+    count_df = db.execute_query(count_query, tuple(params))
+    total_rows = int(count_df.iloc[0]['total']) if (count_df is not None and not count_df.empty) else 0
+
+    # ---- Pagination ----
+    page_count = max(1, (total_rows + limit_per_page - 1) // limit_per_page)
+    current_page = st.number_input("📄 Page", min_value=1, max_value=page_count, step=1, value=1)
+    offset = (current_page - 1) * limit_per_page
+
+    # ---- Query data ----
+    query = f"""
+        SELECT * FROM activity_log
+        {where_sql}
+        ORDER BY timestamp DESC
+        LIMIT %s OFFSET %s
+    """
+    df = db.execute_query(query, tuple(params + [limit_per_page, offset]))
+
+    # ---- Username masking ----
     def mask_username(name: str):
-        """ซ่อนตัวอักษรตรงกลางของ username → 'a********u'"""
+        """ซ่อนตัวอักษรตรงกลางของ username เช่น 'adcharaporn.u' → 'a********u'"""
         if not name or not isinstance(name, str):
             return ""
         if len(name) <= 2:
@@ -1337,19 +1384,66 @@ def render_log_tab():
         return name[0] + "*" * (len(name) - 2) + name[-1]
 
     if df is not None and not df.empty:
-        # ✅ สร้างสำเนาและ mask เฉพาะคอลัมน์ username
         df = df.copy()
+
+        # ✅ Mask username
         if "username" in df.columns:
             df["username"] = df["username"].apply(mask_username)
 
-        # ✅ ซ่อนคอลัมน์ id ถ้ามี
+        # ✅ Hide ID column if exists
         if "id" in df.columns:
             df = df.drop(columns=["id"])
 
-        # ✅ แสดงตารางแบบสวยงาม
+        # ✅ Format timestamp (optional)
+        if "timestamp" in df.columns:
+            df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+
+        # ---- Display Summary ----
+        st.markdown(
+            f"""
+            <div style='background:#f8f9fa;padding:10px;border-radius:8px;margin-bottom:8px;'>
+                <b>Total Logs:</b> {total_rows:,} |
+                <b>Page:</b> {current_page}/{page_count} |
+                <b>Rows this page:</b> {len(df):,}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        # ---- Display Data ----
         st.dataframe(df, use_container_width=True, hide_index=True)
+
+        # ---- Navigation Buttons ----
+        c1, c2, c3 = st.columns([1, 1, 6])
+        with c1:
+            if st.button("⬅️ Previous", disabled=(current_page <= 1)):
+                st.session_state["log_page"] = current_page - 1
+                st.experimental_rerun()
+        with c2:
+            if st.button("➡️ Next", disabled=(current_page >= page_count)):
+                st.session_state["log_page"] = current_page + 1
+                st.experimental_rerun()
+
     else:
-        st.info("No activity logs yet.")
+        st.info("📭 No activity logs found.")
+
+    # ---- Optional: summary chart ----
+    with st.expander("📊 Log Summary Chart (optional)", expanded=False):
+        try:
+            agg_query = """
+                SELECT DATE(timestamp) as date, COUNT(*) as count
+                FROM activity_log
+                GROUP BY DATE(timestamp)
+                ORDER BY date DESC LIMIT 14
+            """
+            agg_df = db.execute_query(agg_query)
+            if agg_df is not None and not agg_df.empty:
+                st.bar_chart(
+                    data=agg_df.set_index("date"),
+                    use_container_width=True
+                )
+        except Exception as e:
+            st.warning(f"Chart load failed: {e}")
 
 
 
