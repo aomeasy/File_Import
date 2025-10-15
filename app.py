@@ -1135,14 +1135,6 @@ import streamlit as st
 import pandas as pd
 import mysql.connector
 
-def highlight_duplicates(row, dup_mask):
-    return ['background-color: #ffe6e6' if dup_mask[idx] else '' for idx in range(len(row))]
-
-st.dataframe(
-    merged_df.style.apply(lambda row: highlight_duplicates(row, dup_mask), axis=1),
-    use_container_width=True
-)
-
 def render_data_editor_tab():
     # === DATABASE CONNECTION ===
     if 'db_manager' not in st.session_state:
