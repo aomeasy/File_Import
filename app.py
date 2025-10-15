@@ -1413,7 +1413,19 @@ def render_log_tab():
         )
 
         # ---- Display Data ----
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True,
+            hide_download_button=True   # 🚫 ปิดปุ่มดาวน์โหลดอัตโนมัติ
+        )
+        st.markdown("""
+        <style>
+        button[title="Download data as CSV"] {
+            display: none;
+        }
+        </style>
+        """, unsafe_allow_html=True)
 
         # ---- Navigation Buttons ----
         c1, c2, c3 = st.columns([1, 1, 6])
