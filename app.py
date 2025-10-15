@@ -1073,61 +1073,40 @@ def render_data_editor_tab():
     columns = [col['COLUMN_NAME'] for col in get_cached_table_columns(selected_table)]
     columns_lower = [c.lower() for c in columns]
 
-    # === DASHBOARD LAYOUT ===
     st.markdown("---")
     left, right = st.columns([1.2, 3])
 
     # ==========================================
-    # 🔍 LEFT: SEARCH & FILTER PANEL
+    # 🔍 LEFT: SEARCH PANEL
     # ==========================================
     with left:
         st.markdown("#### 🔍 Smart Search")
-        st.caption("พิมพ์คำใด ๆ ก็ได้ เพื่อค้นหาทุกคอลัมน์ หรือใช้รูปแบบ **field=value , field2=value2** เพื่อค้นหาแบบกำหนดเงื่อนไข")
-
         search_input = st.text_input(
             "Enter keywords or conditions",
-            placeholder="เช่น service_type=FTTx , mm=สิงหาคม2025 หรือพิมพ์คำทั่วไป เช่น datacom",
+            placeholder="เช่น service_type=FTTx , mm=สิงหาคม2025",
             key="search_input_field"
         )
-
-        match_mode = st.radio("Match Mode", ["AND", "OR"], horizontal=True, key="match_mode_radio")
-
+        match_mode = st.radio("Match Mode", ["AND", "OR"], horizontal=True)
         row_limit_label = st.selectbox("Show rows", ["10", "100", "1000", "10000", "All"], index=0)
         row_limit = None if row_limit_label == "All" else int(row_limit_label)
 
-        st.divider()
         if st.button("🔄 Refresh Data", use_container_width=True):
             st.cache_data.clear()
             st.experimental_rerun()
 
-        # Soft styling
-        st.markdown("""
-            <style>
-            div[data-testid="stColumn"]:first-child {
-                background: #fafbff;
-                border-radius: 10px;
-                padding: 15px;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-            }
-            .stRadio > div{flex-direction:row;}
-            </style>
-        """, unsafe_allow_html=True)
-
     # ==========================================
-    # 📊 RIGHT: DATA DISPLAY & EDIT PANEL
+    # 📊 RIGHT: DATA DISPLAY
     # ==========================================
     with right:
         # ---- Build SQL ----
         query = f"SELECT * FROM `{selected_table}`"
         params = []
-        
+
         if search_input.strip():
-            # แยกคำค้น
             parts = [p.strip() for p in re.split('[,;]', search_input) if p.strip()]
             has_explicit_condition = any('=' in p for p in parts)
-        
+
             if has_explicit_condition:
-                # === Mode: Field=value ===
                 conditions = []
                 joiner = f" {match_mode} "
                 for cond in parts:
@@ -1139,35 +1118,29 @@ def render_data_editor_tab():
                             params.append(f"%{value}%")
                         else:
                             st.warning(f"⚠️ Column `{key}` not found — ignored.")
-                    else:
-                        st.warning(f"⚠️ Invalid condition format: {cond}")
                 if conditions:
                     query += " WHERE " + joiner.join(conditions)
             else:
-                # === Mode: Auto-search all columns ===
                 like_clauses = f" {match_mode} ".join([f"`{col}` LIKE %s" for col in columns])
                 query += f" WHERE {like_clauses}"
                 params = [f"%{search_input}%"] * len(columns)
-        
+
         if row_limit:
             query += f" LIMIT {row_limit}"
 
-        # ---- Format SQL for display ----
-        formatted_query = query
-        for p in params:
-            formatted_query = formatted_query.replace("%s", f"'{p}'", 1)
-
         with st.expander("🧠 SQL Query Used", expanded=False):
+            formatted_query = query
+            for p in params:
+                formatted_query = formatted_query.replace("%s", f"'{p}'", 1)
             st.code(formatted_query, language="sql")
 
         # ---- Load Data ----
-        with st.spinner("🔎 Searching database... Please wait."):
+        with st.spinner("🔎 Searching database..."):
             try:
                 df = db.execute_query(query, tuple(params))
             except Exception as e:
                 st.error(f"Query error: {e}")
                 return
-            time.sleep(0.2)
 
         if df is None or df.empty:
             st.warning("📭 No records found.")
@@ -1175,10 +1148,7 @@ def render_data_editor_tab():
 
         st.success(f"✅ Found {len(df)} records from `{selected_table}`")
 
-        # ---- Editable Table ----
-        st.markdown("### 🧮 Editable Records")
-        st.caption("Double-click to edit any cell. Changes will highlight automatically.")
-
+        # ---- Editable Data ----
         edited_df = st.data_editor(
             df,
             num_rows="dynamic",
@@ -1188,18 +1158,13 @@ def render_data_editor_tab():
         )
 
         # ==========================================
-        # 💾 Detect & Preview Changes + Secret Key
+        # 💾 Detect Changes
         # ==========================================
         if not edited_df.equals(df):
             st.info("📝 Detected unsaved changes!")
 
-            # 🔑 Primary Key detection
-            pk_col = None
-            for candidate in ['id', 'ID', 'Id', 'Ticket No', 'ticket_no', 'no', 'No']:
-                if candidate in columns:
-                    pk_col = candidate
-                    break
-            if pk_col is None:
+            pk_col = next((c for c in ['id', 'ID', 'Ticket No', 'ticket_no', 'no', 'No'] if c in columns), None)
+            if not pk_col:
                 st.error("⚠️ Cannot find primary key column.")
                 return
 
@@ -1213,114 +1178,151 @@ def render_data_editor_tab():
                     update_params.append(vals)
                     affected_keys.append(row[pk_col])
 
-            # ---- SQL Preview ----
-            if update_queries:
-                with st.expander("🧩 SQL Preview (before saving)", expanded=True):
-                    for i, q in enumerate(update_queries):
-                        formatted_sql = q.replace("%s", "'{}'").format(*[str(v) for v in update_params[i]])
-                        st.code(formatted_sql, language="sql")
+            with st.expander("🧩 SQL Preview (before saving)", expanded=True):
+                for i, q in enumerate(update_queries):
+                    formatted_sql = q.replace("%s", "'{}'").format(*[str(v) for v in update_params[i]])
+                    st.code(formatted_sql, language="sql")
 
-                st.markdown(
-                    f"🧠 **Affected Rows:** {len(affected_keys)} | Keys: `{', '.join(map(str, affected_keys[:10]))}`"
-                )
+            authorized_users = {
+                "adcharaporn.u": ("Adcharaporn", "Admin"),
+                "Che": ("Che@_NT", "Operator"),
+            }
 
-                # === ระบบตรวจรหัสก่อน edit ===
-                authorized_users = {
-                    "adcharaporn.u": "Admin",
-                    "Che@_NT": "Operator",
-                }
+            st.divider()
+            st.markdown("#### 🔐 Authorization Required")
 
-                st.divider()
-                st.markdown("#### 🔐 Authorization Required")
+            secret_key = st.text_input(
+                "Enter your secret key to unlock saving",
+                type="password",
+                placeholder="Enter your secret key",
+                key="editor_secret_key"
+            )
 
-                secret_key = st.text_input(
-                    "Enter your secret key to unlock saving",
-                    type="password",
-                    placeholder="Enter your secret key",
-                    key="editor_secret_key"
-                )
+            user_info = authorized_users.get(secret_key.strip())
+            save_disabled = user_info is None
+            username = user_info[0] if user_info else None
+            user_role = user_info[1] if user_info else None
 
-                user_role = authorized_users.get(secret_key.strip())
-                save_disabled = user_role is None
+            if save_disabled:
+                st.warning("🔒 Enter correct key to unlock Save Changes button.", icon="🔑")
+            else:
+                st.success(f"✅ Authorized as **{user_role}**")
 
-                if save_disabled:
-                    st.warning("🔒 Enter correct key to unlock Save Changes button.", icon="🔑")
-                else:
-                    st.success(f"✅ Authorized as **{user_role}**")
+            confirm = st.checkbox("✅ Confirm update queries before saving", key="confirm_update")
 
-                confirm = st.checkbox("✅ Confirm update queries before saving", key="confirm_update")
+            c1, c2 = st.columns([1, 1])
+            with c1:
+                if st.button("💾 Save Changes", type="primary", use_container_width=True, disabled=(save_disabled or not confirm)):
+                    try:
+                        with st.spinner("💾 Applying changes to database..."):
+                            conn = db.get_connection()
+                            cursor = conn.cursor()
+                            for q, vals in zip(update_queries, update_params):
+                                cursor.execute(q, vals)
+                            conn.commit()
+                            cursor.close()
+                            conn.close()
 
-                c1, c2 = st.columns([1, 1])
-                with c1:
-                    if st.button("💾 Save Changes", type="primary", use_container_width=True, disabled=(save_disabled or not confirm)):
+                        # Log Activity
                         try:
-                            with st.spinner("💾 Applying changes to database..."):
-                                conn = db.get_connection()
-                                cursor = conn.cursor()
-                                for q, vals in zip(update_queries, update_params):
-                                    cursor.execute(q, vals)
-                                conn.commit()
-                                cursor.close()
-                                conn.close()
+                            log_conn = db.get_connection()
+                            log_cursor = log_conn.cursor()
+                            log_cursor.execute("""
+                                INSERT INTO activity_log (username, action, target, ip_address, details)
+                                VALUES (%s, %s, %s, %s, %s)
+                            """, (
+                                username,
+                                "Edit Data",
+                                selected_table,
+                                st.session_state.get('client_ip', 'unknown'),
+                                f"rows={len(affected_keys)}, role={user_role}"
+                            ))
+                            log_conn.commit()
+                            log_cursor.close()
+                            log_conn.close()
+                        except Exception as log_err:
+                            st.warning(f"⚠️ Failed to write log: {log_err}")
 
-                            # 🧾 Log Activity
-                            try:
-                                username = secret_key.strip()
-                                log_conn = db.get_connection()
-                                log_cursor = log_conn.cursor()
-                                log_cursor.execute("""
-                                    INSERT INTO activity_log (username, action, target, ip_address, details)
-                                    VALUES (%s, %s, %s, %s, %s)
-                                """, (
-                                    username,
-                                    "Edit Data",
-                                    selected_table,
-                                    st.session_state.get('client_ip', 'unknown'),
-                                    f"rows={len(affected_keys)}, keys={affected_keys[:10]}"
-                                ))
-                                log_conn.commit()
-                                log_cursor.close()
-                                log_conn.close()
-                            except Exception as log_err:
-                                st.warning(f"⚠️ Failed to write log: {log_err}")
+                        st.success("✅ Data updated successfully.")
+                        st.toast("💾 Changes saved!", icon="✅")
+                        st.session_state["save_status"] = "success"
 
-                            st.session_state["last_save_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            st.session_state["save_status"] = "success"
-                            st.success("✅ Data updated successfully.")
-                            st.toast("💾 Changes saved!", icon="✅")
+                    except Exception as e:
+                        st.error(f"❌ Update failed: {e}")
+                        st.session_state["save_status"] = f"error: {e}"
 
-                        except Exception as e:
-                            st.session_state["save_status"] = f"error: {e}"
-                            st.error(f"❌ Update failed: {e}")
-
-                with c2:
-                    if st.button("❌ Discard Changes", type="secondary", use_container_width=True):
-                        st.experimental_rerun()
+            with c2:
+                if st.button("❌ Discard Changes", type="secondary", use_container_width=True):
+                    st.experimental_rerun()
 
         # ==========================================
-        # 🕒 Status Summary
+        # 📥 Secure Download Section
         # ==========================================
         st.markdown("---")
-        if "save_status" in st.session_state:
-            if st.session_state["save_status"] == "success":
-                st.markdown(
-                    f"<div style='background:#d1fae5;padding:10px;border-radius:8px;'>"
-                    f"💾 <b>Saved successfully.</b> "
-                    f"<small>Last updated at {st.session_state.get('last_save_time','')}</small></div>",
-                    unsafe_allow_html=True
-                )
-            elif st.session_state["save_status"].startswith("error"):
-                st.markdown(
-                    f"<div style='background:#fee2e2;padding:10px;border-radius:8px;'>"
-                    f"❌ <b>Save failed:</b> {st.session_state['save_status']}</div>",
-                    unsafe_allow_html=True
-                )
+        st.subheader("⬇️ Secure Data Download")
 
-        # ---- Footer ----
-        st.markdown(
-            "<div style='text-align:right;color:gray;font-size:0.85rem;margin-top:10px;'>"
-            "📅 Last refreshed: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S") +
-            "</div>", unsafe_allow_html=True)
+        authorized_users = {
+            "adcharaporn.u": ("Adcharaporn", "Admin"),
+            "Che": ("Che@_NT", "Operator"),
+        }
+
+        download_key = st.text_input(
+            "Enter Secret Key to unlock download",
+            type="password",
+            placeholder="Enter your secret key",
+            key="download_secret_key"
+        )
+
+        user_info = authorized_users.get(download_key.strip())
+        download_disabled = user_info is None
+        username = user_info[0] if user_info else None
+        user_role = user_info[1] if user_info else None
+
+        if download_disabled:
+            st.warning("🔒 Enter correct key to unlock Download button.", icon="🔑")
+        else:
+            st.success(f"✅ Authorized as **{user_role}**")
+
+        file_name = f"{selected_table}_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        csv_data = df.to_csv(index=False, encoding="utf-8-sig")
+
+        if st.button("📥 Download CSV", type="primary", use_container_width=True, disabled=download_disabled):
+            st.download_button(
+                label=f"📥 Download {file_name}",
+                data=csv_data,
+                file_name=file_name,
+                mime="text/csv",
+                use_container_width=True,
+                key="download_csv_button"
+            )
+
+            # ✅ Log Download Activity
+            try:
+                log_conn = db.get_connection()
+                log_cursor = log_conn.cursor()
+                log_cursor.execute("""
+                    INSERT INTO activity_log (username, action, target, ip_address, details)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (
+                    username,
+                    "Download Data",
+                    selected_table,
+                    st.session_state.get('client_ip', 'unknown'),
+                    f"rows={len(df)}, role={user_role}"
+                ))
+                log_conn.commit()
+                log_cursor.close()
+                log_conn.close()
+                st.toast("📥 Download logged successfully.", icon="✅")
+            except Exception as log_err:
+                st.warning(f"⚠️ Failed to write download log: {log_err}")
+
+        # ==========================================
+        # 📅 Footer
+        # ==========================================
+        st.markdown("---")
+        st.caption(f"📅 Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
  
 
 def render_log_tab():
