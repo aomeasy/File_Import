@@ -1470,41 +1470,26 @@ def main():
                 return
 
         with st.sidebar:
-            st.markdown("### ⚙️ Configuration")
-            st.success("✅ Database Connected")
-            env = st.selectbox("🌐 Environment", ["Production", "Testing"])
-            st.button("🔁 Refresh All", use_container_width=True)
-        
-            st.markdown("---")
-            st.markdown("### 🧠 Smart Assistant")
-            st.text_input("💬 Ask AI about your data...", placeholder="เช่น ตารางไหนอัปเดตล่าสุด?")
-            st.button("🚀 Generate Insight", use_container_width=True)
-        
-            st.markdown("---")
-            st.markdown("### 📊 Quick Insights")
-            c1, c2 = st.columns(2)
-            c1.metric("📁 Tables", 129)
-            c2.metric("🕒 Last Import", "2 hrs ago")
-            st.caption("💾 Last updated: R06")
-        
-            st.markdown("---")
-            st.markdown("### 👤 User Access")
-            st.info("👥 **User:** Adcharaporn.U\n🧩 **Role:** Admin")
-            st.button("🔑 Change Key", use_container_width=True)
-        
-            st.markdown("---")
-            st.markdown("### 🕓 Recent Activity")
-            st.write("- 10:45 – Edited `datacomNT` (24 rows)")
-            st.write("- 10:10 – Imported `R06_oct.csv`")
-            st.write("- 09:55 – Executed `update_R06_cause()`")
-        
-            st.markdown("---")
-            st.markdown("### 📁 Quick Navigation")
-            st.write("🏠 Home\n📥 Import Data\n⚙️ Run Procedures\n🧮 Edit Data\n📊 File Merger\n📜 Logs")
-        
-            st.markdown("---")
-            theme = st.radio("🌗 Theme", ["☀️ Light", "🌙 Dark"], horizontal=True)
+            st.header("⚙️ Configuration")
+            if 'connection_status' not in st.session_state:
+                try:
+                    st.session_state.connection_status = st.session_state.db_manager.test_connection()
+                except Exception:
+                    st.session_state.connection_status = False
 
+            if st.session_state.connection_status:
+                st.markdown('<div class="status-success">✅ Database Connected</div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="status-error">❌ Database Connection Failed</div>', unsafe_allow_html=True)
+
+            if st.button("🔄 Refresh", key="refresh_sidebar"):
+                st.cache_data.clear(); st.rerun()
+
+            try:
+                tables_info = get_cached_tables_info()
+                tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
+            except Exception:
+                tables = []; tables_info = []
 
             st.write(f"📊 Available Tables: {len(tables)}")
 
