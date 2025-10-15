@@ -1255,7 +1255,7 @@ def render_data_editor_tab():
         st.markdown("#### 🔐 Authorization (optional)")
         authorized_users = {
             "adcharaporn.u": ("adcharaporn.u", "Admin"),
-            "Yimmy": "Operator",
+            "Yimmy": ("Yimmy", "Operator"),
             "C.Che": ("C.Che", "Operator"), 
         }
 
