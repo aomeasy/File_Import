@@ -663,8 +663,8 @@ def render_import_tab():
                     # --- ระบบตรวจรหัสก่อน Import ---
                     authorized_users = {
                         "adcharaporn.u": "Admin",
-                        "Che@_NT": "Operator",
-                        "Yim": "Operator",
+                        "C.Che": "Operator",
+                        "Yimmy": "Operator",
                         "Plai@_NT": "Operator",
                     }
 
@@ -850,8 +850,8 @@ def render_procedures_tab():
                         # --- ระบบตรวจรหัสก่อน run procedures ---
                         authorized_users = {
                             "adcharaporn.u": "Admin",
-                            "Yim": "Operator",
-                            "Che@_NT": "Operator",
+                            "Yimmy": "Operator",
+                            "C.Che": "Operator",
                         }
 
                         # Secret Key
@@ -1255,8 +1255,8 @@ def render_data_editor_tab():
         st.markdown("#### 🔐 Authorization (optional)")
         authorized_users = {
             "adcharaporn.u": ("adcharaporn.u", "Admin"),
-            "Yim": "Operator",
-            "Che": ("Che@_NT", "Operator"), 
+            "Yimmy": "Operator",
+            "C.Che": ("C.Che", "Operator"), 
         }
 
         secret_key = st.text_input(
