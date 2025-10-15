@@ -1401,37 +1401,29 @@ def render_log_tab():
             df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.strftime("%Y-%m-%d %H:%M:%S")
 
         # ---- Display Data ----
-        try:
-            # ✅ ใช้ได้ใน Streamlit ≥ 1.36
-            st.dataframe(
-                df,
-                use_container_width=True,
-                hide_index=True,
-                hide_download_button=True  # ปิดปุ่มดาวน์โหลดอัตโนมัติ
-            )
-        except TypeError:
-            # ✅ รองรับ Streamlit < 1.36 (ไม่มี argument นี้)
-            st.dataframe(
-                df,
-                use_container_width=True,
-                hide_index=True
-            )
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True
+        )
         
-        # ✅ ซ่อนปุ่มดาวน์โหลดด้วย CSS (backup)
-        # ---- หลังจาก st.dataframe(df, ...) แล้ว ใส่ CSS นี้ ----
-        st.markdown("""
-        <style>
-        /* Streamlit DataFrame / Data Editor download buttons */
-        [data-testid="stElementToolbar"] button[aria-label*="Download"] {
-            display: none !important;
-        }
-        button[title="Download data as CSV"],
-        button[aria-label="Download data as CSV"],
-        button[aria-label="Download"] {
-            display: none !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
+        # === Custom download (limit to 5 rows) ===
+        st.markdown("### ⬇️ Limited Download (first 5 records only)")
+        
+        # ✅ สร้าง DataFrame ที่มีแค่ 5 แถวแรก
+        limited_df = df.head(5)
+        
+        # ✅ แปลงเป็น CSV สำหรับดาวน์โหลด
+        csv_data = limited_df.to_csv(index=False, encoding='utf-8-sig')
+        
+        # ✅ ปุ่มดาวน์โหลดแบบจำกัด
+        st.download_button(
+            label=f"📥 Download first 5 records ({len(limited_df)} rows)",
+            data=csv_data,
+            file_name=f"{selected_table}_preview_5rows.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
 
 
 
