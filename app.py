@@ -512,6 +512,9 @@ def render_import_tab():
         try:
             tables_info = get_cached_tables_info()
             tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
+            # 🛡️ ซ่อนตารางระบบที่ไม่ต้องให้ user เห็น
+            HIDDEN_TABLES = ["user_permissions","sn"]
+            tables = [t for t in tables if t not in HIDDEN_TABLES]
             st.metric("📁 Total Tables", len(tables))
         except:
             st.metric("📁 Total Tables", "N/A")
@@ -1160,6 +1163,9 @@ def render_data_editor_tab():
     try:
         tables_info = get_cached_tables_info()
         tables = [t['TABLE_NAME'] for t in tables_info] if tables_info else []
+
+        HIDDEN_TABLES = ["user_permissions", "sn"]
+        tables = [t for t in tables if t not in HIDDEN_TABLES]
     except Exception as e:
         st.error(f"Cannot get tables: {e}")
         tables = []
