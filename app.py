@@ -616,8 +616,8 @@ def render_import_tab():
                     # --- ระบบตรวจรหัสก่อน Import ---
                     authorized_users = {
                         "adcharaporn.u": "Admin",
-                        "Che": "Admin",
-                        "Plai": "Operator",
+                        "Che@_NT": "Admin",
+                        "Plai@_NT": "Operator",
                     }
 
                     secret_key = st.text_input(
@@ -799,10 +799,10 @@ def render_procedures_tab():
 
                     # --- LEFT BUTTONS ---
                     with col_btns[0]:
+                        # --- ระบบตรวจรหัสก่อน run procedures ---
                         authorized_users = {
                             "adcharaporn.u": "Admin",
-                            "Che": "Admin",
-                            "Plai": "Operator",
+                            "Che@_NT": "Operator",
                         }
 
                         # Secret Key
@@ -1224,11 +1224,10 @@ def render_data_editor_tab():
                     f"🧠 **Affected Rows:** {len(affected_keys)} | Keys: `{', '.join(map(str, affected_keys[:10]))}`"
                 )
 
-                # === Secret Key Authorization ===
+                # === ระบบตรวจรหัสก่อน edit ===
                 authorized_users = {
                     "adcharaporn.u": "Admin",
-                    "Che": "Admin",
-                    "Plai": "Operator",
+                    "Che@_NT": "Operator",
                 }
 
                 st.divider()
