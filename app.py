@@ -1329,7 +1329,7 @@ def render_log_tab():
     df = db.execute_query("SELECT * FROM activity_log ORDER BY timestamp DESC LIMIT 200")
 
     def mask_username(name: str):
-        """ซ่อนตัวอักษรตรงกลางของ username  
+        """ซ่อนตัวอักษรตรงกลางของ username   → 'a********u'"""
         if not name or not isinstance(name, str):
             return ""
         if len(name) <= 2:
@@ -1346,6 +1346,7 @@ def render_log_tab():
         st.dataframe(df, use_container_width=True, hide_index=True)
     else:
         st.info("No activity logs yet.")
+
 
 
 
