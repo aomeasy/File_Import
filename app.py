@@ -1272,7 +1272,7 @@ def render_data_editor_tab():
         is_authorized = user_info is not None
 
         if is_authorized:
-            st.success(f"✅ Authorized as {username} ({user_role}) — full access granted.")
+            st.success(f"✅ Authorized as — full access granted.")
             display_df = df
         else:
             st.info("👁 Showing only first 10 rows (limited access).")
