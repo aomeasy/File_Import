@@ -1148,9 +1148,41 @@ def render_data_editor_tab():
 
         st.success(f"✅ Found {len(df)} records from `{selected_table}`")
 
-        # ---- Editable Data ----
+        # ==========================================
+        # 🔐 Authorization for Full Access
+        # ==========================================
+        st.markdown("#### 🔐 Authorization (optional)")
+        authorized_users = {
+            "adcharaporn.u": ("Adcharaporn", "Admin"),
+            "Che": ("Che@_NT", "Operator"),
+            "Plai": ("Plai", "Operator"),
+        }
+
+        secret_key = st.text_input(
+            "Enter Secret Key (optional)",
+            type="password",
+            placeholder="Leave empty to view only 5 records",
+            key="auth_key_view"
+        )
+
+        user_info = authorized_users.get(secret_key.strip())
+        username = user_info[0] if user_info else "Guest"
+        user_role = user_info[1] if user_info else "Guest"
+        is_authorized = user_info is not None
+
+        if is_authorized:
+            st.success(f"✅ Authorized as **{user_role}** — full data visible & downloadable.")
+            display_df = df
+        else:
+            st.info("👁 Showing only first 5 rows (limited download).")
+            display_df = df.head(5)
+
+        # ==========================================
+        # 🧮 Editable Data
+        # ==========================================
+        st.markdown("### 🧮 Data Viewer & Editor")
         edited_df = st.data_editor(
-            df,
+            display_df,
             num_rows="dynamic",
             use_container_width=True,
             key="data_editor_panel",
@@ -1158,73 +1190,44 @@ def render_data_editor_tab():
         )
 
         # ==========================================
-        # 💾 Detect Changes
+        # 💾 Detect Changes (only if authorized)
         # ==========================================
-        if not edited_df.equals(df):
-            st.info("📝 Detected unsaved changes!")
-
-            pk_col = next((c for c in ['id', 'ID', 'Ticket No', 'ticket_no', 'no', 'No'] if c in columns), None)
-            if not pk_col:
-                st.error("⚠️ Cannot find primary key column.")
-                return
-
-            update_queries, update_params, affected_keys = [], [], []
-            for i, row in edited_df.iterrows():
-                if i < len(df) and not row.equals(df.iloc[i]):
-                    set_clause = ", ".join([f"`{c}`=%s" for c in columns if c != pk_col])
-                    update_query = f"UPDATE `{selected_table}` SET {set_clause} WHERE `{pk_col}`=%s"
-                    vals = [row[c] for c in columns if c != pk_col] + [row[pk_col]]
-                    update_queries.append(update_query)
-                    update_params.append(vals)
-                    affected_keys.append(row[pk_col])
-
-            with st.expander("🧩 SQL Preview (before saving)", expanded=True):
-                for i, q in enumerate(update_queries):
-                    formatted_sql = q.replace("%s", "'{}'").format(*[str(v) for v in update_params[i]])
-                    st.code(formatted_sql, language="sql")
-
-            authorized_users = {
-                "adcharaporn.u": ("Adcharaporn", "Admin"),
-                "Che": ("Che@_NT", "Operator"),
-            }
-
-            st.divider()
-            st.markdown("#### 🔐 Authorization Required")
-
-            secret_key = st.text_input(
-                "Enter your secret key to unlock saving",
-                type="password",
-                placeholder="Enter your secret key",
-                key="editor_secret_key"
-            )
-
-            user_info = authorized_users.get(secret_key.strip())
-            save_disabled = user_info is None
-            username = user_info[0] if user_info else None
-            user_role = user_info[1] if user_info else None
-
-            if save_disabled:
-                st.warning("🔒 Enter correct key to unlock Save Changes button.", icon="🔑")
+        if not edited_df.equals(display_df):
+            if not is_authorized:
+                st.warning("🔒 Editing disabled. Please enter valid key for full access.", icon="🔑")
             else:
-                st.success(f"✅ Authorized as **{user_role}**")
+                st.info("📝 Detected unsaved changes!")
 
-            confirm = st.checkbox("✅ Confirm update queries before saving", key="confirm_update")
+                pk_col = next((c for c in ['id', 'ID', 'Ticket No', 'ticket_no', 'no', 'No'] if c in columns), None)
+                if not pk_col:
+                    st.error("⚠️ Cannot find primary key column.")
+                    return
 
-            c1, c2 = st.columns([1, 1])
-            with c1:
-                if st.button("💾 Save Changes", type="primary", use_container_width=True, disabled=(save_disabled or not confirm)):
-                    try:
-                        with st.spinner("💾 Applying changes to database..."):
-                            conn = db.get_connection()
-                            cursor = conn.cursor()
-                            for q, vals in zip(update_queries, update_params):
-                                cursor.execute(q, vals)
-                            conn.commit()
-                            cursor.close()
-                            conn.close()
+                update_queries, update_params, affected_keys = [], [], []
+                for i, row in edited_df.iterrows():
+                    if i < len(display_df) and not row.equals(display_df.iloc[i]):
+                        set_clause = ", ".join([f"`{c}`=%s" for c in columns if c != pk_col])
+                        update_query = f"UPDATE `{selected_table}` SET {set_clause} WHERE `{pk_col}`=%s"
+                        vals = [row[c] for c in columns if c != pk_col] + [row[pk_col]]
+                        update_queries.append(update_query)
+                        update_params.append(vals)
+                        affected_keys.append(row[pk_col])
 
-                        # Log Activity
+                if update_queries:
+                    confirm = st.checkbox("✅ Confirm update before saving", key="confirm_update")
+
+                    if st.button("💾 Save Changes", type="primary", use_container_width=True, disabled=not confirm):
                         try:
+                            with st.spinner("💾 Applying changes..."):
+                                conn = db.get_connection()
+                                cursor = conn.cursor()
+                                for q, vals in zip(update_queries, update_params):
+                                    cursor.execute(q, vals)
+                                conn.commit()
+                                cursor.close()
+                                conn.close()
+
+                            # Log edit activity
                             log_conn = db.get_connection()
                             log_cursor = log_conn.cursor()
                             log_cursor.execute("""
@@ -1240,88 +1243,50 @@ def render_data_editor_tab():
                             log_conn.commit()
                             log_cursor.close()
                             log_conn.close()
-                        except Exception as log_err:
-                            st.warning(f"⚠️ Failed to write log: {log_err}")
 
-                        st.success("✅ Data updated successfully.")
-                        st.toast("💾 Changes saved!", icon="✅")
-                        st.session_state["save_status"] = "success"
+                            st.success("✅ Data updated successfully.")
+                            st.toast("💾 Changes saved!", icon="✅")
 
-                    except Exception as e:
-                        st.error(f"❌ Update failed: {e}")
-                        st.session_state["save_status"] = f"error: {e}"
-
-            with c2:
-                if st.button("❌ Discard Changes", type="secondary", use_container_width=True):
-                    st.experimental_rerun()
+                        except Exception as e:
+                            st.error(f"❌ Update failed: {e}")
 
         # ==========================================
-        # 📥 Secure Download Section
+        # 📊 Download Control (built-in Streamlit)
         # ==========================================
         st.markdown("---")
-        st.subheader("⬇️ Secure Data Download")
+        st.caption("💡 Use the download icon on the top-right of the table to export the data shown.")
 
-        authorized_users = {
-            "adcharaporn.u": ("Adcharaporn", "Admin"),
-            "Che": ("Che@_NT", "Operator"),
-        }
+        # ถ้า authorized → แสดงครบ โหลดครบ
+        # ถ้าไม่ → แสดง 5 แถว โหลด 5 แถว (Streamlit ทำให้โดยอัตโนมัติ)
 
-        download_key = st.text_input(
-            "Enter Secret Key to unlock download",
-            type="password",
-            placeholder="Enter your secret key",
-            key="download_secret_key"
-        )
-
-        user_info = authorized_users.get(download_key.strip())
-        download_disabled = user_info is None
-        username = user_info[0] if user_info else None
-        user_role = user_info[1] if user_info else None
-
-        if download_disabled:
-            st.warning("🔒 Enter correct key to unlock Download button.", icon="🔑")
-        else:
-            st.success(f"✅ Authorized as **{user_role}**")
-
-        file_name = f"{selected_table}_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        csv_data = df.to_csv(index=False, encoding="utf-8-sig")
-
-        if st.button("📥 Download CSV", type="primary", use_container_width=True, disabled=download_disabled):
-            st.download_button(
-                label=f"📥 Download {file_name}",
-                data=csv_data,
-                file_name=file_name,
-                mime="text/csv",
-                use_container_width=True,
-                key="download_csv_button"
-            )
-
-            # ✅ Log Download Activity
+        # ✅ Log full view access
+        if is_authorized and secret_key.strip():
             try:
-                log_conn = db.get_connection()
-                log_cursor = log_conn.cursor()
-                log_cursor.execute("""
+                conn = db.get_connection()
+                cursor = conn.cursor()
+                cursor.execute("""
                     INSERT INTO activity_log (username, action, target, ip_address, details)
                     VALUES (%s, %s, %s, %s, %s)
                 """, (
                     username,
-                    "Download Data",
+                    "View Full Data",
                     selected_table,
                     st.session_state.get('client_ip', 'unknown'),
                     f"rows={len(df)}, role={user_role}"
                 ))
-                log_conn.commit()
-                log_cursor.close()
-                log_conn.close()
-                st.toast("📥 Download logged successfully.", icon="✅")
-            except Exception as log_err:
-                st.warning(f"⚠️ Failed to write download log: {log_err}")
+                conn.commit()
+                cursor.close()
+                conn.close()
+                st.toast("📜 Logged: Full view access", icon="✅")
+            except Exception as e:
+                st.warning(f"⚠️ Log failed: {e}")
 
         # ==========================================
         # 📅 Footer
         # ==========================================
         st.markdown("---")
         st.caption(f"📅 Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
 
  
 
