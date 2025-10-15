@@ -771,6 +771,32 @@ def render_procedures_tab():
     if 'db_manager' not in st.session_state:
         st.session_state.db_manager = DatabaseManager()
 
+    # ===== AUTHENTICATION =====
+    st.markdown("### 🔐 Authorization")
+
+    # ใช้ session state ถ้ามี key จากแท็บอื่น
+    default_key = st.session_state.get("current_secret_key", "")
+    secret_key = st.text_input(
+        "Enter Secret Key",
+        type="password",
+        placeholder="Enter your key to unlock procedures",
+        key="proc_secret_key",
+        value=default_key
+    ).strip()
+
+    # บันทึก key ไว้ใช้ร่วมทุกแท็บ
+    if secret_key:
+        st.session_state["current_secret_key"] = secret_key
+
+    user_perm = get_user_permission(secret_key)
+    if not user_perm:
+        st.warning("🔒 Enter correct key to unlock this section.", icon="🔑")
+        return  # ❗ หยุดการ render ส่วนล่าง (ไม่โหลด procedure list)
+    else:
+        role = user_perm["role"]
+        st.success(f"✅ Authorized as **{role}**")
+
+
     # ===== FAVORITES SECTION =====
     render_favorites_block()
     st.divider()
