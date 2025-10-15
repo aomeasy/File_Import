@@ -1329,7 +1329,7 @@ def render_log_tab():
     df = db.execute_query("SELECT * FROM activity_log ORDER BY timestamp DESC LIMIT 200")
 
     def mask_username(name: str):
-        """ซ่อนตัวอักษรตรงกลางของ username   → 'a********u'"""
+        """ซ่อนตัวอักษรตรงกลางของ username → 'a********u'"""
         if not name or not isinstance(name, str):
             return ""
         if len(name) <= 2:
@@ -1338,14 +1338,19 @@ def render_log_tab():
 
     if df is not None and not df.empty:
         # ✅ สร้างสำเนาและ mask เฉพาะคอลัมน์ username
+        df = df.copy()
         if "username" in df.columns:
-            df = df.copy()
             df["username"] = df["username"].apply(mask_username)
+
+        # ✅ ซ่อนคอลัมน์ id ถ้ามี
+        if "id" in df.columns:
+            df = df.drop(columns=["id"])
 
         # ✅ แสดงตารางแบบสวยงาม
         st.dataframe(df, use_container_width=True, hide_index=True)
     else:
         st.info("No activity logs yet.")
+
 
 
 
