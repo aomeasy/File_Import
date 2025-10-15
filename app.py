@@ -1033,12 +1033,42 @@ def render_merger_tab():
         if st.session_state.merger_merged_df is not None:
             st.header("📊 ผลลัพธ์การรวมไฟล์")
             merged_df = st.session_state.merger_merged_df
+        
+            # ✅ ตรวจหาข้อมูลซ้ำ
+            dup_df, dup_count = analyze_duplicates(merged_df)
+            if dup_count > 0:
+                st.warning(f"⚠️ พบข้อมูลซ้ำจำนวน {dup_count:,} แถว จากทั้งหมด {len(merged_df):,} แถว")
+                with st.expander("🔍 ดูตัวอย่างข้อมูลซ้ำ"):
+                    st.dataframe(dup_df.head(10), use_container_width=True)
+                
+                action = st.radio(
+                    "คุณต้องการทำอย่างไรกับข้อมูลซ้ำ?",
+                    ["❌ ลบแถวซ้ำออก", "➡️ ข้าม (คงไว้ทั้งหมด)"],
+                    horizontal=True,
+                    key="dup_action"
+                )
+        
+                if action == "❌ ลบแถวซ้ำออก":
+                    merged_df = merged_df.drop_duplicates(keep="first").reset_index(drop=True)
+                    st.success(f"✅ ลบข้อมูลซ้ำออกแล้ว เหลือ {len(merged_df):,} แถว")
+                else:
+                    st.info("📎 เก็บข้อมูลทั้งหมดไว้โดยไม่ลบซ้ำ")
+        
+            else:
+                st.success("✅ ไม่พบข้อมูลซ้ำ")
+        
+            # ✅ แสดง metric และ preview หลังลบซ้ำ
             c1, c2, c3 = st.columns(3)
             with c1: st.metric("จำนวนแถวรวม", f"{len(merged_df):,}")
             with c2: st.metric("จำนวนคอลัมน์", len(merged_df.columns))
             with c3: st.metric("ไฟล์ที่รวม", sum(st.session_state.merger_selected_files.values()))
+        
             st.subheader("ตัวอย่างข้อมูล")
             st.dataframe(merged_df.head(100), use_container_width=True)
+        
+            # ✅ เก็บ merged_df ที่ผ่านการจัดการซ้ำไว้แทนที่ของเดิม
+            st.session_state.merger_merged_df = merged_df
+
 
             st.header("⬇️ ดาวน์โหลด")
             d1, d2 = st.columns([1,2])
