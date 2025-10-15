@@ -1712,7 +1712,7 @@ def main():
         st.markdown("""
         <div class="main-header">
             <h1>🚀 Data Management Hub</h1>
-            <p>Complete data management system with import, procedures, and file merger</p>
+            <p>Complete data management system with import, procedures, update and file merger</p>
         </div>
         """, unsafe_allow_html=True)
 
