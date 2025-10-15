@@ -663,7 +663,8 @@ def render_import_tab():
                     # --- ระบบตรวจรหัสก่อน Import ---
                     authorized_users = {
                         "adcharaporn.u": "Admin",
-                        "Che@_NT": "Admin",
+                        "Che@_NT": "Operator",
+                        "Yim": "Operator",
                         "Plai@_NT": "Operator",
                     }
 
@@ -849,6 +850,7 @@ def render_procedures_tab():
                         # --- ระบบตรวจรหัสก่อน run procedures ---
                         authorized_users = {
                             "adcharaporn.u": "Admin",
+                            "Yim": "Operator",
                             "Che@_NT": "Operator",
                         }
 
@@ -1253,6 +1255,7 @@ def render_data_editor_tab():
         st.markdown("#### 🔐 Authorization (optional)")
         authorized_users = {
             "adcharaporn.u": ("adcharaporn.u", "Admin"),
+            "Yim": "Operator",
             "Che": ("Che@_NT", "Operator"), 
         }
 
@@ -1446,7 +1449,7 @@ def render_log_tab():
 
     # ---- Username masking ----
     def mask_username(name: str):
-        """ซ่อนตัวอักษรตรงกลางของ username เช่น 'adcharaporn.u' → 'a********u'"""
+        """ซ่อนตัวอักษรตรงกลางของ username a********u'"""
         if not name or not isinstance(name, str):
             return ""
         if len(name) <= 2:
