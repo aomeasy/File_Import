@@ -1418,13 +1418,21 @@ def render_log_tab():
             )
         
         # ✅ ซ่อนปุ่มดาวน์โหลดด้วย CSS (backup)
+        # ---- หลังจาก st.dataframe(df, ...) แล้ว ใส่ CSS นี้ ----
         st.markdown("""
         <style>
-        button[title="Download data as CSV"] {
+        /* Streamlit DataFrame / Data Editor download buttons */
+        [data-testid="stElementToolbar"] button[aria-label*="Download"] {
+            display: none !important;
+        }
+        button[title="Download data as CSV"],
+        button[aria-label="Download data as CSV"],
+        button[aria-label="Download"] {
             display: none !important;
         }
         </style>
         """, unsafe_allow_html=True)
+
 
 
         # ---- Navigation Buttons ----
