@@ -11,6 +11,43 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO  # ✅ เพิ่มเพื่อใช้รีเซ็ต pointer และอ่านเป็น bytes
 
+class DatabaseManager:
+    def __init__(self):
+        self.connection_config = {
+            "host": os.getenv("DB_HOST", "localhost"),
+            "user": os.getenv("DB_USER", "root"),
+            "password": os.getenv("DB_PASSWORD", ""),
+            "database": os.getenv("DB_NAME", "test"),
+            "port": int(os.getenv("DB_PORT", 3306))
+        }
+
+    def get_connection(self):
+        return mysql.connector.connect(**self.connection_config)
+
+    def test_connection(self):
+        try:
+            conn = self.get_connection()
+            conn.close()
+            return True
+        except Exception:
+            return False
+
+    # ✅ เพิ่ม method นี้ (หรือแก้ของเดิมให้ตรง)
+    def execute_query(self, query, params=None):
+        """Run SQL query safely and return all columns as string (prevent float conversion)"""
+        conn = None
+        try:
+            conn = self.get_connection()
+            # 👇 จุดสำคัญ — บังคับ dtype=str เพื่อไม่ให้ varchar กลายเป็น float
+            df = pd.read_sql(query, conn, params=params, dtype=str)
+            return df
+        except Exception as e:
+            print(f"[execute_query error] {e}")
+            return pd.DataFrame()
+        finally:
+            if conn:
+                conn.close()
+                
 # Import modules with error handling
 try:
     from database import DatabaseManager
