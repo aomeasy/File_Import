@@ -280,27 +280,30 @@ class DatabaseManager:
 
     # ---------- Generic SELECT ----------
     def execute_query(self, query: str, params: Optional[tuple] = None) -> pd.DataFrame:
-        """Execute SELECT query - SECURE VERSION"""
+        """Execute SELECT query - Force all values as string (prevent .0 issue)"""
         try:
             query_upper = query.strip().upper()
             if not query_upper.startswith('SELECT'):
                 logging.warning(f"Attempted non-SELECT query: {query[:50]}")
                 return pd.DataFrame()
     
-            # ใช้คอนเน็กชันอ่านแบบสั้น
             conn = self._read_conn()
             try:
-                # ✅ บังคับ dtype=str เพื่อไม่ให้ VARCHAR กลายเป็น float
                 if params:
-                    df = pd.read_sql(query, conn, params=params, dtype=str)
+                    df = pd.read_sql(query, conn, params=params)
                 else:
-                    df = pd.read_sql(query, conn, dtype=str)
+                    df = pd.read_sql(query, conn)
+    
+                # ✅ บังคับให้ทุกคอลัมน์กลายเป็น string หลังอ่าน
+                df = df.applymap(lambda x: str(x) if not pd.isna(x) else "")
+    
                 return df
             finally:
                 conn.close()
         except Error as e:
             logging.error(f"Query error: {e}")
             return pd.DataFrame()
+
 
 
     # ---------- Stored Procedure ----------
