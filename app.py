@@ -1171,54 +1171,8 @@ def render_data_editor_tab():
     columns = [col['COLUMN_NAME'] for col in get_cached_table_columns(selected_table)]
     columns_lower = [c.lower() for c in columns]
 
-    # === SECURE EXPORT (BOTTOM SECTION) ===
     st.markdown("---")
-    st.markdown("### 📤 Secure Data Export")
-    
-    if "authorized" in st.session_state and st.session_state["authorized"]:
-        if 'edited_df' in locals() and not edited_df.empty:
-            export_df = edited_df.copy()
-    
-            st.success(f"✅ Ready to export {len(export_df)} records from `{selected_table}`.")
-            
-            # เลือกรูปแบบไฟล์
-            file_format = st.radio(
-                "เลือกรูปแบบไฟล์:",
-                options=["CSV", "Excel (XLSX)"],
-                horizontal=True
-            )
-    
-            # ปุ่มดาวน์โหลด
-            if file_format == "CSV":
-                csv_data = export_df.to_csv(index=False).encode("utf-8-sig")
-                st.download_button(
-                    label=f"⬇️ Download CSV ({len(export_df)} rows)",
-                    data=csv_data,
-                    file_name=f"{selected_table}.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
-            else:
-                import io
-                from openpyxl import Workbook
-    
-                buffer = io.BytesIO()
-                with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                    export_df.to_excel(writer, sheet_name=selected_table, index=False)
-                st.download_button(
-                    label=f"⬇️ Download Excel ({len(export_df)} rows)",
-                    data=buffer.getvalue(),
-                    file_name=f"{selected_table}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-    
-        else:
-            st.warning("⚠️ No table data available for export.")
-    else:
-        st.info("🔒 Please enter a valid secret key above to enable file download.")
-
-
+    left, right = st.columns([1.2, 3])
 
     # ==========================================
     # 🔍 LEFT: SEARCH PANEL
