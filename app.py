@@ -475,11 +475,13 @@ def render_import_tab():
             st.metric("🔌 Database Status", "Disconnected", delta="Offline", delta_color="inverse")
     with col_stat3:
         if st.button("🔄 Refresh All", use_container_width=True, key="refresh_import_top"):
-            st.cache_data.clear(); st.rerun()
+            st.cache_data.clear()
+            st.rerun()
 
     st.divider()
     st.header("📁 File Import to Database")
 
+    # === Database & Processor setup ===
     if 'db_manager' not in st.session_state:
         st.session_state.db_manager = DatabaseManager()
     if 'file_processor' not in st.session_state:
@@ -489,10 +491,14 @@ def render_import_tab():
         tables_info = get_cached_tables_info()
         tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
     except Exception as e:
-        st.warning(f"Could not get table info: {e}"); tables = []; tables_info = []
+        st.warning(f"Could not get table info: {e}")
+        tables = []
+        tables_info = []
 
     selected_table = st.selectbox("🎯 Select Target Table", options=[""] + tables, help="Choose the table where you want to import your data")
+
     if selected_table:
+        # ===== Show Table Info =====
         if tables_info:
             table_details = next((t for t in tables_info if t.get('TABLE_NAME') == selected_table), None)
             if table_details:
@@ -517,6 +523,7 @@ def render_import_tab():
                         size_mb = data_length / (1024 * 1024)
                         st.metric("💾 Size", f"{size_mb:.0f} MB")
 
+        # ===== Show Preview Button =====
         st.subheader(f"👀 Preview: {selected_table}")
         if st.button("🔄 Show Preview", type="secondary"):
             try:
@@ -530,8 +537,10 @@ def render_import_tab():
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
 
+        # ===== Upload File =====
         st.subheader("📤 Upload File")
         uploaded_file = st.file_uploader("Choose a file to import", type=['csv', 'xlsx', 'xls'], help="Max size: 200MB", key="import_uploader")
+
         if uploaded_file:
             st.markdown(f"""
             <div class="file-info">
@@ -540,10 +549,10 @@ def render_import_tab():
                 <p><strong>Type:</strong> {uploaded_file.type}</p>
             </div>
             """, unsafe_allow_html=True)
+
             try:
                 with st.spinner("Reading file..."):
                     if uploaded_file.name.endswith('.csv'):
-                        # ✅ ใช้อ่านแบบปลอดภัยเพื่อกัน error utf-8
                         df = read_csv_safely(uploaded_file)
                     else:
                         df = pd.read_excel(uploaded_file)
@@ -554,21 +563,29 @@ def render_import_tab():
                 st.subheader("📋 Data Preview")
                 st.dataframe(df.head(10), use_container_width=True)
 
+                # ===== Column Mapping =====
                 st.subheader("🔗 Column Mapping")
                 table_columns = get_cached_table_columns(selected_table)
                 if not table_columns:
-                    st.error("Cannot get table columns"); return
+                    st.error("Cannot get table columns")
+                    return
+
                 db_column_names = [col['COLUMN_NAME'] for col in table_columns]
                 file_columns = list(df.columns)
+
                 st.info(f"**File Columns:** {len(file_columns)} | **Table Columns:** {len(db_column_names)}")
 
                 column_mapping = {}
                 col1, col2 = st.columns(2)
-                with col1: st.write("**File Column**")
-                with col2: st.write("**→ Database Column**")
+                with col1:
+                    st.write("**File Column**")
+                with col2:
+                    st.write("**→ Database Column**")
+
                 for file_col in file_columns:
                     c1, c2 = st.columns(2)
-                    with c1: st.text(file_col)
+                    with c1:
+                        st.text(file_col)
                     with c2:
                         default_index = 0
                         if file_col in db_column_names:
@@ -591,17 +608,66 @@ def render_import_tab():
                 else:
                     st.warning("⚠️ No columns mapped")
 
+                # ===== AUTH + IMPORT =====
                 st.divider()
-                c1, c2, _ = st.columns([1,1,2])
+                c1, c2, _ = st.columns([1, 1, 2])
+
                 with c1:
-                    if st.button("🚀 Import Data", type="primary", disabled=len(column_mapping)==0):
+                    # --- ระบบตรวจรหัสก่อน Import ---
+                    authorized_users = {
+                        "adcharaporn.u": "Admin",
+                        "Che": "Admin",
+                        "Plai": "Operator",
+                    }
+
+                    secret_key = st.text_input(
+                        "Secret Key to unlock import",
+                        type="password",
+                        placeholder="Enter your secret key",
+                        key="import_secret_key"
+                    )
+
+                    user_role = authorized_users.get(secret_key.strip())
+                    import_disabled = user_role is None or len(column_mapping) == 0
+
+                    if import_disabled:
+                        st.warning("🔒 Enter correct key to unlock Import Data button.", icon="🔑")
+                    else:
+                        st.success(f"✅ Authorized as **{user_role}**")
+
+                    # --- ปุ่ม Import Data ---
+                    if st.button("🚀 Import Data", type="primary", use_container_width=True, disabled=import_disabled):
                         if not column_mapping:
                             st.error("Please map at least one column")
                         else:
+                            # บันทึก log
+                            try:
+                                username = secret_key.strip()
+                                db = st.session_state.get('db_manager') or DatabaseManager()
+                                conn = db.get_connection()
+                                cursor = conn.cursor()
+                                cursor.execute("""
+                                    INSERT INTO activity_log (username, action, target, ip_address, details)
+                                    VALUES (%s, %s, %s, %s, %s)
+                                """, (
+                                    username,
+                                    "Import Data",
+                                    selected_table,
+                                    st.session_state.get('client_ip', 'unknown'),
+                                    f"rows={len(df)}"
+                                ))
+                                conn.commit()
+                                cursor.close()
+                                conn.close()
+                            except Exception as log_err:
+                                st.warning(f"⚠️ Failed to write activity log: {log_err}")
+
+                            # ดำเนินการ Import
                             fresh_db = DatabaseManager()
                             with st.spinner(f"Importing {len(df)} rows..."):
                                 result = fresh_db.import_data(selected_table, df, column_mapping)
                             fresh_db.close_connection()
+
                             if result.get('success'):
                                 st.success(f"✅ {result['message']}")
                                 st.balloons()
@@ -609,12 +675,15 @@ def render_import_tab():
                                 st.metric("Rows Imported", result.get('rows_affected', 0))
                             else:
                                 st.error(f"❌ Import failed: {result.get('error')}")
+
                 with c2:
                     if st.button("🔄 Reset", type="secondary"):
                         st.rerun()
+
             except Exception as e:
                 st.error(f"❌ Error processing file: {str(e)}")
                 st.exception(e)
+
 
 def log_activity(username, action, target, details=None):
     """บันทึก Log ลงในฐานข้อมูล"""
