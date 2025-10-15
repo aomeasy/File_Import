@@ -540,6 +540,9 @@ def render_import_tab():
     try:
         tables_info = get_cached_tables_info()
         tables = [table['TABLE_NAME'] for table in tables_info] if tables_info else []
+        # 🛡️ ซ่อนตารางระบบที่ไม่ต้องให้ user เห็น
+        HIDDEN_TABLES = ["user_permissions", "mysql", "performance_schema", "sys"]
+        tables = [t for t in tables if t not in HIDDEN_TABLES]
     except Exception as e:
         st.warning(f"Could not get table info: {e}")
         tables = []
