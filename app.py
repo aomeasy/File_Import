@@ -861,6 +861,7 @@ def render_procedures_tab():
             search_query = st.text_input("Filter in results (client-side)", placeholder="พิมพ์คัดกรองผลที่โหลดมา", key="search_proc_client")
             filtered_procedures = [p for p in procedures if (search_query.lower() in p['ROUTINE_NAME'].lower())] if search_query else procedures
 
+
             for proc in filtered_procedures:
                 with st.expander(f"📦 {proc['ROUTINE_NAME']} ({proc['ROUTINE_TYPE']})"):
                     col_info, col_exec = st.columns([1, 1])
@@ -870,78 +871,77 @@ def render_procedures_tab():
                             st.write(f"**Description:** {proc['ROUTINE_COMMENT']}")
                         if proc.get('CREATED'):
                             st.write(f"**Created:** {proc['CREATED']}")
-
+            
                     with col_exec:
                         st.info("No parameters required")
                         param_values = None
-
+            
                     st.divider()
-                    col_btns = st.columns([1,1])
-
+                    col_btns = st.columns([1, 1])
+            
                     # --- LEFT BUTTONS ---
                     with col_btns[0]:
-                        # --- ระบบตรวจรหัสก่อน run procedures ---
+                        # ตรวจสิทธิ์ผู้ใช้
                         username = secret_key.strip()
                         user_perm = get_user_permission(username)
-                      
+            
                         if not user_perm:
                             st.warning("🔒 Enter correct key to unlock Execute button.", icon="🔑")
                             execute_disabled = True
+                            role = "Guest"
                         else:
                             role = user_perm["role"]
                             allowed_procs = user_perm.get("allowed_procedures", [])
-                            if role == "Admin" or proc['ROUTINE_NAME'] in allowed_procs:
+                            if role == "Admin" or proc["ROUTINE_NAME"] in allowed_procs:
                                 st.success(f"✅ Authorized as **{role}**")
                                 execute_disabled = False
                             else:
                                 st.error(f"🚫 You are not allowed to execute `{proc['ROUTINE_NAME']}`.")
                                 execute_disabled = True
-
-                        if execute_disabled:
-                            st.warning("🔒 Enter correct key to unlock Execute button.", icon="🔑")
-                        else:
-                            st.success(f"✅ Authorized as **{user_role}**")
-
-                        # Execute Button
+            
+                        # ปุ่ม Execute
                         if st.button(
                             "▶️ Execute",
                             key=f"exec_{proc['ROUTINE_NAME']}",
                             type="primary",
                             use_container_width=True,
-                            disabled=execute_disabled
+                            disabled=execute_disabled,
                         ):
-                            # Log Activity
                             try:
-                                username = secret_key.strip()
-                                db = st.session_state.get('db_manager') or DatabaseManager()
+                                db = st.session_state.get("db_manager") or DatabaseManager()
                                 conn = db.get_connection()
                                 cursor = conn.cursor()
-                                cursor.execute("""
+                                cursor.execute(
+                                    """
                                     INSERT INTO activity_log (username, action, target, ip_address, details)
                                     VALUES (%s, %s, %s, %s, %s)
-                                """, (
-                                    username,
-                                    "Execute Procedure",
-                                    proc['ROUTINE_NAME'],
-                                    st.session_state.get('client_ip', 'unknown'),
-                                    '{}'
-                                ))
+                                    """,
+                                    (
+                                        username,
+                                        "Execute Procedure",
+                                        proc["ROUTINE_NAME"],
+                                        st.session_state.get("client_ip", "unknown"),
+                                        "{}",
+                                    ),
+                                )
                                 conn.commit()
                                 cursor.close()
                                 conn.close()
                             except Exception as log_err:
                                 st.warning(f"⚠️ Failed to write log: {log_err}")
-
-                            # Execute Procedure
-                            st.session_state['PROC_RUN_EVENT'] = {
-                                'name': proc['ROUTINE_NAME'],
-                                'params': None
+            
+                            # Run Procedure
+                            st.session_state["PROC_RUN_EVENT"] = {
+                                "name": proc["ROUTINE_NAME"],
+                                "params": None,
                             }
-
+            
                     # --- RIGHT BUTTONS ---
                     with col_btns[1]:
                         if st.button("⭐ Add to Favorites", key=f"fav_{proc['ROUTINE_NAME']}"):
-                            st.session_state['PROC_ADD_FAV_EVENT'] = {'name': proc['ROUTINE_NAME']}
+                            st.session_state["PROC_ADD_FAV_EVENT"] = {"name": proc["ROUTINE_NAME"]}
+
+
 
         else:
             st.warning("⚠️ No procedures loaded. ใส่ชื่อแล้วกด Load ก่อน")
