@@ -660,28 +660,30 @@ def render_import_tab():
                 c1, c2, _ = st.columns([1, 1, 2])
 
                 with c1:
-                    # --- ระบบตรวจรหัสก่อน Import ---
-                    authorized_users = {
-                        "adcharaporn.u": "Admin",
-                        "C.Che": "Operator",
-                        "Yimmy": "Operator",
-                        "Plai@_NT": "Operator",
-                    }
 
-                    secret_key = st.text_input(
-                        "Secret Key to unlock import",
-                        type="password",
-                        placeholder="Enter your secret key",
-                        key="import_secret_key"
-                    )
+                    # --- ระบบตรวจรหัสก่อน Import (ใช้สิทธิ์จริงจาก user_permissions) ---
+                  secret_key = st.text_input(
+                      "Secret Key to unlock import",
+                      type="password",
+                      placeholder="Enter your secret key",
+                      key="import_secret_key"
+                  )
+                  
+                  user_perm = get_user_permission(secret_key)
+                  
+                  if not user_perm:
+                      st.warning("🔒 Enter correct key to unlock Import Data button.", icon="🔑")
+                      import_disabled = True
+                  else:
+                      role = user_perm["role"]
+                      allowed_tables = user_perm.get("allowed_tables", [])
+                      if role == "Admin" or selected_table in allowed_tables:
+                          st.success(f"✅ Authorized as **{role}**")
+                          import_disabled = False
+                      else:
+                          st.error(f"🚫 You are not allowed to import into `{selected_table}`.")
+                          import_disabled = True
 
-                    user_role = authorized_users.get(secret_key.strip())
-                    import_disabled = user_role is None or len(column_mapping) == 0
-
-                    if import_disabled:
-                        st.warning("🔒 Enter correct key to unlock Import Data button.", icon="🔑")
-                    else:
-                        st.success(f"✅ Authorized as **{user_role}**")
 
                     # --- ปุ่ม Import Data ---
                     if st.button("🚀 Import Data", type="primary", use_container_width=True, disabled=import_disabled):
@@ -848,23 +850,21 @@ def render_procedures_tab():
                     # --- LEFT BUTTONS ---
                     with col_btns[0]:
                         # --- ระบบตรวจรหัสก่อน run procedures ---
-                        authorized_users = {
-                            "adcharaporn.u": "Admin",
-                            "Yimmy": "Operator",
-                            "C.Che": "Operator",
-                        }
-
-                        # Secret Key
-                        secret_key = st.text_input(
-                            f"Secret Key for {proc['ROUTINE_NAME']}",
-                            type="password",
-                            key=f"secret_key_{proc['ROUTINE_NAME']}",
-                            label_visibility="collapsed",
-                            placeholder="Enter your secret key to unlock execute"
-                        )
-
-                        user_role = authorized_users.get(secret_key.strip())
-                        execute_disabled = user_role is None
+                        username = secret_key.strip()
+                        user_perm = get_user_permission(username)
+                      
+                        if not user_perm:
+                            st.warning("🔒 Enter correct key to unlock Execute button.", icon="🔑")
+                            execute_disabled = True
+                        else:
+                            role = user_perm["role"]
+                            allowed_procs = user_perm.get("allowed_procedures", [])
+                            if role == "Admin" or proc['ROUTINE_NAME'] in allowed_procs:
+                                st.success(f"✅ Authorized as **{role}**")
+                                execute_disabled = False
+                            else:
+                                st.error(f"🚫 You are not allowed to execute `{proc['ROUTINE_NAME']}`.")
+                                execute_disabled = True
 
                         if execute_disabled:
                             st.warning("🔒 Enter correct key to unlock Execute button.", icon="🔑")
@@ -1253,42 +1253,47 @@ def render_data_editor_tab():
         # 🔐 Authorization
         # ==========================================
         st.markdown("#### 🔐 Authorization (optional)")
-        authorized_users = {
-            "adcharaporn.u": ("adcharaporn.u", "Admin"),
-            "Yimmy": ("Yimmy", "Operator"),
-            "C.Che": ("C.Che", "Operator"), 
-        }
-
+        
         secret_key = st.text_input(
             "Enter Secret Key (optional)",
             type="password",
-            placeholder="Leave empty to view only 5 records",
+            placeholder="Enter your key for edit permission",
             key="auth_key_editor"
         )
-
-        user_info = authorized_users.get(secret_key.strip())
-        username = user_info[0] if user_info else "Guest"
-        user_role = user_info[1] if user_info else "Guest"
-        is_authorized = user_info is not None
-
-        if is_authorized:
-            st.success(f"✅ Authorized as — full access granted.")
-            display_df = df
+        
+        user_perm = get_user_permission(secret_key)
+        if not user_perm:
+            st.info("👁 Showing only first 10 rows (Guest access).")
+            username, user_role, is_authorized, can_edit = "Guest", "Guest", False, False
         else:
-            st.info("👁 Showing only first 10 rows (limited access).")
+            username = secret_key.strip()
+            user_role = user_perm["role"]
+            is_authorized = True
+            allowed_edit = user_perm.get("allowed_edit_tables", [])
+            if user_role == "Admin" or selected_table in allowed_edit:
+                st.success(f"✅ Authorized as {user_role} (Edit Enabled)")
+                can_edit = True
+            else:
+                st.warning(f"🚫 You can view but not edit `{selected_table}`.")
+                can_edit = False
+        
+        # --- ควบคุมสิทธิ์การแก้ไข ---
+        if not is_authorized:
             display_df = df.head(10)
-
-        # ==========================================
-        # 🧮 Editable Data
-        # ==========================================
+        else:
+            display_df = df
+        
+        # --- Editor ---
         st.markdown("### 🧮 Data Viewer & Editor")
         edited_df = st.data_editor(
             display_df,
             num_rows="dynamic",
             use_container_width=True,
             key="data_editor_panel",
-            hide_index=True
+            hide_index=True,
+            disabled=not can_edit   # ✅ ปิดการแก้ไขหากไม่มีสิทธิ์
         )
+
 
         # ==========================================
         # 💾 Detect Changes (only if authorized)
@@ -1538,6 +1543,38 @@ def render_log_tab():
         except Exception as e:
             st.warning(f"Chart load failed: {e}")
 
+# ==========================================
+# 🔐 USER PERMISSIONS LOADER & ACCESS CHECK
+# ==========================================
+def load_user_permissions(db):
+    """โหลดสิทธิ์ผู้ใช้จากตาราง user_permissions"""
+    try:
+        df = db.execute_query("""
+            SELECT username, role, allowed_tables, allowed_procedures, allowed_edit_tables
+            FROM user_permissions
+        """)
+        if df is None or df.empty:
+            return {}
+        perms = {}
+        for _, row in df.iterrows():
+            perms[row['username']] = {
+                "role": row['role'],
+                "allowed_tables": [t.strip() for t in (row['allowed_tables'] or '').split(',') if t.strip()],
+                "allowed_procedures": [p.strip() for p in (row['allowed_procedures'] or '').split(',') if p.strip()],
+                "allowed_edit_tables": [e.strip() for e in (row['allowed_edit_tables'] or '').split(',') if e.strip()],
+            }
+        return perms
+    except Exception as e:
+        st.warning(f"⚠️ Cannot load user permissions: {e}")
+        return {}
+
+def get_user_permission(secret_key: str):
+    """ดึงสิทธิ์ของผู้ใช้จาก session"""
+    key = secret_key.strip()
+    if not key:
+        return None
+    user_perms = st.session_state.get('user_permissions', {})
+    return user_perms.get(key)
 
 
 
@@ -1570,6 +1607,10 @@ def main():
             except Exception as e:
                 st.error(f"Failed to initialize FileProcessor: {e}")
                 return
+        # โหลดสิทธิ์ผู้ใช้ทั้งหมด (ครั้งเดียว)
+        if 'user_permissions' not in st.session_state:
+            st.session_state.user_permissions = load_user_permissions(st.session_state.db_manager)
+
 
         with st.sidebar:
             # === CONFIGURATION SECTION ===
