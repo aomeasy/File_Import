@@ -427,7 +427,7 @@ class FileMerger:
         self.header_mapping = {}
 
 
-    def process_uploaded_files(self, files):
+def process_uploaded_files(self, files):
     processed = {}
     for file in files:
         file_info = {'name': file.name, 'size': file.size, 'type': self.get_file_type(file.name)}
