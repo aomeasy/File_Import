@@ -660,29 +660,28 @@ def render_import_tab():
                 c1, c2, _ = st.columns([1, 1, 2])
 
                 with c1:
-
                     # --- ระบบตรวจรหัสก่อน Import (ใช้สิทธิ์จริงจาก user_permissions) ---
-                  secret_key = st.text_input(
-                      "Secret Key to unlock import",
-                      type="password",
-                      placeholder="Enter your secret key",
-                      key="import_secret_key"
-                  )
-                  
-                  user_perm = get_user_permission(secret_key)
-                  
-                  if not user_perm:
-                      st.warning("🔒 Enter correct key to unlock Import Data button.", icon="🔑")
-                      import_disabled = True
-                  else:
-                      role = user_perm["role"]
-                      allowed_tables = user_perm.get("allowed_tables", [])
-                      if role == "Admin" or selected_table in allowed_tables:
-                          st.success(f"✅ Authorized as **{role}**")
-                          import_disabled = False
-                      else:
-                          st.error(f"🚫 You are not allowed to import into `{selected_table}`.")
-                          import_disabled = True
+                    secret_key = st.text_input(
+                        "Secret Key to unlock import",
+                        type="password",
+                        placeholder="Enter your secret key",
+                        key="import_secret_key"
+                    )
+                    
+                    user_perm = get_user_permission(secret_key)
+                    
+                    if not user_perm:
+                        st.warning("🔒 Enter correct key to unlock Import Data button.", icon="🔑")
+                        import_disabled = True
+                    else:
+                        role = user_perm["role"]
+                        allowed_tables = user_perm.get("allowed_tables", [])
+                        if role == "Admin" or selected_table in allowed_tables:
+                            st.success(f"✅ Authorized as **{role}**")
+                            import_disabled = False
+                        else:
+                            st.error(f"🚫 You are not allowed to import into `{selected_table}`.")
+                            import_disabled = True
 
 
                     # --- ปุ่ม Import Data ---
