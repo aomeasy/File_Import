@@ -312,6 +312,24 @@ def progress_value_bump(step=5):
 def render_exec_result(proc_name: str, result: dict):
     if result.get('success'):
         st.success(f"✅ {result['message']}")
+        if proc_name == "update_Broadband_daily":
+            st.markdown(
+                """
+                <div style="
+                    background-color:#fff8e1;
+                    border-left:5px solid #ff9800;
+                    padding:10px 15px;
+                    border-radius:6px;
+                    margin-top:10px;
+                    ">
+                    🔄 <b>Procedure <code>update_Broadband_daily</code> executed successfully.</b><br>
+                    กรุณา <a href="https://lookerstudio.google.com/reporting/1483b6e3-3477-4906-8966-ec276423ec27"
+                    target="_blank" style="color:#d32f2f; font-weight:bold; text-decoration:underline;">
+                    คลิกที่นี่เพื่อ Refresh Dashboard</a> ใน Looker Studio
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
         if result.get('results'):
             for idx, res in enumerate(result['results']):
                 st.write(f"**Result Set {idx + 1}:**")
