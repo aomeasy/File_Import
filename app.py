@@ -95,6 +95,9 @@ def get_stored_procedures(name_filter: str = "", limit: int = 50):
         WHERE ROUTINE_SCHEMA = %s
         """
         params = [db_manager.connection_config['database']]
+        # 🔹 Smart search: auto add wildcard if user doesn't type it
+        if name_filter and '%' not in name_filter:
+            name_filter = f"%{name_filter}%"
         base_sql += " AND ROUTINE_NAME LIKE %s"
         params.append(name_filter if name_filter else "%")
         base_sql += " ORDER BY ROUTINE_NAME LIMIT %s"
@@ -653,7 +656,7 @@ def render_procedures_tab():
     c1, c2, c3, c4, c5 = st.columns([2,1,1,1,1])
     with c1:
         name_filter = st.text_input(
-            "Procedure name (supports % wildcard)",
+            "Procedure name",
             value=st.session_state.get('last_proc_filter', ""),
             placeholder="เช่น %R06% หรือระบุชื่อเต็ม"
         )
