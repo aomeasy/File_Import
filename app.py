@@ -1336,7 +1336,7 @@ def render_log_tab():
         with col2:
             search_target = st.text_input("Target", placeholder="เช่น datacomNT, LK_Ticket")
         with col3:
-            search_user = st.text_input("Username", placeholder="ชื่อหรือบางส่วน (mask จะยังทำงาน)")
+            search_user = st.text_input("Username", placeholder="ชื่อหรือบางส่วน")
         with col4:
             limit_per_page = st.selectbox("Rows per page", [50, 100, 200, 500], index=1)
 
