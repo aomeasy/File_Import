@@ -32,6 +32,39 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+st.markdown("""
+<style>
+/* ===== Global Styling ===== */
+html, body, [class*="stAppViewContainer"] {
+    font-family: 'Sarabun', sans-serif !important;
+    color: #222;
+}
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg,#f9fafc 0%,#eef1f9 100%);
+    border-right: 1px solid #e0e0e0;
+    padding: 1.2rem;
+}
+[data-testid="stSidebar"] h3, [data-testid="stSidebar"] h4 {
+    color: #3b3b98;
+}
+button[kind="primary"] {
+    border-radius: 10px !important;
+}
+.status-success {
+    background:#e6f4ea;
+    color:#137333;
+    padding:6px 10px;
+    border-radius:6px;
+}
+.status-error {
+    background:#fce8e6;
+    color:#c5221f;
+    padding:6px 10px;
+    border-radius:6px;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ---- session defaults (safe) ----
 for k, v in {
     'favorites': [],
@@ -44,6 +77,14 @@ for k, v in {
     'PROC_ADD_FAV_EVENT': None,   # {'name': str}
 }.items():
     st.session_state.setdefault(k, v)
+
+st.markdown("""
+<div style="background:linear-gradient(90deg,#6B73FF 0%,#000DFF 100%);
+            padding:20px 40px;border-radius:12px;margin-bottom:20px;color:white;">
+<h1>🚀 Data Management Hub</h1>
+<p>Complete data management system with import, procedures, and file merger</p>
+</div>
+""", unsafe_allow_html=True)
 
 # ===== CACHING FUNCTIONS =====
 @st.cache_data(ttl=300)
