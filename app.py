@@ -1032,15 +1032,16 @@ def render_merger_tab():
 
         if st.session_state.merger_merged_df is not None:
             st.header("📊 ผลลัพธ์การรวมไฟล์")
-            merged_df = st.session_state.merger_merged_df
+            merged_df = st.session_state.merger_merged_df.copy()
         
             # ✅ ตรวจหาข้อมูลซ้ำ
             dup_df, dup_count = analyze_duplicates(merged_df)
+        
             if dup_count > 0:
                 st.warning(f"⚠️ พบข้อมูลซ้ำจำนวน {dup_count:,} แถว จากทั้งหมด {len(merged_df):,} แถว")
                 with st.expander("🔍 ดูตัวอย่างข้อมูลซ้ำ"):
                     st.dataframe(dup_df.head(10), use_container_width=True)
-                
+        
                 action = st.radio(
                     "คุณต้องการทำอย่างไรกับข้อมูลซ้ำ?",
                     ["❌ ลบแถวซ้ำออก", "➡️ ข้าม (คงไว้ทั้งหมด)"],
@@ -1053,21 +1054,33 @@ def render_merger_tab():
                     st.success(f"✅ ลบข้อมูลซ้ำออกแล้ว เหลือ {len(merged_df):,} แถว")
                 else:
                     st.info("📎 เก็บข้อมูลทั้งหมดไว้โดยไม่ลบซ้ำ")
-        
             else:
                 st.success("✅ ไม่พบข้อมูลซ้ำ")
         
-            # ✅ แสดง metric และ preview หลังลบซ้ำ
+            # ✅ อัปเดต merged_df ใน session
+            st.session_state.merger_merged_df = merged_df
+        
+            # ✅ แสดงผลรวม
             c1, c2, c3 = st.columns(3)
             with c1: st.metric("จำนวนแถวรวม", f"{len(merged_df):,}")
             with c2: st.metric("จำนวนคอลัมน์", len(merged_df.columns))
             with c3: st.metric("ไฟล์ที่รวม", sum(st.session_state.merger_selected_files.values()))
         
-            st.subheader("ตัวอย่างข้อมูล")
-            st.dataframe(merged_df.head(100), use_container_width=True)
+            st.subheader("ตัวอย่างข้อมูล (ไฮไลต์ข้อมูลซ้ำ)")
+            # ✅ highlight duplicates เฉพาะเมื่อมีการซ้ำ
+            if dup_count > 0:
+                dup_mask = merged_df.duplicated(keep=False)
+                def highlight_duplicates(row):
+                    idx = row.name
+                    return ['background-color: #ffe6e6' if dup_mask.iloc[idx] else '' for _ in row]
+                st.dataframe(
+                    merged_df.style.apply(highlight_duplicates, axis=1),
+                    use_container_width=True
+                )
+            else:
+                st.dataframe(merged_df.head(100), use_container_width=True)
         
-            # ✅ เก็บ merged_df ที่ผ่านการจัดการซ้ำไว้แทนที่ของเดิม
-            st.session_state.merger_merged_df = merged_df
+
 
 
             st.header("⬇️ ดาวน์โหลด")
@@ -1113,6 +1126,13 @@ import streamlit as st
 import pandas as pd
 import mysql.connector
 
+def highlight_duplicates(row, dup_mask):
+    return ['background-color: #ffe6e6' if dup_mask[idx] else '' for idx in range(len(row))]
+
+st.dataframe(
+    merged_df.style.apply(lambda row: highlight_duplicates(row, dup_mask), axis=1),
+    use_container_width=True
+)
 
 def render_data_editor_tab():
     # === DATABASE CONNECTION ===
@@ -1356,13 +1376,6 @@ def render_data_editor_tab():
         st.caption(f"📅 Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 
-def highlight_duplicates(row, dup_mask):
-    return ['background-color: #ffe6e6' if dup_mask[idx] else '' for idx in range(len(row))]
-
-st.dataframe(
-    merged_df.style.apply(lambda row: highlight_duplicates(row, dup_mask), axis=1),
-    use_container_width=True
-)
 
 
 def render_log_tab():
