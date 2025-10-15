@@ -77,14 +77,7 @@ for k, v in {
     'PROC_ADD_FAV_EVENT': None,   # {'name': str}
 }.items():
     st.session_state.setdefault(k, v)
-
-st.markdown("""
-<div style="background:linear-gradient(90deg,#6B73FF 0%,#000DFF 100%);
-            padding:20px 40px;border-radius:12px;margin-bottom:20px;color:white;">
-<h1>🚀 Data Management Hub</h1>
-<p>Complete data management system with import, procedures, and file merger</p>
-</div>
-""", unsafe_allow_html=True)
+ 
 
 # ===== CACHING FUNCTIONS =====
 @st.cache_data(ttl=300)
