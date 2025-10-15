@@ -798,8 +798,8 @@ def render_procedures_tab():
 
 
     # ===== FAVORITES SECTION =====
-    render_favorites_block()
-    st.divider()
+    # render_favorites_block()
+    # st.divider()
 
     # ===== SEARCH / LOAD =====
     st.subheader("🔎 Search / Load Procedures (Lazy-load)")
@@ -877,6 +877,13 @@ def render_procedures_tab():
                         param_values = None
             
                     st.divider()
+
+                    # 🔴 NOTE สำหรับ procedure เฉพาะชื่อ
+                    if proc["ROUTINE_NAME"] == "update_Broadband_daily":
+                        st.markdown(
+                            "<span style='color:red; font-weight:bold;'>⚠️ กรุณา Import ข้อมูล Ticket ทั้ง <u>TTS</u> และ <u>SCOMS</u> ลงในตาราง <b>Broadband_daily</b> ให้ครบทุกครั้งก่อนการ Update</span>",
+                            unsafe_allow_html=True
+                        )
                     col_btns = st.columns([1, 1])
             
                     # --- LEFT BUTTONS ---
@@ -938,8 +945,7 @@ def render_procedures_tab():
             
                     # --- RIGHT BUTTONS ---
                     with col_btns[1]:
-                        if st.button("⭐ Add to Favorites", key=f"fav_{proc['ROUTINE_NAME']}"):
-                            st.session_state["PROC_ADD_FAV_EVENT"] = {"name": proc["ROUTINE_NAME"]}
+                        st.empty()
 
 
 
@@ -954,11 +960,7 @@ def render_procedures_tab():
             render_exec_result(event_run['name'], result)
             st.session_state['PROC_RUN_EVENT'] = None
 
-        event_fav = st.session_state.get('PROC_ADD_FAV_EVENT')
-        if event_fav:
-            add_favorite(event_fav['name'])
-            st.toast(f"Added {event_fav['name']} to Favorites")
-            st.session_state['PROC_ADD_FAV_EVENT'] = None
+
 
     # ===== RIGHT: STATS =====
     with col2:
