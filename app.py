@@ -1400,32 +1400,32 @@ def render_log_tab():
         if "timestamp" in df.columns:
             df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.strftime("%Y-%m-%d %H:%M:%S")
 
-        # ---- Display Summary ----
-        st.markdown(
-            f"""
-            <div style='background:#f8f9fa;padding:10px;border-radius:8px;margin-bottom:8px;'>
-                <b>Total Logs:</b> {total_rows:,} |
-                <b>Page:</b> {current_page}/{page_count} |
-                <b>Rows this page:</b> {len(df):,}
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
         # ---- Display Data ----
-        st.dataframe(
-            df,
-            use_container_width=True,
-            hide_index=True,
-            hide_download_button=True   # 🚫 ปิดปุ่มดาวน์โหลดอัตโนมัติ
-        )
+        try:
+            # ✅ ใช้ได้ใน Streamlit ≥ 1.36
+            st.dataframe(
+                df,
+                use_container_width=True,
+                hide_index=True,
+                hide_download_button=True  # ปิดปุ่มดาวน์โหลดอัตโนมัติ
+            )
+        except TypeError:
+            # ✅ รองรับ Streamlit < 1.36 (ไม่มี argument นี้)
+            st.dataframe(
+                df,
+                use_container_width=True,
+                hide_index=True
+            )
+        
+        # ✅ ซ่อนปุ่มดาวน์โหลดด้วย CSS (backup)
         st.markdown("""
         <style>
         button[title="Download data as CSV"] {
-            display: none;
+            display: none !important;
         }
         </style>
         """, unsafe_allow_html=True)
+
 
         # ---- Navigation Buttons ----
         c1, c2, c3 = st.columns([1, 1, 6])
