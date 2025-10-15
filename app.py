@@ -820,7 +820,7 @@ def render_procedures_tab():
     # st.divider()
 
     # ===== SEARCH / LOAD =====
-    st.subheader("🔎 Search / Load Procedures (Lazy-load)")
+    st.subheader("🔎 Search / Load Procedures ")
     c1, c2, c3, c4, c5 = st.columns([2,1,1,1,1])
     with c1:
         name_filter = st.text_input(
@@ -842,7 +842,10 @@ def render_procedures_tab():
         st.session_state['last_proc_filter'] = ""
         st.session_state['last_proc_exact'] = False
         st.toast("Cleared loaded procedures")
-
+      
+    auto_trigger = False
+    if name_filter and name_filter != st.session_state.get('last_proc_filter', ""):
+        auto_trigger = True
  
     if do_load or auto_trigger:
         pattern = name_filter or "%"
