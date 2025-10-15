@@ -1174,6 +1174,71 @@ def render_data_editor_tab():
     st.markdown("---")
     left, right = st.columns([1.2, 3])
 
+    # === Secret Key & Download Section ===
+    st.markdown("### 🔐 Secure Data Export")
+    
+    # ✅ ช่องใส่รหัสลับ
+    secret_key = st.text_input(
+        "Enter Secret Key to enable download:",
+        type="password",
+        placeholder="Enter your secret key",
+        key="secret_key_download"
+    )
+    
+    # ✅ ตรวจสอบรหัส (กำหนดรหัสจริงที่อนุญาต)
+    VALID_KEY = "adcharaporn.u"  # <== แก้ตรงนี้เป็นรหัสจริงของคุณ
+    
+    if secret_key.strip() == VALID_KEY:
+        st.success("✅ Secret key verified. You can now download data.")
+        
+        # 🧾 ตัวเลือกรูปแบบไฟล์
+        file_format = st.radio(
+            "เลือกรูปแบบไฟล์:",
+            options=["CSV", "Excel (XLSX)"],
+            horizontal=True
+        )
+        
+        # 📦 โหลดข้อมูลจาก table ที่เลือก
+        with st.spinner("🔎 Loading data for export..."):
+            try:
+                export_df = db.execute_query(f"SELECT * FROM `{selected_table}`")
+            except Exception as e:
+                st.error(f"❌ Failed to load data: {e}")
+                export_df = None
+    
+        if export_df is not None and not export_df.empty:
+            st.success(f"📊 Loaded {len(export_df)} records from `{selected_table}`.")
+    
+            # 🔽 ปุ่มดาวน์โหลดไฟล์
+            if file_format == "CSV":
+                csv_data = export_df.to_csv(index=False).encode("utf-8-sig")
+                st.download_button(
+                    label="⬇️ Download CSV File",
+                    data=csv_data,
+                    file_name=f"{selected_table}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+            else:
+                import io
+                from openpyxl import Workbook
+    
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                    export_df.to_excel(writer, sheet_name=selected_table, index=False)
+                st.download_button(
+                    label="⬇️ Download Excel File",
+                    data=buffer.getvalue(),
+                    file_name=f"{selected_table}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+        else:
+            st.warning("⚠️ No data available for download.")
+    else:
+        st.info("🔒 Enter a valid secret key to unlock download options.")
+
+
     # ==========================================
     # 🔍 LEFT: SEARCH PANEL
     # ==========================================
