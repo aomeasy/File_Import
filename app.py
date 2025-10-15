@@ -1050,7 +1050,16 @@ import pandas as pd
 import mysql.connector
 
 
-d_tables_info()
+def render_data_editor_tab():
+    # === DATABASE CONNECTION ===
+    if 'db_manager' not in st.session_state:
+        st.session_state.db_manager = DatabaseManager()
+    db = st.session_state.db_manager
+
+    # === TABLE SELECTION PANEL ===
+    st.markdown("### 📂 Select Target Table", help="เลือกตารางที่ต้องการดูหรือแก้ไขข้อมูล")
+    try:
+        tables_info = get_cached_tables_info()
         tables = [t['TABLE_NAME'] for t in tables_info] if tables_info else []
     except Exception as e:
         st.error(f"Cannot get tables: {e}")
@@ -1313,6 +1322,7 @@ d_tables_info()
             "<div style='text-align:right;color:gray;font-size:0.85rem;margin-top:10px;'>"
             "📅 Last refreshed: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S") +
             "</div>", unsafe_allow_html=True)
+
 
 
 
