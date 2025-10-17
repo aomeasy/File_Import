@@ -646,11 +646,12 @@ def render_import_tab():
 
                 st.info(f"**File Columns:** {len(file_columns)} | **Table Columns:** {len(db_column_names)}")
                 column_mapping = {}
-                col1, col2 = st.columns(2)
-                with col1:
+                cols = st.columns(2)
+                with cols[0]:
                     st.write("**File Column**")
-                with col2:
+                with cols[1]:
                     st.write("**→ Database Column**")
+                  
                 for file_col in file_columns:
                     c1, c2 = st.columns(2)
                     with c1:
@@ -941,30 +942,36 @@ def render_procedures_tab():
         render_exec_result(event_run['name'], result)
         st.session_state['PROC_RUN_EVENT'] = None
 
-
-
-
+ 
 
     # ===== RIGHT: STATS =====
-    with col2:
-        st.subheader("📊 Quick Stats")
-        if procedures:
-            st.metric("Total Procedures (loaded)", len(procedures))
-        if st.session_state.execution_history:
-            success_count = sum(1 for h in st.session_state.execution_history if h['status'] == 'success')
-            failed_count = len(st.session_state.execution_history) - success_count
-            st.metric("Executions", len(st.session_state.execution_history))
-            c_s, c_f = st.columns(2)
-            with c_s: st.metric("✅ Success", success_count)
-            with c_f: st.metric("❌ Failed", failed_count)
-        st.divider()
-        if st.button("🗑️ Clear History", use_container_width=True):
-            st.session_state.execution_history = []
-            st.rerun()
-        if st.button("🔄 Clear Cache (procedures)", use_container_width=True):
-            get_stored_procedures.clear()
-            st.session_state.loaded_procedures = []
-            st.toast("Cleared cached procedures & session list")
+    st.divider()
+    st.subheader("📊 Quick Stats")
+    
+    if procedures:
+        st.metric("Total Procedures (loaded)", len(procedures))
+    
+    if st.session_state.execution_history:
+        success_count = sum(1 for h in st.session_state.execution_history if h['status'] == 'success')
+        failed_count = len(st.session_state.execution_history) - success_count
+        st.metric("Executions", len(st.session_state.execution_history))
+    
+        cols = st.columns(2)
+        with cols[0]:
+            st.metric("✅ Success", success_count)
+        with cols[1]:
+            st.metric("❌ Failed", failed_count)
+    
+    st.divider()
+    
+    if st.button("🧹 Clear History", use_container_width=True):
+        st.session_state.execution_history = []
+        st.rerun()
+    
+    if st.button("🗂️ Clear Cache (procedures)", use_container_width=True):
+        get_stored_procedures.clear()
+        st.session_state.loaded_procedures = []
+        st.toast("Cleared cached procedures & session list")
 
 # ===== TAB 3: FILE MERGER =====
 def render_merger_tab():
@@ -1007,8 +1014,8 @@ def render_merger_tab():
             st.session_state.merger_selected_files = {filename: True}
 
         st.subheader("📋 ไฟล์ที่อัปโหลด")
-        col1, col2 = st.columns([2, 1])
-        with col1:
+        cols = st.columns([2, 1])
+        with cols[0]:
             selected_sheets = {}
             for filename, file_info in st.session_state.merger_processed_data.items():
                 is_selected = st.session_state.merger_selected_files.get(filename, True)
@@ -1031,7 +1038,7 @@ def render_merger_tab():
                             df = file_info['data'][sheet_name]
                             st.write(f"**Preview ({len(df)} แถว, {len(df.columns)} คอลัมน์):**")
                             st.dataframe(df.head(5), use_container_width=True)
-        with col2:
+        with cols[1]:
             selected_files_data = {k: v for k, v in st.session_state.merger_processed_data.items() if st.session_state.merger_selected_files.get(k, True)}
             total_files = len(selected_files_data)
             total_records = sum([
@@ -1426,14 +1433,14 @@ def render_log_tab():
 
     # ---- Filter Controls ----
     with st.expander("🔍 Filter Logs", expanded=False):
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
+        cols = st.columns(4)
+        with cols[0]:
             search_action = st.text_input("Action", placeholder="เช่น Import Data, Edit Data")
-        with col2:
+        with cols[1]:
             search_target = st.text_input("Target", placeholder="เช่น datacomNT, LK_Ticket")
-        with col3:
+        with cols[2]:
             search_user = st.text_input("Username", placeholder="ชื่อหรือบางส่วน")
-        with col4:
+        with cols[3]:
             limit_per_page = st.selectbox("Rows per page", [50, 100, 200, 500], index=1)
 
     # ---- Build SQL dynamically ----
@@ -1663,11 +1670,11 @@ def render_user_management_tab():
     # --- ฟอร์มเพิ่มผู้ใช้ใหม่ ---
     with st.expander("➕ Add New User"):
         with st.form("add_user_form", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            with col1:
+            cols = st.columns(2)
+            with cols[0]:
                 new_username = st.text_input("Username", placeholder="เช่น adcharaporn.u")
                 new_role = st.selectbox("Role", ["Viewer", "Operator", "Admin"])
-            with col2:
+            with cols[1]:
                 allowed_tables = st.text_input("Allowed Tables (comma-separated)")
                 allowed_procs = st.text_input("Allowed Procedures (comma-separated)")
                 allowed_edit = st.text_input("Allowed Edit Tables (comma-separated)")
