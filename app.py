@@ -1602,10 +1602,10 @@ def get_user_permission(secret_key: str):
     return user_perms.get(key)
 
 # ==========================================
-# 👤 USER MANAGEMENT TAB (ADMIN ONLY)
+# 🔑 KEY MANAGEMENT TAB (ADMIN ONLY)
 # ==========================================
 def render_user_management_tab():
-    st.markdown("## 👤 User Management")
+    st.markdown("## 🔑 Key Management")
     st.caption("สำหรับผู้ดูแลระบบเท่านั้น (Admin)")
 
     # ✅ ตรวจสิทธิ์ผู้ใช้ก่อน
@@ -1831,7 +1831,7 @@ def main():
             """, unsafe_allow_html=True)
 
 
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([ "📁 Import Data", "⚙️ Run Procedures","🧾 View & Edit Data","🔗 File Merger","📜 Logs","👤 User Management"])
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([ "📁 Import Data", "⚙️ Run Procedures","🧾 View & Edit Data","🔗 File Merger","📜 Logs","🔑 Key Management"])
         with tab1:
             render_import_tab()
         with tab2:
