@@ -883,6 +883,7 @@ def render_procedures_tab():
                     st.session_state[proc_auth_state] = perm
                 else:
                     st.session_state[proc_auth_state] = None
+                st.rerun()  # ✅ บังคับให้ Streamlit render ส่วน Execute ใหม่ทันที
             
             # ช่องกรอก Secret Key
             st.text_input(
