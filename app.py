@@ -1606,95 +1606,114 @@ def get_user_permission(secret_key: str):
 # ==========================================
 def render_user_management_tab():
     st.markdown("## 🔑 Key Management")
-    st.caption("สำหรับผู้ดูแลระบบเท่านั้น (Admin)")
+    st.caption("สำหรับผู้ใช้ที่มีสิทธิ์เท่านั้น (Admin / Operator)")
 
-    # ✅ ตรวจสิทธิ์ผู้ใช้ก่อน
+    # ===== Authorization =====
     secret_key = st.text_input(
-        "Enter Admin Secret Key",
+        "Enter Secret Key",
         type="password",
-        placeholder="Enter your admin key",
-        key="admin_secret_key"
-    )
+        placeholder="Enter your key",
+        key="user_mgmt_key"
+    ).strip()
+
     user_perm = get_user_permission(secret_key)
 
-    if not user_perm or user_perm["role"] != "Admin":
-        st.warning("🚫 Access denied. Only Admin can view this tab.")
+    if not user_perm:
+        st.warning("🚫 Access denied. Invalid or missing key.")
         st.stop()
 
-    st.success(f"✅ Authorized as Admin: {secret_key.strip()}")
+    role = user_perm["role"]
+    username = user_perm.get("username", "(unknown)")
 
     db = st.session_state.db_manager
 
-    # โหลดข้อมูลทั้งหมด
-    try:
-        df = db.execute_query("SELECT * FROM user_permissions ORDER BY role, username")
-    except Exception as e:
-        st.error(f"Cannot load users: {e}")
-        return
+    # ===== Role-based Display =====
+    if role == "Admin":
+        st.success(f"✅ Authorized as **Admin** — full access ({username})")
 
-    # ✅ แสดงข้อมูลทั้งหมดใน data_editor
-    st.markdown("### 📋 Current Users")
-    edited_df = st.data_editor(
-        df,
-        num_rows="dynamic",
-        use_container_width=True,
-        key="user_editor",
-        hide_index=True
-    )
-
-    # --- ปุ่มบันทึกการแก้ไข ---
-    if st.button("💾 Save Changes to Database", type="primary"):
         try:
-            # ลบทั้งหมดก่อน แล้ว insert ใหม่ (วิธีง่ายและปลอดภัยในกรณี user ไม่มาก)
-            db.execute_nonquery("DELETE FROM user_permissions")
-            for _, row in edited_df.iterrows():
-                query = """
-                    INSERT INTO user_permissions
-                    (id, username, role, allowed_tables, allowed_procedures, allowed_edit_tables, created_at, updated_at)
-                    VALUES (%s,%s,%s,%s,%s,%s,NOW(),NOW())
-                """
-                params = (
-                    int(row["id"]) if not pd.isna(row["id"]) else None,
-                    row["username"],
-                    row["role"],
-                    row.get("allowed_tables", None),
-                    row.get("allowed_procedures", None),
-                    row.get("allowed_edit_tables", None)
-                )
-                db.execute_nonquery(query, params)
-            st.success("✅ User permissions updated successfully!")
-            st.session_state.user_permissions = load_user_permissions(db)
+            df = db.execute_query("SELECT * FROM user_permissions ORDER BY role, username")
         except Exception as e:
-            st.error(f"❌ Failed to update users: {e}")
+            st.error(f"Cannot load users: {e}")
+            return
 
-    # --- ฟอร์มเพิ่มผู้ใช้ใหม่ ---
-    with st.expander("➕ Add New User"):
-        with st.form("add_user_form", clear_on_submit=True):
-            cols = st.columns(2)
-            with cols[0]:
-                new_username = st.text_input("Username", placeholder="เช่น adcharaporn.u")
-                new_role = st.selectbox("Role", ["Viewer", "Operator", "Admin"])
-            with cols[1]:
-                allowed_tables = st.text_input("Allowed Tables (comma-separated)")
-                allowed_procs = st.text_input("Allowed Procedures (comma-separated)")
-                allowed_edit = st.text_input("Allowed Edit Tables (comma-separated)")
+        st.markdown("### 📋 Current Users (Editable)")
+        edited_df = st.data_editor(
+            df,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="user_editor",
+            hide_index=True
+        )
 
-            submitted = st.form_submit_button("Add User")
-            if submitted:
-                try:
+        # --- ปุ่มบันทึกการแก้ไข ---
+        if st.button("💾 Save Changes to Database", type="primary"):
+            try:
+                db.execute_nonquery("DELETE FROM user_permissions")
+                for _, row in edited_df.iterrows():
                     query = """
                         INSERT INTO user_permissions
-                        (username, role, allowed_tables, allowed_procedures, allowed_edit_tables)
-                        VALUES (%s,%s,%s,%s,%s)
+                        (id, username, role, allowed_tables, allowed_procedures, allowed_edit_tables, created_at, updated_at)
+                        VALUES (%s,%s,%s,%s,%s,%s,NOW(),NOW())
                     """
-                    db.execute_nonquery(query, (new_username, new_role, allowed_tables, allowed_procs, allowed_edit))
-                    st.success(f"✅ Added new user: {new_username}")
-                    st.session_state.user_permissions = load_user_permissions(db)
-                except Exception as e:
-                    st.error(f"❌ Failed to add user: {e}")
+                    params = (
+                        int(row["id"]) if not pd.isna(row["id"]) else None,
+                        row["username"],
+                        row["role"],
+                        row.get("allowed_tables", None),
+                        row.get("allowed_procedures", None),
+                        row.get("allowed_edit_tables", None)
+                    )
+                    db.execute_nonquery(query, params)
+                st.success("✅ User permissions updated successfully!")
+                st.session_state.user_permissions = load_user_permissions(db)
+            except Exception as e:
+                st.error(f"❌ Failed to update users: {e}")
 
+        # --- ฟอร์มเพิ่มผู้ใช้ใหม่ (เฉพาะ Admin) ---
+        with st.expander("➕ Add New User"):
+            with st.form("add_user_form", clear_on_submit=True):
+                cols = st.columns(2)
+                with cols[0]:
+                    new_username = st.text_input("Username", placeholder="เช่น adcharaporn.u")
+                    new_role = st.selectbox("Role", ["Viewer", "Operator", "Admin"])
+                with cols[1]:
+                    allowed_tables = st.text_input("Allowed Tables (comma-separated)")
+                    allowed_procs = st.text_input("Allowed Procedures (comma-separated)")
+                    allowed_edit = st.text_input("Allowed Edit Tables (comma-separated)")
 
+                submitted = st.form_submit_button("Add User")
+                if submitted:
+                    try:
+                        query = """
+                            INSERT INTO user_permissions
+                            (username, role, allowed_tables, allowed_procedures, allowed_edit_tables)
+                            VALUES (%s,%s,%s,%s,%s)
+                        """
+                        db.execute_nonquery(query, (new_username, new_role, allowed_tables, allowed_procs, allowed_edit))
+                        st.success(f"✅ Added new user: {new_username}")
+                        st.session_state.user_permissions = load_user_permissions(db)
+                    except Exception as e:
+                        st.error(f"❌ Failed to add user: {e}")
 
+    elif role == "Operator":
+        st.warning(f"👷 Authorized as **Operator** — view-only mode ({username})")
+
+        try:
+            df = db.execute_query(
+                "SELECT * FROM user_permissions WHERE username = %s", (username,)
+            )
+        except Exception as e:
+            st.error(f"Cannot load your data: {e}")
+            return
+
+        st.markdown("### 📋 Your Information (View Only)")
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.info("ℹ️ You cannot add or edit user data in Operator mode.")
+
+    else:
+        st.warning(f"⚠️ Role `{role}` has no access to this section.")
+        st.stop() 
 # ===== MAIN APPLICATION =====
 def main():
     try:
