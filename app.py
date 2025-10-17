@@ -871,10 +871,11 @@ def render_procedures_tab():
             # ===== AUTH & EXECUTE SECTION =====
             st.markdown("#### 🔑 Authorization")
             
-            # ✅ state key เฉพาะ procedure
+            # state สำหรับแต่ละ procedure
             proc_key_state = f"auth_key_{proc['ROUTINE_NAME']}"
             proc_auth_state = f"auth_state_{proc['ROUTINE_NAME']}"
             
+            # ✅ ฟังก์ชันตรวจ key (จะรันอัตโนมัติเมื่อกด Enter)
             def verify_secret_key():
                 key_input = st.session_state.get(proc_key_state, "").strip()
                 perm = get_user_permission(key_input)
@@ -883,31 +884,31 @@ def render_procedures_tab():
                 else:
                     st.session_state[proc_auth_state] = None
             
-            # 🔹 ช่องกรอก key (Enter แล้วไม่ refresh)
+            # ช่องกรอก Secret Key
             st.text_input(
                 "Enter Secret Key (for execute permission)",
                 type="password",
                 placeholder="Enter key...",
                 key=proc_key_state,
-                on_change=verify_secret_key,  # ✅ callback ตรวจ key เฉพาะ procedure นี้
+                on_change=verify_secret_key,  # ✅ ตรวจเมื่อกด Enter
             )
             
-            # 🔹 ตรวจสิทธิ์จาก session state (ไม่ refresh)
+            # ดึงสถานะล่าสุดจาก session_state
             user_perm = st.session_state.get(proc_auth_state)
+            execute_disabled = True  # default
+            
             if user_perm:
                 role = user_perm["role"]
                 allowed_procs = user_perm.get("allowed_procedures", [])
                 if role == "Admin" or proc["ROUTINE_NAME"] in allowed_procs:
                     st.success(f"✅ Authorized as **{role}**")
-                    execute_disabled = False
+                    execute_disabled = False  # ✅ ปลดล็อกปุ่มที่นี่
                 else:
                     st.error(f"🚫 Not allowed to execute `{proc['ROUTINE_NAME']}`")
-                    execute_disabled = True
             else:
                 st.info("👁 Guest mode — execute locked")
-                execute_disabled = True
             
-            # 🔹 ปุ่ม Execute
+            # ปุ่ม Execute (จะ active ตามค่า execute_disabled)
             if st.button(
                 "▶️ Execute",
                 key=f"exec_{proc['ROUTINE_NAME']}",
@@ -919,6 +920,7 @@ def render_procedures_tab():
                     "name": proc["ROUTINE_NAME"],
                     "params": None,
                 }
+
   
             st.caption("Only authorized users can execute this procedure.")
 
