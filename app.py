@@ -868,69 +868,58 @@ def render_procedures_tab():
                     unsafe_allow_html=True
                 )
 
-            # ===== AUTH SECTION =====
+            # ===== AUTH & EXECUTE SECTION =====
             st.markdown("#### 🔑 Authorization")
-            key_col, status_col = st.columns([2, 1])
-            with key_col:
-                local_key = st.text_input(
-                    f"Enter Secret Key (for execute permission)",
-                    type="password",
-                    placeholder="Enter key...",
-                    key=f"key_{proc['ROUTINE_NAME']}"
-                ).strip()
-            with status_col:
-                user_perm = get_user_permission(local_key) if local_key else None
-                if not user_perm:
-                    st.info("👁 Guest mode — execute locked")
-                    execute_disabled = True
-                    role = "Guest"
+            
+            # ✅ state key เฉพาะ procedure
+            proc_key_state = f"auth_key_{proc['ROUTINE_NAME']}"
+            proc_auth_state = f"auth_state_{proc['ROUTINE_NAME']}"
+            
+            def verify_secret_key():
+                key_input = st.session_state.get(proc_key_state, "").strip()
+                perm = get_user_permission(key_input)
+                if perm:
+                    st.session_state[proc_auth_state] = perm
                 else:
-                    role = user_perm["role"]
-                    allowed_procs = user_perm.get("allowed_procedures", [])
-                    if role == "Admin" or proc["ROUTINE_NAME"] in allowed_procs:
-                        st.success(f"✅ Authorized as **{role}**")
-                        execute_disabled = False
-                    else:
-                        st.error(f"🚫 Not allowed to execute `{proc['ROUTINE_NAME']}`")
-                        execute_disabled = True
-
-            # ===== EXECUTE BUTTON =====
-            exec_col, note_col = st.columns([1, 3])
-            with exec_col:
-                if st.button(
-                    "▶️ Execute",
-                    key=f"exec_{proc['ROUTINE_NAME']}",
-                    type="primary",
-                    use_container_width=True,
-                    disabled=execute_disabled,
-                ):
-                    try:
-                        db = st.session_state.get("db_manager") or DatabaseManager()
-                        conn = db.get_connection()
-                        cursor = conn.cursor()
-                        cursor.execute(
-                            """
-                            INSERT INTO activity_log (username, action, target, ip_address, details)
-                            VALUES (%s, %s, %s, %s, %s)
-                            """,
-                            (
-                                local_key,
-                                "Execute Procedure",
-                                proc["ROUTINE_NAME"],
-                                st.session_state.get("client_ip", "unknown"),
-                                "{}",
-                            ),
-                        )
-                        conn.commit()
-                        cursor.close()
-                        conn.close()
-                    except Exception as log_err:
-                        st.warning(f"⚠️ Failed to write log: {log_err}")
-
-                    st.session_state["PROC_RUN_EVENT"] = {
-                        "name": proc["ROUTINE_NAME"],
-                        "params": None,
-                    }
+                    st.session_state[proc_auth_state] = None
+            
+            # 🔹 ช่องกรอก key (Enter แล้วไม่ refresh)
+            st.text_input(
+                "Enter Secret Key (for execute permission)",
+                type="password",
+                placeholder="Enter key...",
+                key=proc_key_state,
+                on_change=verify_secret_key,  # ✅ callback ตรวจ key เฉพาะ procedure นี้
+            )
+            
+            # 🔹 ตรวจสิทธิ์จาก session state (ไม่ refresh)
+            user_perm = st.session_state.get(proc_auth_state)
+            if user_perm:
+                role = user_perm["role"]
+                allowed_procs = user_perm.get("allowed_procedures", [])
+                if role == "Admin" or proc["ROUTINE_NAME"] in allowed_procs:
+                    st.success(f"✅ Authorized as **{role}**")
+                    execute_disabled = False
+                else:
+                    st.error(f"🚫 Not allowed to execute `{proc['ROUTINE_NAME']}`")
+                    execute_disabled = True
+            else:
+                st.info("👁 Guest mode — execute locked")
+                execute_disabled = True
+            
+            # 🔹 ปุ่ม Execute
+            if st.button(
+                "▶️ Execute",
+                key=f"exec_{proc['ROUTINE_NAME']}",
+                type="primary",
+                use_container_width=True,
+                disabled=execute_disabled,
+            ):
+                st.session_state["PROC_RUN_EVENT"] = {
+                    "name": proc["ROUTINE_NAME"],
+                    "params": None,
+                }
+  
             with note_col:
                 st.caption("Only authorized users can execute this procedure.")
 
