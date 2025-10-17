@@ -645,14 +645,12 @@ def render_import_tab():
                 file_columns = list(df.columns)
 
                 st.info(f"**File Columns:** {len(file_columns)} | **Table Columns:** {len(db_column_names)}")
-
                 column_mapping = {}
                 col1, col2 = st.columns(2)
                 with col1:
                     st.write("**File Column**")
                 with col2:
                     st.write("**→ Database Column**")
-
                 for file_col in file_columns:
                     c1, c2 = st.columns(2)
                     with c1:
@@ -1033,7 +1031,6 @@ def render_merger_tab():
                             df = file_info['data'][sheet_name]
                             st.write(f"**Preview ({len(df)} แถว, {len(df.columns)} คอลัมน์):**")
                             st.dataframe(df.head(5), use_container_width=True)
-
         with col2:
             selected_files_data = {k: v for k, v in st.session_state.merger_processed_data.items() if st.session_state.merger_selected_files.get(k, True)}
             total_files = len(selected_files_data)
