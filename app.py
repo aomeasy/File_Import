@@ -781,7 +781,8 @@ def log_activity(username, action, target, details=None):
 def render_procedures_tab():
     st.header("⚙️ Database Procedures & Updates")
 
-    enabled = st.toggle("Enable this tab (load from DB)", value=False, help="Turn on only when you want to work with procedures")
+    enabled = st.toggle("Enable this tab (load from DB)", value=False,
+                        help="Turn on only when you want to work with procedures")
     if not enabled:
         st.info("This tab is idle. Turn on the toggle to load procedures.")
         return
@@ -789,49 +790,41 @@ def render_procedures_tab():
     if 'db_manager' not in st.session_state:
         st.session_state.db_manager = DatabaseManager()
 
-    # ===== 1️⃣ Authorization Section =====
-    st.markdown("### 🔐 Authorization (optional)")
-    secret_key = st.text_input(
-        "Enter Secret Key (for execute permission)",
-        type="password",
-        placeholder="Enter your key to unlock execution",
-        key="proc_secret_key",
-        value=st.session_state.get("current_secret_key", "")
-    ).strip()
-
-    if secret_key:
-        st.session_state["current_secret_key"] = secret_key
-
-    # ✅ โหลดสิทธิ์ (แต่ไม่บังคับให้ใส่ key)
-    user_perm = get_user_permission(secret_key) if secret_key else None
-    role = user_perm["role"] if user_perm else "Guest"
-    if user_perm:
-        st.success(f"🔓 Authorized as **{role}**")
-    else:
-        st.info("👁 You are in Guest mode — procedures visible, execution locked.")
-
-    st.divider()
-
-    # ===== 2️⃣ Load Procedure List =====
-    st.subheader("🔎 Search / Load Procedures")
-    c1, c2, c3, c4, c5 = st.columns([2,1,1,1,1])
+    # ===== SEARCH / LOAD =====
+    st.subheader("🔎 Search / Load Procedures ")
+    c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 1])
     with c1:
-        name_filter = st.text_input("Procedure name", value=st.session_state.get('last_proc_filter', ""), placeholder="เช่น %R06% หรือระบุชื่อเต็ม")
+        name_filter = st.text_input(
+            "Procedure name",
+            value=st.session_state.get('last_proc_filter', ""),
+            placeholder="เช่น %R06% หรือระบุชื่อเต็ม"
+        )
     with c2:
-        limit = st.number_input("Limit", min_value=1, max_value=500, value=50, step=10)
+        limit = st.number_input("Limit", min_value=1, max_value=500,
+                                value=50, step=10, help="จำกัดจำนวนผลลัพธ์")
     with c3:
-        exact_only = st.checkbox("Exact name", value=st.session_state.get('last_proc_exact', False))
+        exact_only = st.checkbox("Exact name",
+                                 value=st.session_state.get('last_proc_exact', False),
+                                 help="ติ๊กหากต้องการชื่อตรง")
     with c4:
         do_load = st.button("📥 Load", type="primary", use_container_width=True)
     with c5:
-        if st.button("🧹 Clear", use_container_width=True):
-            st.session_state.loaded_procedures = []
-            st.session_state['last_proc_filter'] = ""
-            st.session_state['last_proc_exact'] = False
-            st.toast("Cleared loaded procedures")
+        do_clear_loaded = st.button("🧹 Clear Loaded", use_container_width=True)
 
-    if do_load:
-        pattern = name_filter if (exact_only and name_filter) else f"%{name_filter}%" if name_filter else "%"
+    if do_clear_loaded:
+        st.session_state.loaded_procedures = []
+        st.session_state['last_proc_filter'] = ""
+        st.session_state['last_proc_exact'] = False
+        st.toast("Cleared loaded procedures")
+
+    auto_trigger = False
+    if name_filter and name_filter != st.session_state.get('last_proc_filter', ""):
+        auto_trigger = True
+
+    if do_load or auto_trigger:
+        pattern = name_filter or "%"
+        if exact_only and name_filter:
+            pattern = name_filter
         procs = get_stored_procedures(pattern, limit)
         st.session_state.loaded_procedures = procs
         st.session_state['last_proc_filter'] = name_filter
@@ -841,56 +834,121 @@ def render_procedures_tab():
         else:
             st.warning("No procedures matched your filter.")
 
-    procedures = st.session_state.get('loaded_procedures', [])
-    st.divider()
+    # ===== PROCEDURE LIST =====
+    procedures = st.session_state.get("loaded_procedures", [])
 
-    # ===== 3️⃣ Show Procedures =====
-    st.subheader("📦 Stored Procedures")
+    st.divider()
+    st.subheader("🔧 Stored Procedures")
+
     if not procedures:
-        st.info("No procedures loaded. Enter a name and click Load.")
+        st.warning("⚠️ No procedures loaded. ใส่ชื่อแล้วกด Load ก่อน")
         return
 
-    for proc in procedures:
-        with st.expander(f"🧩 {proc['ROUTINE_NAME']} ({proc['ROUTINE_TYPE']})", expanded=False):
-            st.write(f"**Description:** {proc.get('ROUTINE_COMMENT', '—')}")
-            st.write(f"**Created:** {proc.get('CREATED', '-')}")
-            st.write(f"**Last Altered:** {proc.get('LAST_ALTERED', '-')}")
+    search_query = st.text_input("Filter in results (client-side)",
+                                 placeholder="พิมพ์คัดกรองผลที่โหลดมา",
+                                 key="search_proc_client")
+    filtered_procedures = [p for p in procedures if
+                           (search_query.lower() in p['ROUTINE_NAME'].lower())] if search_query else procedures
 
-            # 🚨 คำเตือนเฉพาะ procedure
-            if proc["ROUTINE_NAME"] == "update_Broadband_daily":
-                st.markdown(
-                    "<span style='color:red;font-weight:bold;'>⚠️ ก่อน Run ให้ Import ข้อมูล Ticket ทั้ง TTS และ SCOMS ลง Broadband_daily ก่อนทุกครั้ง</span>",
-                    unsafe_allow_html=True,
-                )
+    for proc in filtered_procedures:
+        with st.expander(f"📦 {proc['ROUTINE_NAME']} ({proc['ROUTINE_TYPE']})"):
+            col_info, col_exec = st.columns([1, 1])
+            with col_info:
+                st.write(f"**Type:** {proc['ROUTINE_TYPE']}")
+                if proc.get('ROUTINE_COMMENT'):
+                    st.write(f"**Description:** {proc['ROUTINE_COMMENT']}")
+                if proc.get('CREATED'):
+                    st.write(f"**Created:** {proc['CREATED']}")
+                if proc.get('LAST_ALTERED'):
+                    st.write(f"**Last Altered:** {proc['LAST_ALTERED']}")
+
+            with col_exec:
+                st.info("No parameters required")
 
             st.divider()
-            # ===== ปุ่ม Execute =====
+
+            # 🔴 NOTE: คำเตือนเฉพาะ procedure
+            if proc["ROUTINE_NAME"] == "update_Broadband_daily":
+                st.markdown(
+                    "<span style='color:red; font-weight:bold;'>⚠️ กรุณา Import ข้อมูล Ticket ทั้ง <u>TTS</u> และ <u>SCOMS</u> ลงในตาราง <b>Broadband_daily</b> ก่อนการ Update</span>",
+                    unsafe_allow_html=True
+                )
+
+            # ===== AUTH & EXECUTE SECTION =====
+            st.markdown("#### 🔑 Authorization for this Procedure")
+            col_key, col_status = st.columns([2, 1])
+            with col_key:
+                local_key = st.text_input(
+                    f"Enter Secret Key (for execute permission)",
+                    type="password",
+                    placeholder="Enter key...",
+                    key=f"key_{proc['ROUTINE_NAME']}"
+                ).strip()
+
+            with col_status:
+                user_perm = get_user_permission(local_key) if local_key else None
+                if not user_perm:
+                    st.info("👁 Guest mode — execute locked")
+                    execute_disabled = True
+                    role = "Guest"
+                else:
+                    role = user_perm["role"]
+                    allowed_procs = user_perm.get("allowed_procedures", [])
+                    if role == "Admin" or proc["ROUTINE_NAME"] in allowed_procs:
+                        st.success(f"✅ Authorized as **{role}**")
+                        execute_disabled = False
+                    else:
+                        st.error(f"🚫 Not allowed to execute `{proc['ROUTINE_NAME']}`")
+                        execute_disabled = True
+
+            st.divider()
+            # ===== EXECUTE BUTTON =====
             c1, c2 = st.columns([1, 3])
             with c1:
-                if not user_perm:
-                    st.warning("🔒 Execution locked. Enter secret key to unlock.", icon="🔑")
-                    disabled = True
-                else:
-                    allowed = (
-                        user_perm["role"] == "Admin" or
-                        proc["ROUTINE_NAME"] in user_perm.get("allowed_procedures", [])
-                    )
-                    if allowed:
-                        st.success(f"✅ Authorized as {user_perm['role']}")
-                        disabled = False
-                    else:
-                        st.error("🚫 Not allowed to execute this procedure.")
-                        disabled = True
+                if st.button(
+                    "▶️ Execute",
+                    key=f"exec_{proc['ROUTINE_NAME']}",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=execute_disabled,
+                ):
+                    try:
+                        db = st.session_state.get("db_manager") or DatabaseManager()
+                        conn = db.get_connection()
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            """
+                            INSERT INTO activity_log (username, action, target, ip_address, details)
+                            VALUES (%s, %s, %s, %s, %s)
+                            """,
+                            (
+                                local_key,
+                                "Execute Procedure",
+                                proc["ROUTINE_NAME"],
+                                st.session_state.get("client_ip", "unknown"),
+                                "{}",
+                            ),
+                        )
+                        conn.commit()
+                        cursor.close()
+                        conn.close()
+                    except Exception as log_err:
+                        st.warning(f"⚠️ Failed to write log: {log_err}")
 
-                if st.button("▶️ Execute", key=f"exec_{proc['ROUTINE_NAME']}", type="primary", use_container_width=True, disabled=disabled):
-                    st.session_state["PROC_RUN_EVENT"] = {"name": proc["ROUTINE_NAME"], "params": None}
+                    # Run Procedure
+                    st.session_state["PROC_RUN_EVENT"] = {
+                        "name": proc["ROUTINE_NAME"],
+                        "params": None,
+                    }
+            with c2:
+                st.caption("Only authorized users can execute this procedure.")
 
-    # ===== 4️⃣ Run event =====
-    event = st.session_state.get("PROC_RUN_EVENT")
-    if event:
+    # ===== EVENT HANDLING =====
+    event_run = st.session_state.get('PROC_RUN_EVENT')
+    if event_run:
         st.session_state['proc_progress_value'] = 20
-        result = execute_procedure_with_progress(event['name'])
-        render_exec_result(event['name'], result)
+        result = execute_procedure_with_progress(event_run['name'], event_run.get('params'))
+        render_exec_result(event_run['name'], result)
         st.session_state['PROC_RUN_EVENT'] = None
 
 
