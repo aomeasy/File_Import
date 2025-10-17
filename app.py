@@ -1627,7 +1627,7 @@ def get_user_permission(secret_key: str):
 # ==========================================
 def render_user_management_tab():
     st.markdown("## 🔑 Key Management")
-    st.caption("สำหรับผู้ใช้ที่มีสิทธิ์เท่านั้น (Admin / Operator)")
+    st.caption("สำหรับตรวจสอบสิทธิ์การเข้าถึงระบบ โดยการกรอกรหัสลับ (Secret Key)")
 
     # ===== Authorization =====
     secret_key = st.text_input(
