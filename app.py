@@ -902,9 +902,10 @@ def render_procedures_tab():
                         execute_disabled = True
 
             st.divider()
+
             # ===== EXECUTE BUTTON =====
-            c1, c2 = st.columns([1, 3])
-            with c1:
+            exec_col, caption_col = st.columns([1, 3])
+            with exec_col:
                 if st.button(
                     "▶️ Execute",
                     key=f"exec_{proc['ROUTINE_NAME']}",
@@ -934,14 +935,16 @@ def render_procedures_tab():
                         conn.close()
                     except Exception as log_err:
                         st.warning(f"⚠️ Failed to write log: {log_err}")
-
+            
                     # Run Procedure
                     st.session_state["PROC_RUN_EVENT"] = {
                         "name": proc["ROUTINE_NAME"],
                         "params": None,
                     }
-            with c2:
+            
+            with caption_col:
                 st.caption("Only authorized users can execute this procedure.")
+ 
 
     # ===== EVENT HANDLING =====
     event_run = st.session_state.get('PROC_RUN_EVENT')
