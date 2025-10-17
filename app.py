@@ -920,8 +920,7 @@ def render_procedures_tab():
                     "params": None,
                 }
   
-            with note_col:
-                st.caption("Only authorized users can execute this procedure.")
+            st.caption("Only authorized users can execute this procedure.")
 
     # ===== EVENT HANDLING =====
     event_run = st.session_state.get('PROC_RUN_EVENT')
