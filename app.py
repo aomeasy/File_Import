@@ -781,6 +781,7 @@ def log_activity(username, action, target, details=None):
 def render_procedures_tab():
     st.header("⚙️ Database Procedures & Updates")
 
+    # ====== Enable / Disable Tab ======
     enabled = st.toggle("Enable this tab (load from DB)", value=False,
                         help="Turn on only when you want to work with procedures")
     if not enabled:
@@ -790,26 +791,24 @@ def render_procedures_tab():
     if 'db_manager' not in st.session_state:
         st.session_state.db_manager = DatabaseManager()
 
-    # ===== SEARCH / LOAD =====
-    st.subheader("🔎 Search / Load Procedures ")
-    c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 1])
-    with c1:
+    # ====== SEARCH / LOAD ======
+    st.subheader("🔎 Search / Load Procedures")
+    col_a, col_b, col_c, col_d, col_e = st.columns([2, 1, 1, 1, 1])
+    with col_a:
         name_filter = st.text_input(
             "Procedure name",
             value=st.session_state.get('last_proc_filter', ""),
             placeholder="เช่น %R06% หรือระบุชื่อเต็ม"
         )
-    with c2:
-        limit = st.number_input("Limit", min_value=1, max_value=500,
-                                value=50, step=10, help="จำกัดจำนวนผลลัพธ์")
-    with c3:
+    with col_b:
+        limit = st.number_input("Limit", min_value=1, max_value=500, value=50, step=10)
+    with col_c:
         exact_only = st.checkbox("Exact name",
-                                 value=st.session_state.get('last_proc_exact', False),
-                                 help="ติ๊กหากต้องการชื่อตรง")
-    with c4:
+                                 value=st.session_state.get('last_proc_exact', False))
+    with col_d:
         do_load = st.button("📥 Load", type="primary", use_container_width=True)
-    with c5:
-        do_clear_loaded = st.button("🧹 Clear Loaded", use_container_width=True)
+    with col_e:
+        do_clear_loaded = st.button("🧹 Clear", use_container_width=True)
 
     if do_clear_loaded:
         st.session_state.loaded_procedures = []
@@ -817,11 +816,7 @@ def render_procedures_tab():
         st.session_state['last_proc_exact'] = False
         st.toast("Cleared loaded procedures")
 
-    auto_trigger = False
-    if name_filter and name_filter != st.session_state.get('last_proc_filter', ""):
-        auto_trigger = True
-
-    if do_load or auto_trigger:
+    if do_load:
         pattern = name_filter or "%"
         if exact_only and name_filter:
             pattern = name_filter
@@ -834,26 +829,27 @@ def render_procedures_tab():
         else:
             st.warning("No procedures matched your filter.")
 
-    # ===== PROCEDURE LIST =====
     procedures = st.session_state.get("loaded_procedures", [])
-
     st.divider()
-    st.subheader("🔧 Stored Procedures")
 
+    # ====== SHOW PROCEDURES ======
+    st.subheader("🔧 Stored Procedures")
     if not procedures:
         st.warning("⚠️ No procedures loaded. ใส่ชื่อแล้วกด Load ก่อน")
         return
 
-    search_query = st.text_input("Filter in results (client-side)",
-                                 placeholder="พิมพ์คัดกรองผลที่โหลดมา",
-                                 key="search_proc_client")
-    filtered_procedures = [p for p in procedures if
-                           (search_query.lower() in p['ROUTINE_NAME'].lower())] if search_query else procedures
+    search_query = st.text_input(
+        "Filter in results (client-side)",
+        placeholder="พิมพ์คัดกรองผลที่โหลดมา",
+        key="search_proc_client"
+    )
+    filtered = [p for p in procedures if
+                search_query.lower() in p["ROUTINE_NAME"].lower()] if search_query else procedures
 
-    for proc in filtered_procedures:
+    for proc in filtered:
         with st.expander(f"📦 {proc['ROUTINE_NAME']} ({proc['ROUTINE_TYPE']})"):
-            col_info, col_exec = st.columns([1, 1])
-            with col_info:
+            left, right = st.columns([1, 1])
+            with left:
                 st.write(f"**Type:** {proc['ROUTINE_TYPE']}")
                 if proc.get('ROUTINE_COMMENT'):
                     st.write(f"**Description:** {proc['ROUTINE_COMMENT']}")
@@ -861,31 +857,29 @@ def render_procedures_tab():
                     st.write(f"**Created:** {proc['CREATED']}")
                 if proc.get('LAST_ALTERED'):
                     st.write(f"**Last Altered:** {proc['LAST_ALTERED']}")
-
-            with col_exec:
+            with right:
                 st.info("No parameters required")
 
             st.divider()
 
-            # 🔴 NOTE: คำเตือนเฉพาะ procedure
+            # ⚠️ ข้อความเตือนพิเศษ
             if proc["ROUTINE_NAME"] == "update_Broadband_daily":
                 st.markdown(
-                    "<span style='color:red; font-weight:bold;'>⚠️ กรุณา Import ข้อมูล Ticket ทั้ง <u>TTS</u> และ <u>SCOMS</u> ลงในตาราง <b>Broadband_daily</b> ก่อนการ Update</span>",
+                    "<span style='color:red;font-weight:bold;'>⚠️ ก่อน Run ให้ Import ข้อมูล Ticket ทั้ง TTS และ SCOMS ลง Broadband_daily ก่อน</span>",
                     unsafe_allow_html=True
                 )
 
-            # ===== AUTH & EXECUTE SECTION =====
-            st.markdown("#### 🔑 Authorization for this Procedure")
-            col_key, col_status = st.columns([2, 1])
-            with col_key:
+            # ===== AUTH SECTION =====
+            st.markdown("#### 🔑 Authorization")
+            key_col, status_col = st.columns([2, 1])
+            with key_col:
                 local_key = st.text_input(
                     f"Enter Secret Key (for execute permission)",
                     type="password",
                     placeholder="Enter key...",
                     key=f"key_{proc['ROUTINE_NAME']}"
                 ).strip()
-
-            with col_status:
+            with status_col:
                 user_perm = get_user_permission(local_key) if local_key else None
                 if not user_perm:
                     st.info("👁 Guest mode — execute locked")
@@ -901,10 +895,8 @@ def render_procedures_tab():
                         st.error(f"🚫 Not allowed to execute `{proc['ROUTINE_NAME']}`")
                         execute_disabled = True
 
-            st.divider()
-
             # ===== EXECUTE BUTTON =====
-            exec_col, caption_col = st.columns([1, 3])
+            exec_col, note_col = st.columns([1, 3])
             with exec_col:
                 if st.button(
                     "▶️ Execute",
@@ -935,16 +927,13 @@ def render_procedures_tab():
                         conn.close()
                     except Exception as log_err:
                         st.warning(f"⚠️ Failed to write log: {log_err}")
-            
-                    # Run Procedure
+
                     st.session_state["PROC_RUN_EVENT"] = {
                         "name": proc["ROUTINE_NAME"],
                         "params": None,
                     }
-            
-            with caption_col:
+            with note_col:
                 st.caption("Only authorized users can execute this procedure.")
- 
 
     # ===== EVENT HANDLING =====
     event_run = st.session_state.get('PROC_RUN_EVENT')
@@ -953,6 +942,7 @@ def render_procedures_tab():
         result = execute_procedure_with_progress(event_run['name'], event_run.get('params'))
         render_exec_result(event_run['name'], result)
         st.session_state['PROC_RUN_EVENT'] = None
+
 
 
 
