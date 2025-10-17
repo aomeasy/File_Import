@@ -1556,24 +1556,45 @@ def render_log_tab():
     else:
         st.info("📭 No activity logs found.")
 
+  
     # ---- Optional: summary chart ----
+    import altair as alt
+    
     with st.expander("📊 Log Summary Chart", expanded=False):
         try:
             agg_query = """
-                SELECT DATE(timestamp) as date, COUNT(*) as count
+                SELECT DATE(timestamp) AS date, COUNT(*) AS count
                 FROM activity_log
                 GROUP BY DATE(timestamp)
-                ORDER BY date DESC LIMIT 14
+                ORDER BY date ASC
+                LIMIT 14
             """
             agg_df = db.execute_query(agg_query)
+    
             if agg_df is not None and not agg_df.empty:
-                st.bar_chart(
-                    data=agg_df.set_index("date"),
-                    use_container_width=True,
-                    height=400
+                # แปลงให้แน่ใจว่า date เป็น datetime
+                agg_df["date"] = pd.to_datetime(agg_df["date"])
+    
+                chart = (
+                    alt.Chart(agg_df)
+                    .mark_bar(size=25, color="#2563eb")  # ✅ ขนาดแท่ง + สี
+                    .encode(
+                        x=alt.X("date:T", title="วันที่", axis=alt.Axis(labelAngle=-45)),
+                        y=alt.Y("count:Q", title="จำนวนกิจกรรม"),
+                        tooltip=["date:T", "count:Q"]
+                    )
+                    .properties(
+                        width="container",
+                        height=300,
+                        title="📅 Log Summary (14 Days)"
+                    )
                 )
+                st.altair_chart(chart, use_container_width=True)
+            else:
+                st.info("ℹ️ No log data available.")
         except Exception as e:
             st.warning(f"Chart load failed: {e}")
+
 
 # ==========================================
 # 🔐 USER PERMISSIONS LOADER & ACCESS CHECK
