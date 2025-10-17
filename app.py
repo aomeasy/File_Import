@@ -1557,7 +1557,7 @@ def render_log_tab():
         st.info("📭 No activity logs found.")
 
     # ---- Optional: summary chart ----
-    with st.expander("📊 Log Summary Chart (optional)", expanded=False):
+    with st.expander("📊 Log Summary Chart", expanded=False):
         try:
             agg_query = """
                 SELECT DATE(timestamp) as date, COUNT(*) as count
@@ -1569,7 +1569,8 @@ def render_log_tab():
             if agg_df is not None and not agg_df.empty:
                 st.bar_chart(
                     data=agg_df.set_index("date"),
-                    use_container_width=True
+                    use_container_width=True,
+                    height=400
                 )
         except Exception as e:
             st.warning(f"Chart load failed: {e}")
