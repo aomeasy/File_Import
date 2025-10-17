@@ -1310,6 +1310,12 @@ def render_data_editor_tab():
         
         # --- Editor ---
         st.markdown("### 🧮 Data Viewer & Editor")
+        # ✅ แสดงจำนวนเรคคอร์ดทั้งหมด (และมี emoji ให้ดูง่าย)
+        if display_df is not None and not display_df.empty:
+            record_count = len(display_df)
+            st.caption(f"📊 **Total records:** {record_count:,} รายการ")
+        else:
+            st.caption("⚠️ No data available to display.")
         edited_df = st.data_editor(
             display_df,
             num_rows="dynamic",
