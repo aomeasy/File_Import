@@ -1594,12 +1594,33 @@ def load_user_permissions(db):
         return {}
 
 def get_user_permission(secret_key: str):
-    """ดึงสิทธิ์ของผู้ใช้จาก session"""
+    """ดึงสิทธิ์ของผู้ใช้จาก session_state.user_permissions ตาม secret_key"""
     key = secret_key.strip()
     if not key:
         return None
+
+    # ดึง dict สิทธิ์ผู้ใช้ทั้งหมดจาก session
     user_perms = st.session_state.get('user_permissions', {})
-    return user_perms.get(key)
+
+    # ถ้า key ไม่มีใน session — คืน None ทันที
+    if key not in user_perms:
+        return None
+
+    perm = user_perms[key]
+
+    # ✅ ตรวจให้แน่ใจว่ามี field 'username'
+    # (บางกรณีอาจมีแต่ role / allowed_procedures)
+    username = perm.get("username") or perm.get("user") or key
+
+    # ✅ คืนค่ามาตรฐานพร้อม fallback
+    return {
+        "username": username,
+        "role": perm.get("role", "Viewer"),
+        "allowed_tables": perm.get("allowed_tables", []),
+        "allowed_procedures": perm.get("allowed_procedures", []),
+        "allowed_edit_tables": perm.get("allowed_edit_tables", []),
+    }
+
 
 # ==========================================
 # 🔑 KEY MANAGEMENT TAB (ADMIN ONLY)
