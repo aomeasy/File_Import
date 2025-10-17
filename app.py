@@ -28,7 +28,7 @@ except ImportError as e:
 
 # Configure page
 st.set_page_config(
-    page_title="Data Management Hub",
+    page_title="Database Management Hub",
     page_icon="🚀",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -1734,8 +1734,8 @@ def main():
     try:
         st.markdown("""
         <div class="main-header">
-            <h1>🚀 Data Management Hub</h1>
-            <p>Complete data management system with import, procedures, update and file merger</p>
+            <h1>🚀 Database Management Hub</h1>
+            <p>Complete database management system with import, procedures, update and file merger</p>
         </div>
         """, unsafe_allow_html=True)
 
