@@ -1404,6 +1404,16 @@ def render_data_editor_tab():
                         st.success("✅ Data updated successfully.")
                         st.toast("💾 Changes saved!", icon="✅")
 
+                        # ✅ เงื่อนไขเฉพาะกรณี table LK_Broadband_daily
+                        if selected_table == "LK_Broadband_daily":
+                            st.markdown("""
+                            <div style="margin-top:10px; padding:10px; border-left:4px solid #f39c12; background-color:#fffbea;">
+                                ⚠️ <b>กรุณารีเฟรชข้อมูลที่ Looker Studio</b><br>
+                                👉 <a href="https://lookerstudio.google.com/reporting/1483b6e3-3477-4906-8966-ec276423ec27" target="_blank" style="color:#0073e6; text-decoration:none;">
+                                เปิดลิงก์เพื่อรีเฟรชข้อมูลใน Dashboard</a>
+                            </div>
+                            """, unsafe_allow_html=True)
+
                     except Exception as e:
                         st.error(f"❌ Update failed: {e}")
 
