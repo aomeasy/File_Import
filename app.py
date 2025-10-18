@@ -1368,11 +1368,22 @@ def render_data_editor_tab():
                             conn.commit()
                             cursor.close()
                             conn.close()
+ 
 
-                        # ✅ Log Activity (บันทึก username จริง)
+
+                        # ✅ Log Activity (บันทึก username + SQL ที่แก้ไข)
                         try:
                             log_conn = db.get_connection()
                             log_cursor = log_conn.cursor()
+                        
+                            # รวม SQL ทั้งหมดที่รันเป็นข้อความเดียว (จำกัดขนาดเพื่อไม่ให้ยาวเกิน)
+                            executed_sql = "\n".join([
+                                q.replace("%s", "'{}'").format(*[str(v) for v in vals])
+                                for q, vals in zip(update_queries, update_params)
+                            ])
+                            if len(executed_sql) > 2000:  # จำกัดความยาวเพื่อความปลอดภัย
+                                executed_sql = executed_sql[:2000] + " ... (truncated)"
+                        
                             log_cursor.execute("""
                                 INSERT INTO activity_log (username, action, target, ip_address, details)
                                 VALUES (%s, %s, %s, %s, %s)
@@ -1381,7 +1392,7 @@ def render_data_editor_tab():
                                 "Edit Data",
                                 selected_table,
                                 st.session_state.get('client_ip', 'unknown'),
-                                f"rows={len(affected_keys)}"
+                                executed_sql  # ✅ เก็บคำสั่ง SQL ทั้งหมดใน details
                             ))
                             log_conn.commit()
                             log_cursor.close()
@@ -1389,11 +1400,6 @@ def render_data_editor_tab():
                         except Exception as log_err:
                             st.warning(f"⚠️ Failed to write log: {log_err}")
 
-                        st.success("✅ Data updated successfully.")
-                        st.toast("💾 Changes saved!", icon="✅")
-
-                    except Exception as e:
-                        st.error(f"❌ Update failed: {e}")
 
         # ==========================================
         # 📊 Data Display & Download
