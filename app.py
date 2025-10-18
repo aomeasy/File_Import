@@ -1335,7 +1335,7 @@ def render_data_editor_tab():
             else:
                 st.info("📝 Detected unsaved changes!")
 
-                pk_col = next((c for c in ['id', 'ID', 'Ticket No', 'ticket_no', 'no', 'No'] if c in columns), None)
+                pk_col = next((c for c in ['id', 'ID', 'Ticketno','Ticket No', 'ticket_no', 'no', 'No'] if c in columns), None)
                 if not pk_col:
                     st.error("⚠️ Cannot find primary key column.")
                     return
