@@ -781,7 +781,7 @@ def render_import_tab():
                                     # ===================== AI Recommendation (Professional Version) =====================
                                     st.divider()
                                     st.subheader("💡 AI Recommendation")
-                    
+
                                     if suggestion:
                                         proc_name = suggestion.replace("Execute Procedure:", "").strip()
                     
@@ -814,18 +814,17 @@ def render_import_tab():
                                         </div>
                                         """, unsafe_allow_html=True)
 
-                                        # ✅ กำหนดจำนวน pattern ทั้งหมด (ถ้าไม่มีจากระบบ AI ให้คำนวณย้อนกลับ)
+                                        # ✅ คำนวณจำนวน pattern ทั้งหมด
                                         if confidence > 0:
                                             total_patterns = round(freq / (confidence / 100))
                                         else:
                                             total_patterns = freq
                                         
-                                        # ✅ จัดรูปแบบตัวเลขแบบ professional
                                         freq_fmt = f"{freq:,}"
                                         total_fmt = f"{total_patterns:,}"
                                         conf_fmt = f"{confidence:,.2f}"
                                         
-                                        # ✅ Confidence Bar + Explanation
+                                        # ✅ Confidence Bar + Formula
                                         st.markdown(f"""
                                         <div style="background-color:#eaecef;border-radius:8px;margin-top:6px;">
                                           <div style="width:{confidence}%;background-color:{conf_color};
@@ -868,6 +867,7 @@ def render_import_tab():
                                                 }
                                                 with open(tmp_path, "w") as f:
                                                     json.dump(run_data, f)
+                                                st.session_state["AI_PENDING_RUN"] = True  # ✅ เพิ่ม flag ชัดเจน
                                                 st.rerun()
                                         
                                             # ============================================================
@@ -876,43 +876,46 @@ def render_import_tab():
                                             proc_to_run = None
                                             conf_level = 0.0
                                             username_run = username
-                                            if os.path.exists(tmp_path):
-                                                with open(tmp_path, "r") as f:
-                                                    run_data = json.load(f)
-                                                if run_data.get("AI_RUN_TRIGGERED"):
-                                                    proc_to_run = run_data.get("AI_PROC_NAME")
-                                                    conf_level = run_data.get("AI_CONFIDENCE", 0.0)
-                                                    username_run = run_data.get("USERNAME", username)
-                                                # 🧹 ลบไฟล์ทันทีหลังโหลด เพื่อไม่ให้รันซ้ำ
-                                                os.remove(tmp_path)
+
+                                            # ✅ ตรวจ flag จาก session_state ก่อน (ไม่ต้องรอ temp)
+                                            if st.session_state.get("AI_PENDING_RUN", False):
+                                                if os.path.exists(tmp_path):
+                                                    with open(tmp_path, "r") as f:
+                                                        run_data = json.load(f)
+                                                    if run_data.get("AI_RUN_TRIGGERED"):
+                                                        proc_to_run = run_data.get("AI_PROC_NAME")
+                                                        conf_level = run_data.get("AI_CONFIDENCE", 0.0)
+                                                        username_run = run_data.get("USERNAME", username)
+                                                    os.remove(tmp_path)
+                                                    st.session_state["AI_PENDING_RUN"] = False
                                         
-                                            st.write("🧠 DEBUG หลัง rerun (จาก temp file):", {
-                                                "AI_PROC_NAME": proc_to_run,
-                                                "AI_CONFIDENCE": conf_level
-                                            })
+                                                st.write("🧠 DEBUG หลัง rerun (จาก temp file):", {
+                                                    "AI_PROC_NAME": proc_to_run,
+                                                    "AI_CONFIDENCE": conf_level
+                                                })
                                         
-                                            # ✅ ถ้ามีข้อมูลจาก temp → รัน procedure
-                                            if proc_to_run:
-                                                st.info(f"⏳ กำลังดำเนินการรัน Procedure `{proc_to_run}` ...")
+                                                # ✅ ถ้ามีข้อมูลจาก temp → รัน procedure
+                                                if proc_to_run:
+                                                    st.info(f"⏳ กำลังดำเนินการรัน Procedure `{proc_to_run}` ...")
                                         
-                                                try:
-                                                    result = execute_procedure_with_progress(proc_to_run)
-                                                    render_exec_result(proc_to_run, result)
-                                                    log_activity(
-                                                        username=username_run,
-                                                        action="Run Procedure (AI Recommendation)",
-                                                        target=proc_to_run,
-                                                        details=f"Executed by Smart AI Operator (confidence={conf_level:.1f}%)"
-                                                    )
+                                                    try:
+                                                        result = execute_procedure_with_progress(proc_to_run)
+                                                        render_exec_result(proc_to_run, result)
+                                                        log_activity(
+                                                            username=username_run,
+                                                            action="Run Procedure (AI Recommendation)",
+                                                            target=proc_to_run,
+                                                            details=f"Executed by Smart AI Operator (confidence={conf_level:.1f}%)"
+                                                        )
                                         
-                                                    if result and result.get("success"):
-                                                        st.toast(f"✅ Procedure `{proc_to_run}` executed successfully.", icon="✅")
-                                                    else:
-                                                        st.toast(f"⚠️ Procedure `{proc_to_run}` executed with warning.", icon="⚠️")
+                                                        if result and result.get("success"):
+                                                            st.toast(f"✅ Procedure `{proc_to_run}` executed successfully.", icon="✅")
+                                                        else:
+                                                            st.toast(f"⚠️ Procedure `{proc_to_run}` executed with warning.", icon="⚠️")
                                         
-                                                except Exception as e:
-                                                    st.exception(e)
-                                                    st.error(f"❌ เกิดข้อผิดพลาดระหว่างการรัน `{proc_to_run}`: {e}")
+                                                    except Exception as e:
+                                                        st.exception(e)
+                                                        st.error(f"❌ เกิดข้อผิดพลาดระหว่างการรัน `{proc_to_run}`: {e}")
                                         
                                         else:
                                             st.info("🔒 กรุณายืนยันสิทธิ์ก่อนรัน Procedure ที่ระบบแนะนำ") 
@@ -944,6 +947,10 @@ def render_import_tab():
                     
                             else:
                                 st.error(f"❌ Import failed: {result.get('error')}")
+                
+
+
+                                   
  
 
                 with c2:
@@ -2038,56 +2045,37 @@ def render_user_management_tab():
         st.warning(f"⚠️ Role `{role}` has no access to this section.")
         st.stop() 
 
-
 # ================================================================
-# ✅ ส่วนตรวจหลัง rerun จาก temp file (Global Handler)
+# ✅ Global AI Run Handler — ตรวจทุกครั้งหลัง rerun
 # ================================================================
-import os, json, tempfile
+if st.session_state.get("AI_RUN_TRIGGERED", False):
+    proc_to_run = st.session_state.get("AI_LATEST_PROC")
+    conf_level = st.session_state.get("AI_CONFIDENCE", 0.0)
+    username_run = st.session_state.get("AI_USERNAME", "system")
 
-tmp_path = os.path.join(tempfile.gettempdir(), "ai_run.json")
+    if proc_to_run:
+        st.divider()
+        st.info(f"⏳ ระบบกำลังดำเนินการรัน Procedure `{proc_to_run}` ...")
 
-if os.path.exists(tmp_path):
-    try:
-        with open(tmp_path, "r") as f:
-            run_data = json.load(f)
+        result = execute_procedure_with_progress(proc_to_run)
+        render_exec_result(proc_to_run, result)
+        log_activity(
+            username=username_run,
+            action="Run Procedure (AI Recommendation)",
+            target=proc_to_run,
+            details=f"Executed by Smart AI Operator (confidence={conf_level:.1f}%)"
+        )
 
-        if run_data.get("AI_RUN_TRIGGERED") and run_data.get("AI_PROC_NAME"):
-            proc_to_run = run_data.get("AI_PROC_NAME")
-            conf_level = run_data.get("AI_CONFIDENCE", 0.0)
-            username_run = run_data.get("USERNAME", "system")
-
-            st.divider()
-            st.info(f"⏳ ระบบกำลังดำเนินการรัน Procedure `{proc_to_run}` ...")
-
-            # ✅ ดึงฟังก์ชันจาก globals() โดยไม่ import ตัวเองซ้ำ
-            exec_proc_func = globals().get("execute_procedure_with_progress")
-            render_func = globals().get("render_exec_result")
-            log_func = globals().get("log_activity")
-
-            if not exec_proc_func or not render_func or not log_func:
-                st.error("❌ Missing core functions in app context.")
-            else:
-                # ✅ เรียกใช้งานฟังก์ชันจริง
-                result = exec_proc_func(proc_to_run)
-                render_func(proc_to_run, result)
-                log_func(
-                    username=username_run,
-                    action="Run Procedure (AI Recommendation)",
-                    target=proc_to_run,
-                    details=f"Executed by Smart AI Operator (confidence={conf_level:.1f}%)"
-                )
-
-                if result and result.get("success"):
-                    st.toast(f"✅ Procedure `{proc_to_run}` executed successfully.", icon="✅")
-                else:
-                    st.toast(f"⚠️ Procedure `{proc_to_run}` executed with warning.", icon="⚠️")
+        if result and result.get("success"):
+            st.toast(f"✅ Procedure `{proc_to_run}` executed successfully.", icon="✅")
         else:
-            st.warning("⚠️ Temp file found but missing procedure name.")
-    except Exception as e:
-        st.error(f"❌ Error reading AI run temp file: {e}")
-    finally:
-        os.remove(tmp_path)
+            st.toast(f"⚠️ Procedure `{proc_to_run}` executed with warning.", icon="⚠️")
 
+        # 🧹 เคลียร์ state เพื่อไม่ให้รันซ้ำ
+        st.session_state["AI_RUN_TRIGGERED"] = False
+        st.session_state["AI_LATEST_PROC"] = None
+    else:
+        st.warning("⚠️ No procedure found to execute.")
 
 
 # ===== MAIN APPLICATION =====
