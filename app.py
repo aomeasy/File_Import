@@ -818,7 +818,11 @@ def recommend_action(current_action):
                 JOIN activity_log b ON a.username = b.username
             ) AS seq
             WHERE prev_action = %s 
-              AND next_action LIKE 'Run Procedure%%'   -- 🔥 เฉพาะการรัน procedure เท่านั้น
+              AND (
+                    next_action LIKE 'Run Procedure%%'
+                 OR next_action LIKE 'Execute Procedure%%'
+              )
+
             GROUP BY next_action
             ORDER BY freq DESC
             LIMIT 1;
