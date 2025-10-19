@@ -768,7 +768,7 @@ def render_import_tab():
                             if result.get('success'):
                                 st.success(f"✅ {result['message']}")
                                 st.balloons()
-                                st.cache_data.clear()
+                                # st.cache_data.clear()
                                 st.metric("Rows Imported", result.get('rows_affected', 0))
                     
                                 # ===========================================================
@@ -847,42 +847,55 @@ def render_import_tab():
                                             button_key = f"run_ai_recommendation_{selected_table}_{proc_name}"
                                             st.markdown("<br>", unsafe_allow_html=True)
                                         
-                                            # 🟩 ปุ่มกดเพื่อรัน Procedure
+                                            # 🟩 ปุ่มรัน Procedure ที่ระบบแนะนำ
                                             if st.button(
                                                 f"▶️ ดำเนินการรัน Procedure `{proc_name}`",
                                                 type="primary",
                                                 use_container_width=True,
                                                 key=button_key
                                             ):
-                                                # 🧠 เก็บค่าไว้ใน session state ก่อน rerun
+                                                # 🧠 เก็บค่าไว้ใน session และ query params เพื่อกันหายระหว่าง rerun
                                                 st.session_state["AI_RUN_TRIGGERED"] = True
                                                 st.session_state["AI_PROC_NAME"] = proc_name
                                                 st.session_state["AI_CONFIDENCE"] = confidence
+                                                st.experimental_set_query_params(run_proc=proc_name)
                                         
-                                                # 🔍 debug เพื่อดูค่าก่อน rerun
-                                                st.write("🧠 DEBUG ก่อน rerun:", st.session_state)
+                                                # 🔍 Debug
+                                                st.write("🧠 DEBUG ก่อน rerun:", {
+                                                    "AI_RUN_TRIGGERED": True,
+                                                    "AI_PROC_NAME": proc_name,
+                                                    "AI_CONFIDENCE": confidence
+                                                })
                                         
-                                                # 🔄 ให้ Streamlit rerun ใหม่
+                                                # 🔄 rerun ใหม่เพื่อให้รัน procedure ต่อ
                                                 st.rerun()
                                         
-                                            # 🧩 ตรวจว่า flag จากรอบก่อนหน้ายังอยู่ไหม (หลัง rerun)
-                                            st.write("🧠 DEBUG หลัง rerun:", st.session_state)
+                                            # ============================================================
+                                            # 🔹 ส่วนตรวจจับหลัง rerun (ใช้ session หรือ query params)
+                                            # ============================================================
+                                            params = st.experimental_get_query_params()
+                                            triggered = st.session_state.get("AI_RUN_TRIGGERED", False) or bool(params.get("run_proc"))
+                                            proc_to_run = st.session_state.get("AI_PROC_NAME") or (params.get("run_proc", [""])[0])
+                                            conf_level = st.session_state.get("AI_CONFIDENCE", 0.0)
                                         
-                                            # ✅ ถ้ามี flag แปลว่าปุ่มถูกกดในรอบก่อนหน้า
-                                            if st.session_state.get("AI_RUN_TRIGGERED", False):
-                                                proc_to_run = st.session_state.get("AI_PROC_NAME", "")
-                                                conf_level = st.session_state.get("AI_CONFIDENCE", 0.0)
+                                            st.write("🧠 DEBUG หลัง rerun:", {
+                                                "AI_RUN_TRIGGERED": triggered,
+                                                "AI_PROC_NAME": proc_to_run,
+                                                "AI_CONFIDENCE": conf_level
+                                            })
                                         
+                                            # ✅ ถ้ามี flag แปลว่ามีการกดปุ่มรอบก่อนหน้า
+                                            if triggered and proc_to_run:
                                                 st.info(f"⏳ กำลังดำเนินการรัน Procedure `{proc_to_run}` ...")
                                         
                                                 try:
-                                                    # ✅ เรียกฟังก์ชันที่มี progress bar
+                                                    # ✅ เรียกฟังก์ชันรัน Procedure แบบมี progress bar
                                                     result = execute_procedure_with_progress(proc_to_run)
                                         
                                                     # ✅ แสดงผลลัพธ์แบบ renderer กลาง
                                                     render_exec_result(proc_to_run, result)
                                         
-                                                    # ✅ Log กิจกรรม
+                                                    # ✅ Log การทำงาน
                                                     log_activity(
                                                         username=username,
                                                         action="Run Procedure (AI Recommendation)",
@@ -902,9 +915,10 @@ def render_import_tab():
                                                 finally:
                                                     # 🧹 ล้าง flag เพื่อไม่ให้รันซ้ำในรอบต่อไป
                                                     st.session_state["AI_RUN_TRIGGERED"] = False
+                                                    st.experimental_set_query_params()  # ล้าง params หลังรันเสร็จ
                                         
                                         else:
-                                            st.info("🔒 กรุณายืนยันสิทธิ์ก่อนรัน Procedure ที่ระบบแนะนำ") 
+                                            st.info("🔒 กรุณายืนยันสิทธิ์ก่อนรัน Procedure ที่ระบบแนะนำ")
  
                                     else:
                                         # ✅ กรณีไม่มีข้อมูลเพียงพอ
