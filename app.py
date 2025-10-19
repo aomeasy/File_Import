@@ -842,6 +842,7 @@ def render_import_tab():
                                         </div>
                                         """, unsafe_allow_html=True)
 
+
                                         # ✅ ปุ่มรัน Procedure ได้เลย (ใช้สิทธิ์ที่ authorize แล้ว)
                                         if not import_disabled:
                                             button_key = f"run_ai_recommendation_{selected_table}_{proc_name}"
@@ -858,7 +859,7 @@ def render_import_tab():
                                                 st.session_state["AI_RUN_TRIGGERED"] = True
                                                 st.session_state["AI_PROC_NAME"] = proc_name
                                                 st.session_state["AI_CONFIDENCE"] = confidence
-                                                st.experimental_set_query_params(run_proc=proc_name)
+                                                st.query_params["run_proc"] = proc_name  # ✅ ใช้ API ใหม่แทน experimental_
                                         
                                                 # 🔍 Debug
                                                 st.write("🧠 DEBUG ก่อน rerun:", {
@@ -873,9 +874,9 @@ def render_import_tab():
                                             # ============================================================
                                             # 🔹 ส่วนตรวจจับหลัง rerun (ใช้ session หรือ query params)
                                             # ============================================================
-                                            params = st.experimental_get_query_params()
+                                            params = st.query_params  # ✅ ใช้ API ใหม่
                                             triggered = st.session_state.get("AI_RUN_TRIGGERED", False) or bool(params.get("run_proc"))
-                                            proc_to_run = st.session_state.get("AI_PROC_NAME") or (params.get("run_proc", [""])[0])
+                                            proc_to_run = st.session_state.get("AI_PROC_NAME") or params.get("run_proc", "")
                                             conf_level = st.session_state.get("AI_CONFIDENCE", 0.0)
                                         
                                             st.write("🧠 DEBUG หลัง rerun:", {
@@ -915,7 +916,7 @@ def render_import_tab():
                                                 finally:
                                                     # 🧹 ล้าง flag เพื่อไม่ให้รันซ้ำในรอบต่อไป
                                                     st.session_state["AI_RUN_TRIGGERED"] = False
-                                                    st.experimental_set_query_params()  # ล้าง params หลังรันเสร็จ
+                                                    st.query_params.clear()  # ✅ เคลียร์ query params หลังรันเสร็จ
                                         
                                         else:
                                             st.info("🔒 กรุณายืนยันสิทธิ์ก่อนรัน Procedure ที่ระบบแนะนำ")
