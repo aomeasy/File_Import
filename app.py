@@ -33,22 +33,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# ===== Style Fix: Stretch input & buttons full width =====
-st.markdown("""
-<style>
-/* ยืดช่อง text_input ให้เต็มบรรทัด */
-div[data-baseweb="input"] > div {
-    width: 100% !important;
-}
-
-/* ยืดปุ่มทั้งหมดให้เต็มบรรทัด container */
-button[kind="primary"], button[kind="secondary"], div.stButton > button {
-    width: 100% !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
+ 
 
 st.markdown("""
 <style>
@@ -537,6 +522,31 @@ class FileMerger:
         
         return pd.DataFrame()
 
+st.markdown("""
+<style>
+/* ===== Force full width for inputs and buttons ===== */
+
+/* สำหรับ text_input / password_input / selectbox */
+div.stTextInput, div.stPasswordInput, div.stSelectbox, div.stFileUploader {
+    width: 100% !important;
+}
+
+/* สำหรับปุ่มทั้งหมด */
+div.stButton > button {
+    width: 100% !important;
+    display: block;
+    text-align: center;
+}
+
+/* ปรับความกว้างของ columns ภายในคอนเทนเนอร์ import section */
+section.main div.block-container {
+    max-width: 100% !important;
+    padding-right: 2rem;
+    padding-left: 2rem;
+}
+</style>
+""", unsafe_allow_html=True)
+
 
 # ===== TAB 1: IMPORT DATA =====
 def render_import_tab():
@@ -765,24 +775,39 @@ def render_import_tab():
                                 # 🔮 แนะนำ Procedure ถัดไปโดยอิงจาก activity_log
                                 try:
                                     current_action = f"Import Data:{selected_table}"
-                                    suggestion, freq = recommend_action(current_action)
-                                    if suggestion:
+                                    suggestion, freq, confidence = recommend_action(current_action)
+
+                                      if suggestion:
                                         st.divider()
                                         st.subheader("🧠 AI Suggestion")
-                                        st.success(f"ระบบแนะนำให้รัน `{suggestion}` ต่อจากนี้ (จาก pattern เดิม {freq} ครั้ง)")
-                                        if st.button(f"▶️ Run {suggestion}", type="primary", use_container_width=True, key=f"run_suggested_{suggestion}"):
-                                            with st.spinner(f"Running {suggestion} ..."):
+                                    
+                                        st.success(
+                                            f"ระบบแนะนำให้รัน `{suggestion.replace('Execute Procedure:', '')}` "
+                                            f"ต่อจากนี้ (จาก pattern เดิม {freq} ครั้ง, ความมั่นใจ {confidence:.1f}%)"
+                                        )
+                                    
+                                        # ปุ่มรัน Procedure
+                                        if st.button(f"▶️ Run {suggestion.replace('Execute Procedure:', '')}",
+                                                     type="primary", use_container_width=True,
+                                                     key=f"run_suggested_{suggestion}"):
+                                            proc_name = suggestion.replace("Execute Procedure:", "").strip()
+                                            try:
                                                 db = st.session_state.get('db_manager') or DatabaseManager()
-                                                result = db.execute_procedure(suggestion)
+                                                with st.spinner(f"Running procedure `{proc_name}` ..."):
+                                                    result = db.execute_procedure(proc_name)
                                                 if result:
-                                                    st.success(f"✅ Procedure `{suggestion}` executed successfully.")
+                                                    st.success(f"✅ Procedure `{proc_name}` executed successfully.")
+                                                    log_activity(
+                                                        username=secret_key.strip(),
+                                                        action="Run Procedure (AI Suggestion)",
+                                                        target=proc_name,
+                                                        details=f"Executed from AI suggestion (confidence={confidence:.1f}%)"
+                                                    )
                                                 else:
-                                                    st.error(f"❌ Failed to execute `{suggestion}`.")
-                                    else:
-                                        st.info("🤖 ยังไม่มีข้อมูลพอสำหรับแนะนำ Procedure ที่เหมาะสม")
-                                except Exception as e:
-                                    st.warning(f"⚠️ Suggestion module error: {e}")
-
+                                                    st.info("🤖 ยังไม่มีข้อมูลพอสำหรับแนะนำ Procedure ที่เหมาะสม")
+                                            except Exception as e:
+                                                st.error(f"❌ Error running `{proc_name}`: {e}")
+ 
                               
                             else:
                                 st.error(f"❌ Import failed: {result.get('error')}")
@@ -817,12 +842,13 @@ def log_activity(username, action, target, details=None):
 # ====== 🔮 AI Suggestion Section (Auto Procedure Recommendation) ======
 
 def recommend_action(current_action):
-    """แนะนำ Procedure ที่มักถูกรันหลัง Import โดยอิงจากเวลาล่าสุด"""
+    """แนะนำ Procedure ที่มักถูกรันหลัง Import พร้อมค่า Confidence (%)"""
     try:
         db = st.session_state.get('db_manager') or DatabaseManager()
         conn = db.get_connection()
         cursor = conn.cursor()
 
+        # ดึง pattern ที่เกิดหลัง import (จำกัดเวลา 10 นาที)
         query = """
             SELECT next_action, COUNT(*) AS freq
             FROM (
@@ -832,8 +858,8 @@ def recommend_action(current_action):
                 FROM activity_log a
                 JOIN activity_log b 
                   ON a.username = b.username
-                 AND b.timestamp > a.timestamp              -- ✅ ต้องเกิดหลัง
-                 AND TIMESTAMPDIFF(MINUTE, a.timestamp, b.timestamp) <= 10  -- ✅ ภายใน 10 นาที
+                 AND b.timestamp > a.timestamp
+                 AND TIMESTAMPDIFF(MINUTE, a.timestamp, b.timestamp) <= 30
                 WHERE a.action = 'Import Data'
             ) seq
             WHERE prev_action = %s
@@ -845,18 +871,25 @@ def recommend_action(current_action):
             ORDER BY freq DESC
             LIMIT 1;
         """
-
         cursor.execute(query, (current_action,))
         row = cursor.fetchone()
+
+        # ดึงจำนวนครั้งทั้งหมดของการ Import ตารางนี้ เพื่อใช้คำนวณ %
+        total_query = "SELECT COUNT(*) FROM activity_log WHERE CONCAT(action, ':', target) = %s"
+        cursor.execute(total_query, (current_action,))
+        total_imports = cursor.fetchone()[0] or 0
+
         cursor.close()
         conn.close()
 
         if row:
             next_action, freq = row
-            return next_action, freq
+            confidence = (freq / total_imports * 100) if total_imports > 0 else 0
+            return next_action, freq, confidence
     except Exception as e:
         st.warning(f"⚠️ AI suggestion failed: {e}")
-    return None, None
+    return None, None, 0
+
 
 
 
