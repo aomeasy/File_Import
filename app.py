@@ -745,6 +745,29 @@ def render_import_tab():
                                 st.balloons()
                                 st.cache_data.clear()
                                 st.metric("Rows Imported", result.get('rows_affected', 0))
+
+                                # 🔮 แนะนำ Procedure ถัดไปโดยอิงจาก activity_log
+                                try:
+                                    current_action = f"Import Data:{selected_table}"
+                                    suggestion, freq = recommend_action(current_action)
+                                    if suggestion:
+                                        st.divider()
+                                        st.subheader("🧠 AI Suggestion")
+                                        st.success(f"ระบบแนะนำให้รัน `{suggestion}` ต่อจากนี้ (จาก pattern เดิม {freq} ครั้ง)")
+                                        if st.button(f"▶️ Run {suggestion}", type="primary", use_container_width=True, key=f"run_suggested_{suggestion}"):
+                                            with st.spinner(f"Running {suggestion} ..."):
+                                                db = st.session_state.get('db_manager') or DatabaseManager()
+                                                result = db.execute_procedure(suggestion)
+                                                if result:
+                                                    st.success(f"✅ Procedure `{suggestion}` executed successfully.")
+                                                else:
+                                                    st.error(f"❌ Failed to execute `{suggestion}`.")
+                                    else:
+                                        st.info("🤖 ยังไม่มีข้อมูลพอสำหรับแนะนำ Procedure ที่เหมาะสม")
+                                except Exception as e:
+                                    st.warning(f"⚠️ Suggestion module error: {e}")
+
+                              
                             else:
                                 st.error(f"❌ Import failed: {result.get('error')}")
 
@@ -774,6 +797,39 @@ def log_activity(username, action, target, details=None):
         conn.close()
     except Exception as e:
         st.warning(f"⚠️ Failed to write activity log: {e}")
+
+# ====== 🔮 AI Suggestion Section (Auto Procedure Recommendation) ======
+
+def recommend_action(current_action):
+    """ดึงคำแนะนำจาก pattern ที่มีใน activity_log"""
+    try:
+        db = st.session_state.get('db_manager') or DatabaseManager()
+        conn = db.get_connection()
+        query = """
+            SELECT next_action, COUNT(*) as freq
+            FROM (
+                SELECT 
+                    CONCAT(a.action, ':', a.target) AS prev_action,
+                    LEAD(CONCAT(b.action, ':', b.target)) OVER (ORDER BY a.timestamp) AS next_action
+                FROM activity_log a
+                JOIN activity_log b ON a.username = b.username
+            ) AS seq
+            WHERE prev_action = %s AND next_action IS NOT NULL
+            GROUP BY next_action
+            ORDER BY freq DESC
+            LIMIT 1;
+        """
+        cursor = conn.cursor()
+        cursor.execute(query, (current_action,))
+        row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        if row:
+            next_action, freq = row
+            return next_action, freq
+    except Exception as e:
+        st.warning(f"⚠️ AI suggestion failed: {e}")
+    return None, None
 
 
 # ===== TAB 2: RUN PROCEDURES (with event flags) =====
