@@ -75,11 +75,40 @@ for k, v in {
     'last_proc_filter': "",
     'last_proc_exact': False,
     'execution_history': [],
-    # event flags
-    'PROC_RUN_EVENT': None,       # {'name': str, 'params': list|None}
-    'PROC_ADD_FAV_EVENT': None,   # {'name': str}
+    'PROC_RUN_EVENT': None,
+    'PROC_ADD_FAV_EVENT': None,
+    # ✅ เพิ่มใหม่
+    'AI_RUN_TRIGGERED': False,
+    'AI_PROC_NAME': None,
+    'AI_CONFIDENCE': 0.0,
+    'AI_USERNAME': None,
+    'AI_SOURCE_TABLE': None,
 }.items():
     st.session_state.setdefault(k, v)
+```
+
+---
+
+## 🧪 ทดสอบการทำงาน
+
+### **Flow ที่ถูกต้อง:**
+```
+1. User กด Import Data → ระบบแสดง AI Recommendation
+   ↓
+2. User กดปุ่ม "▶️ ดำเนินการรัน Procedure `xxx`"
+   ↓
+3. ระบบเซ็ต:
+   st.session_state["AI_RUN_TRIGGERED"] = True
+   st.session_state["AI_PROC_NAME"] = "update_Broadband_daily"
+   st.rerun()
+   ↓
+4. Streamlit reload → handle_ai_recommendation_execution() ทำงาน
+   ↓
+5. ตรวจเจอ AI_RUN_TRIGGERED = True → รัน procedure
+   ↓
+6. แสดงผลลัพธ์ + ปุ่ม "กลับไปหน้า Import Data"
+   ↓
+7. เคลียร์ flags → หยุดด้วย st.stop()
  
 
 # ===== CACHING FUNCTIONS =====
@@ -850,7 +879,8 @@ def render_import_tab():
                                             st.markdown("<br>", unsafe_allow_html=True)
                                         
                                             tmp_path = os.path.join(tempfile.gettempdir(), "ai_run.json")
-                                        
+
+                                            button_key = f"run_ai_recommendation_{selected_table}_{proc_name}_{datetime.now().strftime('%H%M%S')}"
                                             # 🟩 ปุ่มรัน Procedure ที่ระบบแนะนำ
                                             if st.button(
                                                 f"▶️ ดำเนินการรัน Procedure `{proc_name}`",
@@ -858,6 +888,17 @@ def render_import_tab():
                                                 use_container_width=True,
                                                 key=button_key
                                             ):
+
+                                                # 🧠 เก็บข้อมูลลง session_state (ไม่ใช้ไฟล์ temp)
+                                                st.session_state["AI_RUN_TRIGGERED"] = True
+                                                st.session_state["AI_PROC_NAME"] = proc_name
+                                                st.session_state["AI_CONFIDENCE"] = confidence
+                                                st.session_state["AI_USERNAME"] = username
+                                                st.session_state["AI_SOURCE_TABLE"] = selected_table
+                                                
+                                                # 🔄 Rerun เพื่อให้ Global Handler ทำงาน
+                                                st.rerun()
+ 
                                                 # 🧠 เขียน flag ลงไฟล์ชั่วคราว (กันหายตอน rerun)
                                                 run_data = {
                                                     "AI_RUN_TRIGGERED": True,
@@ -2046,82 +2087,103 @@ def render_user_management_tab():
         st.stop() 
 
 # ================================================================
-# 🤖 Global AI Procedure Execution Handler
+# 🤖 Global AI Procedure Execution Handler (Session State Version)
 # วางโค้ดนี้ก่อน def main(): (ประมาณบรรทัด 800)
 # ================================================================
 
 def handle_ai_recommendation_execution():
     """
     ตรวจสอบและรัน procedure ที่ AI แนะนำหลัง rerun
-    โค้ดนี้จะทำงานทุกครั้งที่แอปโหลด (ก่อนเข้า main tab logic)
+    ใช้ session_state แทนไฟล์ temp เพื่อความแม่นยำ
     """
-    import json
-    import os
-    import tempfile
     
-    tmp_path = os.path.join(tempfile.gettempdir(), "ai_run.json")
-    
-    # ตรวจสอบว่ามีไฟล์ temp flag หรือไม่
-    if os.path.exists(tmp_path):
-        try:
-            with open(tmp_path, "r") as f:
-                run_data = json.load(f)
-            
-            # ตรวจสอบว่าเป็นคำสั่งรัน procedure หรือไม่
-            if run_data.get("AI_RUN_TRIGGERED"):
-                proc_name = run_data.get("AI_PROC_NAME")
-                conf_level = run_data.get("AI_CONFIDENCE", 0.0)
-                username = run_data.get("USERNAME", "system")
-                
-                if proc_name:
-                    # แสดง UI แจ้งเตือน
-                    st.info(f"🤖 **Smart AI Operator กำลังดำเนินการ...**  \nProcedure: `{proc_name}` (Confidence: {conf_level:.1f}%)")
-                    
-                    # รัน procedure
-                    with st.spinner(f"⏳ กำลังรัน {proc_name}..."):
-                        result = execute_procedure_with_progress(proc_name)
-                    
-                    # แสดงผลลัพธ์
-                    render_exec_result(proc_name, result)
-                    
-                    # บันทึก log
-                    try:
-                        log_activity(
-                            username=username,
-                            action="Run Procedure (AI Recommendation)",
-                            target=proc_name,
-                            details=f"Executed by Smart AI Operator (confidence={conf_level:.1f}%)"
-                        )
-                    except Exception as log_err:
-                        st.warning(f"⚠️ ไม่สามารถบันทึก log ได้: {log_err}")
-                    
-                    # แจ้งผลสำเร็จ
-                    if result and result.get("success"):
-                        st.success(f"✅ Procedure `{proc_name}` ทำงานสำเร็จแล้ว")
-                        st.balloons()
-                    else:
-                        st.error(f"❌ Procedure `{proc_name}` ทำงานไม่สำเร็จ")
-                    
-                    # ลบไฟล์ temp หลังใช้งานเสร็จ
-                    os.remove(tmp_path)
-                    
-                    # แสดงปุ่มกลับไปหน้าหลัก
-                    st.divider()
-                    if st.button("🏠 กลับไปหน้า Import Data", type="primary", use_container_width=True):
-                        st.rerun()
-                    
-                    # หยุดการ render ส่วนอื่น (ไม่ให้แสดง tab ซ้ำ)
-                    st.stop()
+    # ตรวจสอบว่ามี flag ให้รัน procedure หรือไม่
+    if st.session_state.get("AI_RUN_TRIGGERED", False):
         
-        except Exception as e:
-            st.error(f"⚠️ เกิดข้อผิดพลาดในการรัน AI Recommendation: {e}")
-            # ลบไฟล์เพื่อไม่ให้ค้างใน temp
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
+        proc_name = st.session_state.get("AI_PROC_NAME")
+        conf_level = st.session_state.get("AI_CONFIDENCE", 0.0)
+        username = st.session_state.get("AI_USERNAME", "system")
+        source_table = st.session_state.get("AI_SOURCE_TABLE", "unknown")
+        
+        if proc_name:
+            # === UI Header ===
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        padding: 1.5rem; border-radius: 12px; margin-bottom: 1rem;
+                        text-align: center; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <h2 style="margin:0; font-size:1.8rem;">🤖 Smart AI Operator</h2>
+                <p style="margin:0.5rem 0 0 0; font-size:1rem; opacity:0.9;">
+                    กำลังดำเนินการตามคำแนะนำของระบบ AI
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # === แสดงรายละเอียด ===
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("📦 Procedure", proc_name)
+            with col2:
+                st.metric("📊 Source Table", source_table)
+            with col3:
+                st.metric("🎯 Confidence", f"{conf_level:.1f}%")
+            
+            st.divider()
+            
+            # === รัน Procedure ===
+            st.info(f"⏳ กำลังเรียกใช้ Procedure `{proc_name}`...")
+            
+            try:
+                # รีเซ็ต progress value
+                st.session_state['proc_progress_value'] = 20
+                
+                # รัน procedure พร้อม progress bar
+                result = execute_procedure_with_progress(proc_name)
+                
+                # แสดงผลลัพธ์
+                render_exec_result(proc_name, result)
+                
+                # บันทึก log
+                try:
+                    log_activity(
+                        username=username,
+                        action="Run Procedure (AI Recommendation)",
+                        target=proc_name,
+                        details=f"Auto-executed after importing to {source_table} (confidence={conf_level:.1f}%)"
+                    )
+                except Exception as log_err:
+                    st.warning(f"⚠️ ไม่สามารถบันทึก log ได้: {log_err}")
+                
+                # แจ้งผลสำเร็จ
+                if result and result.get("success"):
+                    st.success(f"✅ Procedure `{proc_name}` ทำงานสำเร็จแล้ว")
+                    st.balloons()
+                else:
+                    st.error(f"❌ Procedure `{proc_name}` ทำงานไม่สำเร็จ")
+                
+            except Exception as e:
+                st.error(f"❌ เกิดข้อผิดพลาดระหว่างการรัน Procedure: {e}")
+                st.exception(e)
+            
+            # === เคลียร์ flags ===
+            st.session_state["AI_RUN_TRIGGERED"] = False
+            st.session_state["AI_PROC_NAME"] = None
+            st.session_state["AI_CONFIDENCE"] = 0.0
+            st.session_state["AI_USERNAME"] = None
+            st.session_state["AI_SOURCE_TABLE"] = None
+            
+            # === ปุ่มกลับไปหน้าหลัก ===
+            st.divider()
+            col_a, col_b, col_c = st.columns([1, 2, 1])
+            with col_b:
+                if st.button("🏠 กลับไปหน้า Import Data", type="primary", use_container_width=True):
+                    st.rerun()
+            
+            # หยุดการ render ส่วนอื่น
+            st.stop()
 
 
 # ================================================================
-# เรียกใช้ handler ก่อน main() เสมอ
+# ⚠️ เรียกใช้ handler ก่อน main() เสมอ
 # ================================================================
 handle_ai_recommendation_execution()
 
