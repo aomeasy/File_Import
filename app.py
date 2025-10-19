@@ -778,102 +778,102 @@ def render_import_tab():
                                     current_action = f"Import Data:{selected_table}"
                                     suggestion, freq, confidence = recommend_action(current_action) or (None, 0, 0)
 
-                                  # ===================== AI Recommendation (Professional Version) =====================
-                                  st.divider()
-                                  st.subheader("💡 AI Recommendation")
-                                  
-                                  if suggestion:
-                                      proc_name = suggestion.replace("Execute Procedure:", "").strip()
-                                  
-                                      # ✅ สีตามระดับความเชื่อมั่น
-                                      if confidence >= 80:
-                                          conf_color = "#2ecc71"  # เขียว
-                                          emoji = "🟢"
-                                          conf_text = "สูงมาก"
-                                      elif confidence >= 50:
-                                          conf_color = "#f1c40f"  # เหลือง
-                                          emoji = "🟡"
-                                          conf_text = "ปานกลาง"
-                                      else:
-                                          conf_color = "#e74c3c"  # แดง
-                                          emoji = "🔴"
-                                          conf_text = "ค่อนข้างต่ำ"
-                                  
-                                      # ✅ ข้อความแนะนำแบบมืออาชีพ
-                                      st.markdown(f"""
-                                      <div style="background-color:#f8f9fb;border-left:6px solid {conf_color};
-                                                  padding:12px 18px;border-radius:10px;font-size:15px;line-height:1.6;">
-                                          <strong>🤖 Smart AI Operator:</strong><br>
-                                          จากการวิเคราะห์พฤติกรรมการใช้งานย้อนหลัง ระบบคาดการณ์ว่า<br>
-                                          <span style="color:#2d3436;"><b>Procedure <code>{proc_name}</code></b></span> 
-                                          เป็นขั้นตอนถัดไปที่เหมาะสมสำหรับกระบวนการนี้<br>
-                                          <span style="font-size:13.5px;color:#636e72;">
-                                          อ้างอิงจากรูปแบบการทำงานเดิม <b>{freq}</b> ครั้ง 
-                                          และมีระดับความเชื่อมั่น <b style="color:{conf_color};">{emoji} {confidence:.1f}% ({conf_text})</b>
-                                          </span>
-                                      </div>
-                                      """, unsafe_allow_html=True)
-                                  
-                                      # ✅ Confidence Progress Bar (Streamlit Native)
-                                      st.markdown(f"""
-                                      <div style="background-color:#eaecef;border-radius:8px;margin-top:6px;">
-                                        <div style="width:{confidence}%;background-color:{conf_color};
-                                                    height:12px;border-radius:8px;"></div>
-                                      </div>
-                                      <div style="font-size:13px;color:#555;margin-top:2px;">
-                                        Confidence Level: <b style="color:{conf_color};">{confidence:.1f}%</b>
-                                      </div>
-                                      """, unsafe_allow_html=True)
-                                  
-                                      # ✅ ปุ่มรัน Procedure ได้เลย (ใช้สิทธิ์ที่ authorize แล้ว)
-                                      if not import_disabled:
-                                          if st.button(
-                                              f"▶️ ดำเนินการรัน Procedure `{proc_name}`",
-                                              type="primary",
-                                              use_container_width=True,
-                                              key=f"run_ai_recommendation_{proc_name}"
-                                          ):
-                                              try:
-                                                  db = st.session_state.get('db_manager') or DatabaseManager()
-                                                  with st.spinner(f"กำลังรัน Procedure `{proc_name}` ..."):
-                                                      run_result = db.execute_procedure(proc_name)
-                                  
-                                                  if run_result:
-                                                      st.success(f"✅ Procedure `{proc_name}` รันสำเร็จเรียบร้อยแล้ว")
-                                                      log_activity(
-                                                          username=username,
-                                                          action="Run Procedure (AI Recommendation)",
-                                                          target=proc_name,
-                                                          details=f"Executed by Smart AI Operator (confidence={confidence:.1f}%)"
-                                                      )
-                                                  else:
-                                                      st.warning("⚠️ Procedure ไม่มีผลลัพธ์ที่ส่งกลับ")
-                                              except Exception as e:
-                                                  st.error(f"❌ เกิดข้อผิดพลาดระหว่างการรัน `{proc_name}`: {e}")
-                                      else:
-                                          st.info("🔒 กรุณายืนยันสิทธิ์ก่อนรัน Procedure ที่ระบบแนะนำ")
-                                  
-                                  else:
-                                      # ✅ กรณีไม่มีข้อมูลเพียงพอ
-                                      st.markdown(f"""
-                                      <div style="background-color:#f8f9fb;border-left:6px solid #b2bec3;
-                                                  padding:12px 18px;border-radius:10px;font-size:15px;line-height:1.6;">
-                                          <strong>🤖 Smart AI Operator:</strong><br>
-                                          ขณะนี้ระบบยังไม่มีข้อมูลเพียงพอสำหรับการวิเคราะห์ขั้นตอนถัดไป<br>
-                                          กรุณาดำเนินการเพิ่มเติมเพื่อให้ระบบเรียนรู้ pattern ได้มากขึ้น
-                                      </div>
-                                      """, unsafe_allow_html=True)
-                                  
-                                      # Progress Bar 0%
-                                      st.markdown("""
-                                      <div style="background-color:#eaecef;border-radius:8px;margin-top:6px;">
-                                        <div style="width:0%;background-color:#b2bec3;
-                                                    height:12px;border-radius:8px;"></div>
-                                      </div>
-                                      <div style="font-size:13px;color:#555;margin-top:2px;">
-                                        Confidence Level: <b style="color:#b2bec3;">0.0%</b>
-                                      </div>
-                                      """, unsafe_allow_html=True)
+                                    # ===================== AI Recommendation (Professional Version) =====================
+                                    st.divider()
+                                    st.subheader("💡 AI Recommendation")
+                                    
+                                    if suggestion:
+                                        proc_name = suggestion.replace("Execute Procedure:", "").strip()
+                                    
+                                        # ✅ สีตามระดับความเชื่อมั่น
+                                        if confidence >= 80:
+                                            conf_color = "#2ecc71"  # เขียว
+                                            emoji = "🟢"
+                                            conf_text = "สูงมาก"
+                                        elif confidence >= 50:
+                                            conf_color = "#f1c40f"  # เหลือง
+                                            emoji = "🟡"
+                                            conf_text = "ปานกลาง"
+                                        else:
+                                            conf_color = "#e74c3c"  # แดง
+                                            emoji = "🔴"
+                                            conf_text = "ค่อนข้างต่ำ"
+                                    
+                                        # ✅ ข้อความแนะนำแบบมืออาชีพ
+                                        st.markdown(f"""
+                                        <div style="background-color:#f8f9fb;border-left:6px solid {conf_color};
+                                                    padding:12px 18px;border-radius:10px;font-size:15px;line-height:1.6;">
+                                            <strong>🤖 Smart AI Operator:</strong><br>
+                                            จากการวิเคราะห์พฤติกรรมการใช้งานย้อนหลัง ระบบคาดการณ์ว่า<br>
+                                            <span style="color:#2d3436;"><b>Procedure <code>{proc_name}</code></b></span> 
+                                            เป็นขั้นตอนถัดไปที่เหมาะสมสำหรับกระบวนการนี้<br>
+                                            <span style="font-size:13.5px;color:#636e72;">
+                                            อ้างอิงจากรูปแบบการทำงานเดิม <b>{freq}</b> ครั้ง 
+                                            และมีระดับความเชื่อมั่น <b style="color:{conf_color};">{emoji} {confidence:.1f}% ({conf_text})</b>
+                                            </span>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                    
+                                        # ✅ Confidence Progress Bar (Streamlit Native)
+                                        st.markdown(f"""
+                                        <div style="background-color:#eaecef;border-radius:8px;margin-top:6px;">
+                                          <div style="width:{confidence}%;background-color:{conf_color};
+                                                      height:12px;border-radius:8px;"></div>
+                                        </div>
+                                        <div style="font-size:13px;color:#555;margin-top:2px;">
+                                          Confidence Level: <b style="color:{conf_color};">{confidence:.1f}%</b>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                    
+                                        # ✅ ปุ่มรัน Procedure ได้เลย (ใช้สิทธิ์ที่ authorize แล้ว)
+                                        if not import_disabled:
+                                            if st.button(
+                                                f"▶️ ดำเนินการรัน Procedure `{proc_name}`",
+                                                type="primary",
+                                                use_container_width=True,
+                                                key=f"run_ai_recommendation_{proc_name}"
+                                            ):
+                                                try:
+                                                    db = st.session_state.get('db_manager') or DatabaseManager()
+                                                    with st.spinner(f"กำลังรัน Procedure `{proc_name}` ..."):
+                                                        run_result = db.execute_procedure(proc_name)
+                                    
+                                                    if run_result:
+                                                        st.success(f"✅ Procedure `{proc_name}` รันสำเร็จเรียบร้อยแล้ว")
+                                                        log_activity(
+                                                            username=username,
+                                                            action="Run Procedure (AI Recommendation)",
+                                                            target=proc_name,
+                                                            details=f"Executed by Smart AI Operator (confidence={confidence:.1f}%)"
+                                                        )
+                                                    else:
+                                                        st.warning("⚠️ Procedure ไม่มีผลลัพธ์ที่ส่งกลับ")
+                                                except Exception as e:
+                                                    st.error(f"❌ เกิดข้อผิดพลาดระหว่างการรัน `{proc_name}`: {e}")
+                                        else:
+                                            st.info("🔒 กรุณายืนยันสิทธิ์ก่อนรัน Procedure ที่ระบบแนะนำ")
+                                    
+                                    else:
+                                        # ✅ กรณีไม่มีข้อมูลเพียงพอ
+                                        st.markdown(f"""
+                                        <div style="background-color:#f8f9fb;border-left:6px solid #b2bec3;
+                                                    padding:12px 18px;border-radius:10px;font-size:15px;line-height:1.6;">
+                                            <strong>🤖 Smart AI Operator:</strong><br>
+                                            ขณะนี้ระบบยังไม่มีข้อมูลเพียงพอสำหรับการวิเคราะห์ขั้นตอนถัดไป<br>
+                                            กรุณาดำเนินการเพิ่มเติมเพื่อให้ระบบเรียนรู้ pattern ได้มากขึ้น
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                    
+                                        # Progress Bar 0%
+                                        st.markdown("""
+                                        <div style="background-color:#eaecef;border-radius:8px;margin-top:6px;">
+                                          <div style="width:0%;background-color:#b2bec3;
+                                                      height:12px;border-radius:8px;"></div>
+                                        </div>
+                                        <div style="font-size:13px;color:#555;margin-top:2px;">
+                                          Confidence Level: <b style="color:#b2bec3;">0.0%</b>
+                                        </div>
+                                        """, unsafe_allow_html=True)
  
 
                 with c2:
