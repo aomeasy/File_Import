@@ -84,31 +84,7 @@ for k, v in {
     'AI_USERNAME': None,
     'AI_SOURCE_TABLE': None,
 }.items():
-    st.session_state.setdefault(k, v)
-```
-
----
-
-## 🧪 ทดสอบการทำงาน
-
-### **Flow ที่ถูกต้อง:**
-```
-1. User กด Import Data → ระบบแสดง AI Recommendation
-   ↓
-2. User กดปุ่ม "▶️ ดำเนินการรัน Procedure `xxx`"
-   ↓
-3. ระบบเซ็ต:
-   st.session_state["AI_RUN_TRIGGERED"] = True
-   st.session_state["AI_PROC_NAME"] = "update_Broadband_daily"
-   st.rerun()
-   ↓
-4. Streamlit reload → handle_ai_recommendation_execution() ทำงาน
-   ↓
-5. ตรวจเจอ AI_RUN_TRIGGERED = True → รัน procedure
-   ↓
-6. แสดงผลลัพธ์ + ปุ่ม "กลับไปหน้า Import Data"
-   ↓
-7. เคลียร์ flags → หยุดด้วย st.stop()
+    st.session_state.setdefault(k, v) 
  
 
 # ===== CACHING FUNCTIONS =====
