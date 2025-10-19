@@ -2069,6 +2069,49 @@ def main():
         if 'user_permissions' not in st.session_state:
             st.session_state.user_permissions = load_user_permissions(st.session_state.db_manager)
 
+# ================================================================
+# ✅ ส่วนตรวจหลัง rerun จาก temp file (Global Handler)
+# ================================================================
+import os, json, tempfile
+
+tmp_path = os.path.join(tempfile.gettempdir(), "ai_run.json")
+
+if os.path.exists(tmp_path):
+    try:
+        with open(tmp_path, "r") as f:
+            run_data = json.load(f)
+        if run_data.get("AI_RUN_TRIGGERED") and run_data.get("AI_PROC_NAME"):
+            proc_to_run = run_data.get("AI_PROC_NAME")
+            conf_level = run_data.get("AI_CONFIDENCE", 0.0)
+            username_run = run_data.get("USERNAME", "system")
+
+            st.divider()
+            st.info(f"⏳ ระบบกำลังดำเนินการรัน Procedure `{proc_to_run}` ...")
+
+            from app import execute_procedure_with_progress, render_exec_result, log_activity
+
+            result = execute_procedure_with_progress(proc_to_run)
+            render_exec_result(proc_to_run, result)
+            log_activity(
+                username=username_run,
+                action="Run Procedure (AI Recommendation)",
+                target=proc_to_run,
+                details=f"Executed by Smart AI Operator (confidence={conf_level:.1f}%)"
+            )
+
+            if result and result.get("success"):
+                st.toast(f"✅ Procedure `{proc_to_run}` executed successfully.", icon="✅")
+            else:
+                st.toast(f"⚠️ Procedure `{proc_to_run}` executed with warning.", icon="⚠️")
+
+        else:
+            st.warning("⚠️ Temp file found but missing procedure name.")
+    except Exception as e:
+        st.error(f"❌ Error reading AI run temp file: {e}")
+    finally:
+        os.remove(tmp_path)
+
+
 
         with st.sidebar:
             # === CONFIGURATION SECTION ===
