@@ -813,18 +813,37 @@ def render_import_tab():
                                             </span>
                                         </div>
                                         """, unsafe_allow_html=True)
-                    
-                                        # ✅ Confidence Progress Bar (Streamlit Native)
+
+                                        # ✅ กำหนดจำนวน pattern ทั้งหมด (ถ้าไม่มีจากระบบ AI ให้คำนวณย้อนกลับ)
+                                        if confidence > 0:
+                                            total_patterns = round(freq / (confidence / 100))
+                                        else:
+                                            total_patterns = freq
+                                        
+                                        # ✅ จัดรูปแบบตัวเลขแบบ professional
+                                        freq_fmt = f"{freq:,}"
+                                        total_fmt = f"{total_patterns:,}"
+                                        conf_fmt = f"{confidence:,.2f}"
+                                        
+                                        # ✅ Confidence Bar + Explanation
                                         st.markdown(f"""
                                         <div style="background-color:#eaecef;border-radius:8px;margin-top:6px;">
                                           <div style="width:{confidence}%;background-color:{conf_color};
                                                       height:12px;border-radius:8px;"></div>
                                         </div>
-                                        <div style="font-size:13px;color:#555;margin-top:2px;">
-                                          Confidence Level: <b style="color:{conf_color};">{confidence:.1f}%</b>
+                                        
+                                        <div style="font-size:13px;color:#555;margin-top:6px;">
+                                          <b style="color:{conf_color};">Confidence Level:</b>
+                                          <span style="font-weight:bold;color:{conf_color};">{conf_fmt}%</span>
+                                        </div>
+                                        
+                                        <div style="font-size:12.5px; color:#7f8c8d; margin-top:2px; font-family:Consolas, 'Courier New', monospace;">
+                                          ( คำนวณจาก  {freq_fmt} ÷ {total_fmt} × 100  =  <b>{conf_fmt}%</b> )
                                         </div>
                                         """, unsafe_allow_html=True)
-                    
+
+               
+
                                         # ✅ ปุ่มรัน Procedure ได้เลย (ใช้สิทธิ์ที่ authorize แล้ว)
                                         if not import_disabled:
                                             if st.button(
@@ -834,25 +853,27 @@ def render_import_tab():
                                                 key=f"run_ai_recommendation_{proc_name}"
                                             ):
                                                 try:
-                                                    db = st.session_state.get('db_manager') or DatabaseManager()
-                                                    with st.spinner(f"กำลังรัน Procedure `{proc_name}` ..."):
-                                                        run_result = db.execute_procedure(proc_name)
-                    
-                                                    if run_result:
-                                                        st.success(f"✅ Procedure `{proc_name}` รันสำเร็จเรียบร้อยแล้ว")
-                                                        log_activity(
-                                                            username=username,
-                                                            action="Run Procedure (AI Recommendation)",
-                                                            target=proc_name,
-                                                            details=f"Executed by Smart AI Operator (confidence={confidence:.1f}%)"
-                                                        )
-                                                    else:
-                                                        st.warning("⚠️ Procedure ไม่มีผลลัพธ์ที่ส่งกลับ")
+                                                    st.info(f"⏳ เริ่มดำเนินการรัน Procedure `{proc_name}` ...")
+                                                    
+                                                    # ✅ เรียกฟังก์ชันใหม่ที่มี progress bar
+                                                    result = execute_procedure_with_progress(proc_name)
+                                                    
+                                                    # ✅ แสดงผลลัพธ์อย่างเป็นระบบ (ใช้ renderer กลาง)
+                                                    render_exec_result(proc_name, result)
+                                                    
+                                                    # ✅ Log การทำงาน
+                                                    log_activity(
+                                                        username=username,
+                                                        action="Run Procedure (AI Recommendation)",
+                                                        target=proc_name,
+                                                        details=f"Executed by Smart AI Operator (confidence={confidence:.1f}%)"
+                                                    )
+                                        
                                                 except Exception as e:
                                                     st.error(f"❌ เกิดข้อผิดพลาดระหว่างการรัน `{proc_name}`: {e}")
                                         else:
                                             st.info("🔒 กรุณายืนยันสิทธิ์ก่อนรัน Procedure ที่ระบบแนะนำ")
-                    
+ 
                                     else:
                                         # ✅ กรณีไม่มีข้อมูลเพียงพอ
                                         st.markdown(f"""
