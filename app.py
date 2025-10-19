@@ -2046,36 +2046,84 @@ def render_user_management_tab():
         st.stop() 
 
 # ================================================================
-# ✅ Global AI Run Handler — ตรวจทุกครั้งหลัง rerun
+# 🤖 Global AI Procedure Execution Handler
+# วางโค้ดนี้ก่อน def main(): (ประมาณบรรทัด 800)
 # ================================================================
-if st.session_state.get("AI_RUN_TRIGGERED", False):
-    proc_to_run = st.session_state.get("AI_LATEST_PROC")
-    conf_level = st.session_state.get("AI_CONFIDENCE", 0.0)
-    username_run = st.session_state.get("AI_USERNAME", "system")
 
-    if proc_to_run:
-        st.divider()
-        st.info(f"⏳ ระบบกำลังดำเนินการรัน Procedure `{proc_to_run}` ...")
+def handle_ai_recommendation_execution():
+    """
+    ตรวจสอบและรัน procedure ที่ AI แนะนำหลัง rerun
+    โค้ดนี้จะทำงานทุกครั้งที่แอปโหลด (ก่อนเข้า main tab logic)
+    """
+    import json
+    import os
+    import tempfile
+    
+    tmp_path = os.path.join(tempfile.gettempdir(), "ai_run.json")
+    
+    # ตรวจสอบว่ามีไฟล์ temp flag หรือไม่
+    if os.path.exists(tmp_path):
+        try:
+            with open(tmp_path, "r") as f:
+                run_data = json.load(f)
+            
+            # ตรวจสอบว่าเป็นคำสั่งรัน procedure หรือไม่
+            if run_data.get("AI_RUN_TRIGGERED"):
+                proc_name = run_data.get("AI_PROC_NAME")
+                conf_level = run_data.get("AI_CONFIDENCE", 0.0)
+                username = run_data.get("USERNAME", "system")
+                
+                if proc_name:
+                    # แสดง UI แจ้งเตือน
+                    st.info(f"🤖 **Smart AI Operator กำลังดำเนินการ...**  \nProcedure: `{proc_name}` (Confidence: {conf_level:.1f}%)")
+                    
+                    # รัน procedure
+                    with st.spinner(f"⏳ กำลังรัน {proc_name}..."):
+                        result = execute_procedure_with_progress(proc_name)
+                    
+                    # แสดงผลลัพธ์
+                    render_exec_result(proc_name, result)
+                    
+                    # บันทึก log
+                    try:
+                        log_activity(
+                            username=username,
+                            action="Run Procedure (AI Recommendation)",
+                            target=proc_name,
+                            details=f"Executed by Smart AI Operator (confidence={conf_level:.1f}%)"
+                        )
+                    except Exception as log_err:
+                        st.warning(f"⚠️ ไม่สามารถบันทึก log ได้: {log_err}")
+                    
+                    # แจ้งผลสำเร็จ
+                    if result and result.get("success"):
+                        st.success(f"✅ Procedure `{proc_name}` ทำงานสำเร็จแล้ว")
+                        st.balloons()
+                    else:
+                        st.error(f"❌ Procedure `{proc_name}` ทำงานไม่สำเร็จ")
+                    
+                    # ลบไฟล์ temp หลังใช้งานเสร็จ
+                    os.remove(tmp_path)
+                    
+                    # แสดงปุ่มกลับไปหน้าหลัก
+                    st.divider()
+                    if st.button("🏠 กลับไปหน้า Import Data", type="primary", use_container_width=True):
+                        st.rerun()
+                    
+                    # หยุดการ render ส่วนอื่น (ไม่ให้แสดง tab ซ้ำ)
+                    st.stop()
+        
+        except Exception as e:
+            st.error(f"⚠️ เกิดข้อผิดพลาดในการรัน AI Recommendation: {e}")
+            # ลบไฟล์เพื่อไม่ให้ค้างใน temp
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
 
-        result = execute_procedure_with_progress(proc_to_run)
-        render_exec_result(proc_to_run, result)
-        log_activity(
-            username=username_run,
-            action="Run Procedure (AI Recommendation)",
-            target=proc_to_run,
-            details=f"Executed by Smart AI Operator (confidence={conf_level:.1f}%)"
-        )
 
-        if result and result.get("success"):
-            st.toast(f"✅ Procedure `{proc_to_run}` executed successfully.", icon="✅")
-        else:
-            st.toast(f"⚠️ Procedure `{proc_to_run}` executed with warning.", icon="⚠️")
-
-        # 🧹 เคลียร์ state เพื่อไม่ให้รันซ้ำ
-        st.session_state["AI_RUN_TRIGGERED"] = False
-        st.session_state["AI_LATEST_PROC"] = None
-    else:
-        st.warning("⚠️ No procedure found to execute.")
+# ================================================================
+# เรียกใช้ handler ก่อน main() เสมอ
+# ================================================================
+handle_ai_recommendation_execution()
 
 
 # ===== MAIN APPLICATION =====
