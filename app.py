@@ -848,53 +848,45 @@ def render_import_tab():
                                             button_key = f"run_ai_recommendation_{selected_table}_{proc_name}"
                                             st.markdown("<br>", unsafe_allow_html=True)
                                         
+                                            # --- ตรวจว่ามี event pending หรือไม่ ---
                                             if st.button(
                                                 f"▶️ ดำเนินการรัน Procedure `{proc_name}`",
                                                 type="primary",
                                                 use_container_width=True,
                                                 key=button_key
                                             ):
+                                                # 🧠 เก็บสถานะไว้ก่อน rerun
+                                                st.session_state["AI_RUN_TRIGGERED"] = True
+                                                st.session_state["AI_PROC_NAME"] = proc_name
+                                                st.session_state["AI_CONFIDENCE"] = confidence
+                                                st.rerun()
+                                        
+                                            # --- ถ้ามี flag ว่าปุ่มถูกกดในรอบก่อนหน้า ---
+                                            if st.session_state.get("AI_RUN_TRIGGERED", False):
+                                                proc_to_run = st.session_state.get("AI_PROC_NAME", "")
+                                                conf_level = st.session_state.get("AI_CONFIDENCE", 0.0)
+                                        
+                                                st.info(f"⏳ กำลังดำเนินการรัน Procedure `{proc_to_run}` ...")
+                                        
                                                 try:
-                                                    # --- DEBUG LOG ---
-                                                    st.write("✅ DEBUG: ปุ่มถูกกดแล้ว")
-                                                    st.write(f"🔹 DEBUG: Procedure ที่จะรัน = {proc_name}")
-                                                    st.write(f"🔹 DEBUG: import_disabled = {import_disabled}")
-                                                    st.write(f"🔑 DEBUG: session keys = {list(st.session_state.keys())}")
-                                        
-                                                    # --- แจ้งผู้ใช้เริ่มรัน ---
-                                                    st.info(f"⏳ เริ่มดำเนินการรัน Procedure `{proc_name}` ...")
-                                        
-                                                    # ✅ เรียกฟังก์ชันใหม่ที่มี progress bar
-                                                    result = execute_procedure_with_progress(proc_name)
-                                                    st.write("🔹 DEBUG: ผลลัพธ์ที่ได้จาก execute_procedure_with_progress() =", result)
-                                        
-                                                    # ✅ แสดงผลลัพธ์อย่างเป็นระบบ (ใช้ renderer กลาง)
-                                                    if result:
-                                                        render_exec_result(proc_name, result)
-                                                    else:
-                                                        st.warning("⚠️ ไม่มีผลลัพธ์ที่ส่งกลับจาก procedure")
-                                        
-                                                    # ✅ Log การทำงาน
+                                                    result = execute_procedure_with_progress(proc_to_run)
+                                                    render_exec_result(proc_to_run, result)
                                                     log_activity(
                                                         username=username,
                                                         action="Run Procedure (AI Recommendation)",
-                                                        target=proc_name,
-                                                        details=f"Executed by Smart AI Operator (confidence={confidence:.1f}%)"
+                                                        target=proc_to_run,
+                                                        details=f"Executed by Smart AI Operator (confidence={conf_level:.1f}%)"
                                                     )
-                                        
-                                                    # ✅ แจ้งผลสำเร็จแบบ Toast
-                                                    if result.get("success"):
-                                                        st.toast(f"✅ Procedure `{proc_name}` executed successfully.", icon="✅")
-                                                    else:
-                                                        st.toast(f"⚠️ Procedure `{proc_name}` executed with warning.", icon="⚠️")
-                                        
+                                                    st.toast(f"✅ Procedure `{proc_to_run}` executed successfully.", icon="✅")
                                                 except Exception as e:
                                                     st.exception(e)
-                                                    st.error(f"❌ เกิดข้อผิดพลาดระหว่างการรัน `{proc_name}`: {e}")
+                                                    st.error(f"❌ เกิดข้อผิดพลาดระหว่างการรัน `{proc_to_run}`: {e}")
+                                                finally:
+                                                    # 🧹 รีเซ็ต flag เพื่อไม่ให้รันซ้ำ
+                                                    st.session_state["AI_RUN_TRIGGERED"] = False
                                         
                                         else:
-                                            st.info("🔒 กรุณายืนยันสิทธิ์ก่อนรัน Procedure ที่ระบบแนะนำ")
- 
+                                            st.info("🔒 กรุณายืนยันสิทธิ์ก่อนรัน Procedure ที่ระบบแนะนำ") 
  
                                     else:
                                         # ✅ กรณีไม่มีข้อมูลเพียงพอ
