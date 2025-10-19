@@ -34,6 +34,22 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ===== Style Fix: Stretch input & buttons full width =====
+st.markdown("""
+<style>
+/* ยืดช่อง text_input ให้เต็มบรรทัด */
+div[data-baseweb="input"] > div {
+    width: 100% !important;
+}
+
+/* ยืดปุ่มทั้งหมดให้เต็มบรรทัด container */
+button[kind="primary"], button[kind="secondary"], div.stButton > button {
+    width: 100% !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 st.markdown("""
 <style>
 /* ===== Global Styling ===== */
@@ -801,28 +817,30 @@ def log_activity(username, action, target, details=None):
 # ====== 🔮 AI Suggestion Section (Auto Procedure Recommendation) ======
 
 def recommend_action(current_action):
-    """แนะนำเฉพาะ Procedure ที่มักถูกรันหลังการ Import"""
+    """แนะนำ Procedure ที่มักถูกรันหลัง Import โดยอิงจากเวลาล่าสุด"""
     try:
         db = st.session_state.get('db_manager') or DatabaseManager()
         conn = db.get_connection()
         cursor = conn.cursor()
 
-        # ✅ ดึงเฉพาะ action ที่เป็นการ Run Procedure เท่านั้น
         query = """
-            SELECT next_action, COUNT(*) as freq
+            SELECT next_action, COUNT(*) AS freq
             FROM (
                 SELECT 
                     CONCAT(a.action, ':', a.target) AS prev_action,
-                    LEAD(CONCAT(b.action, ':', b.target)) OVER (ORDER BY a.timestamp) AS next_action
+                    CONCAT(b.action, ':', b.target) AS next_action
                 FROM activity_log a
-                JOIN activity_log b ON a.username = b.username
-            ) AS seq
-            WHERE prev_action = %s 
+                JOIN activity_log b 
+                  ON a.username = b.username
+                 AND b.timestamp > a.timestamp              -- ✅ ต้องเกิดหลัง
+                 AND TIMESTAMPDIFF(MINUTE, a.timestamp, b.timestamp) <= 10  -- ✅ ภายใน 10 นาที
+                WHERE a.action = 'Import Data'
+            ) seq
+            WHERE prev_action = %s
               AND (
                     next_action LIKE 'Run Procedure%%'
                  OR next_action LIKE 'Execute Procedure%%'
               )
-
             GROUP BY next_action
             ORDER BY freq DESC
             LIMIT 1;
@@ -838,8 +856,8 @@ def recommend_action(current_action):
             return next_action, freq
     except Exception as e:
         st.warning(f"⚠️ AI suggestion failed: {e}")
-
     return None, None
+
 
 
 
