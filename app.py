@@ -777,14 +777,14 @@ def render_import_tab():
                                 try:
                                     current_action = f"Import Data:{selected_table}"
                                     suggestion, freq, confidence = recommend_action(current_action) or (None, 0, 0)
-
+                    
                                     # ===================== AI Recommendation (Professional Version) =====================
                                     st.divider()
                                     st.subheader("💡 AI Recommendation")
-                                    
+                    
                                     if suggestion:
                                         proc_name = suggestion.replace("Execute Procedure:", "").strip()
-                                    
+                    
                                         # ✅ สีตามระดับความเชื่อมั่น
                                         if confidence >= 80:
                                             conf_color = "#2ecc71"  # เขียว
@@ -798,7 +798,7 @@ def render_import_tab():
                                             conf_color = "#e74c3c"  # แดง
                                             emoji = "🔴"
                                             conf_text = "ค่อนข้างต่ำ"
-                                    
+                    
                                         # ✅ ข้อความแนะนำแบบมืออาชีพ
                                         st.markdown(f"""
                                         <div style="background-color:#f8f9fb;border-left:6px solid {conf_color};
@@ -813,7 +813,7 @@ def render_import_tab():
                                             </span>
                                         </div>
                                         """, unsafe_allow_html=True)
-                                    
+                    
                                         # ✅ Confidence Progress Bar (Streamlit Native)
                                         st.markdown(f"""
                                         <div style="background-color:#eaecef;border-radius:8px;margin-top:6px;">
@@ -824,7 +824,7 @@ def render_import_tab():
                                           Confidence Level: <b style="color:{conf_color};">{confidence:.1f}%</b>
                                         </div>
                                         """, unsafe_allow_html=True)
-                                    
+                    
                                         # ✅ ปุ่มรัน Procedure ได้เลย (ใช้สิทธิ์ที่ authorize แล้ว)
                                         if not import_disabled:
                                             if st.button(
@@ -837,7 +837,7 @@ def render_import_tab():
                                                     db = st.session_state.get('db_manager') or DatabaseManager()
                                                     with st.spinner(f"กำลังรัน Procedure `{proc_name}` ..."):
                                                         run_result = db.execute_procedure(proc_name)
-                                    
+                    
                                                     if run_result:
                                                         st.success(f"✅ Procedure `{proc_name}` รันสำเร็จเรียบร้อยแล้ว")
                                                         log_activity(
@@ -852,7 +852,7 @@ def render_import_tab():
                                                     st.error(f"❌ เกิดข้อผิดพลาดระหว่างการรัน `{proc_name}`: {e}")
                                         else:
                                             st.info("🔒 กรุณายืนยันสิทธิ์ก่อนรัน Procedure ที่ระบบแนะนำ")
-                                    
+                    
                                     else:
                                         # ✅ กรณีไม่มีข้อมูลเพียงพอ
                                         st.markdown(f"""
@@ -863,7 +863,7 @@ def render_import_tab():
                                             กรุณาดำเนินการเพิ่มเติมเพื่อให้ระบบเรียนรู้ pattern ได้มากขึ้น
                                         </div>
                                         """, unsafe_allow_html=True)
-                                    
+                    
                                         # Progress Bar 0%
                                         st.markdown("""
                                         <div style="background-color:#eaecef;border-radius:8px;margin-top:6px;">
@@ -874,6 +874,12 @@ def render_import_tab():
                                           Confidence Level: <b style="color:#b2bec3;">0.0%</b>
                                         </div>
                                         """, unsafe_allow_html=True)
+                    
+                                except Exception as e:
+                                    st.warning(f"⚠️ Suggestion module error: {e}")
+                    
+                            else:
+                                st.error(f"❌ Import failed: {result.get('error')}")
  
 
                 with c2:
