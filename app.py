@@ -2066,14 +2066,15 @@ def render_user_management_tab():
 # 🤖 Global AI Procedure Execution Handler (Session State Version)
 # วางโค้ดนี้ก่อน def main(): (ประมาณบรรทัด 800)
 # ================================================================
-
 def handle_ai_recommendation_execution():
-    """
-    ตรวจสอบและรัน procedure ที่ AI แนะนำหลัง rerun
-    ใช้ session_state แทนไฟล์ temp เพื่อความแม่นยำ
-    """
+    # ✅ เพิ่มส่วน debug
+    st.sidebar.write("🧠 DEBUG INFO:")
+    st.sidebar.write({
+        "AI_RUN_TRIGGERED": st.session_state.get("AI_RUN_TRIGGERED"),
+        "AI_PROC_NAME": st.session_state.get("AI_PROC_NAME"),
+        "AI_CONFIDENCE": st.session_state.get("AI_CONFIDENCE"),
+    })
     
-    # ตรวจสอบว่ามี flag ให้รัน procedure หรือไม่
     if st.session_state.get("AI_RUN_TRIGGERED", False):
         
         proc_name = st.session_state.get("AI_PROC_NAME")
