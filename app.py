@@ -838,29 +838,42 @@ def render_import_tab():
                                         </div>
                                         
                                         <div style="font-size:12.5px; color:#7f8c8d; margin-top:2px; font-family:Consolas, 'Courier New', monospace;">
-                                          ( คำนวณจาก  {freq_fmt} ÷ {total_fmt} × 100  =  <b>{conf_fmt}%</b> )
+                                          {freq_fmt} ÷ {total_fmt} × 100  =  <b>{conf_fmt}%</b>
                                         </div>
                                         """, unsafe_allow_html=True)
 
-               
 
                                         # ✅ ปุ่มรัน Procedure ได้เลย (ใช้สิทธิ์ที่ authorize แล้ว)
                                         if not import_disabled:
+                                            button_key = f"run_ai_recommendation_{selected_table}_{proc_name}"
+                                            st.markdown("<br>", unsafe_allow_html=True)
+                                        
                                             if st.button(
                                                 f"▶️ ดำเนินการรัน Procedure `{proc_name}`",
                                                 type="primary",
                                                 use_container_width=True,
-                                                key=f"run_ai_recommendation_{proc_name}"
+                                                key=button_key
                                             ):
                                                 try:
+                                                    # --- DEBUG LOG ---
+                                                    st.write("✅ DEBUG: ปุ่มถูกกดแล้ว")
+                                                    st.write(f"🔹 DEBUG: Procedure ที่จะรัน = {proc_name}")
+                                                    st.write(f"🔹 DEBUG: import_disabled = {import_disabled}")
+                                                    st.write(f"🔑 DEBUG: session keys = {list(st.session_state.keys())}")
+                                        
+                                                    # --- แจ้งผู้ใช้เริ่มรัน ---
                                                     st.info(f"⏳ เริ่มดำเนินการรัน Procedure `{proc_name}` ...")
-                                                    
+                                        
                                                     # ✅ เรียกฟังก์ชันใหม่ที่มี progress bar
                                                     result = execute_procedure_with_progress(proc_name)
-                                                    
+                                                    st.write("🔹 DEBUG: ผลลัพธ์ที่ได้จาก execute_procedure_with_progress() =", result)
+                                        
                                                     # ✅ แสดงผลลัพธ์อย่างเป็นระบบ (ใช้ renderer กลาง)
-                                                    render_exec_result(proc_name, result)
-                                                    
+                                                    if result:
+                                                        render_exec_result(proc_name, result)
+                                                    else:
+                                                        st.warning("⚠️ ไม่มีผลลัพธ์ที่ส่งกลับจาก procedure")
+                                        
                                                     # ✅ Log การทำงาน
                                                     log_activity(
                                                         username=username,
@@ -869,10 +882,19 @@ def render_import_tab():
                                                         details=f"Executed by Smart AI Operator (confidence={confidence:.1f}%)"
                                                     )
                                         
+                                                    # ✅ แจ้งผลสำเร็จแบบ Toast
+                                                    if result.get("success"):
+                                                        st.toast(f"✅ Procedure `{proc_name}` executed successfully.", icon="✅")
+                                                    else:
+                                                        st.toast(f"⚠️ Procedure `{proc_name}` executed with warning.", icon="⚠️")
+                                        
                                                 except Exception as e:
+                                                    st.exception(e)
                                                     st.error(f"❌ เกิดข้อผิดพลาดระหว่างการรัน `{proc_name}`: {e}")
+                                        
                                         else:
                                             st.info("🔒 กรุณายืนยันสิทธิ์ก่อนรัน Procedure ที่ระบบแนะนำ")
+ 
  
                                     else:
                                         # ✅ กรณีไม่มีข้อมูลเพียงพอ
