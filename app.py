@@ -759,37 +759,40 @@ def render_import_tab():
                                 conn.close()
                             except Exception as log_err:
                                 st.warning(f"⚠️ Failed to write activity log: {log_err}")
-
+                    
                             # ดำเนินการ Import
                             fresh_db = DatabaseManager()
                             with st.spinner(f"Importing {len(df)} rows..."):
                                 result = fresh_db.import_data(selected_table, df, column_mapping)
                             fresh_db.close_connection()
-
+                    
                             if result.get('success'):
                                 st.success(f"✅ {result['message']}")
                                 st.balloons()
                                 st.cache_data.clear()
                                 st.metric("Rows Imported", result.get('rows_affected', 0))
-
+                    
                                 # 🔮 แนะนำ Procedure ถัดไปโดยอิงจาก activity_log
                                 try:
                                     current_action = f"Import Data:{selected_table}"
                                     suggestion, freq, confidence = recommend_action(current_action)
-
-                                      if suggestion:
+                    
+                                    if suggestion:
                                         st.divider()
                                         st.subheader("🧠 AI Suggestion")
-                                    
+                    
                                         st.success(
                                             f"ระบบแนะนำให้รัน `{suggestion.replace('Execute Procedure:', '')}` "
                                             f"ต่อจากนี้ (จาก pattern เดิม {freq} ครั้ง, ความมั่นใจ {confidence:.1f}%)"
                                         )
-                                    
+                    
                                         # ปุ่มรัน Procedure
-                                        if st.button(f"▶️ Run {suggestion.replace('Execute Procedure:', '')}",
-                                                     type="primary", use_container_width=True,
-                                                     key=f"run_suggested_{suggestion}"):
+                                        if st.button(
+                                            f"▶️ Run {suggestion.replace('Execute Procedure:', '')}",
+                                            type="primary",
+                                            use_container_width=True,
+                                            key=f"run_suggested_{suggestion}"
+                                        ):
                                             proc_name = suggestion.replace("Execute Procedure:", "").strip()
                                             try:
                                                 db = st.session_state.get('db_manager') or DatabaseManager()
@@ -804,13 +807,19 @@ def render_import_tab():
                                                         details=f"Executed from AI suggestion (confidence={confidence:.1f}%)"
                                                     )
                                                 else:
-                                                    st.info("🤖 ยังไม่มีข้อมูลพอสำหรับแนะนำ Procedure ที่เหมาะสม")
+                                                    st.warning("⚠️ Procedure did not return any result.")
                                             except Exception as e:
                                                 st.error(f"❌ Error running `{proc_name}`: {e}")
- 
-                              
+                                    else:
+                                        st.info("🤖 ยังไม่มีข้อมูลพอสำหรับแนะนำ Procedure ที่เหมาะสม")
+                    
+                                except Exception as e:
+                                    st.warning(f"⚠️ Suggestion module error: {e}")
+                    
                             else:
                                 st.error(f"❌ Import failed: {result.get('error')}")
+ 
+ 
 
                 with c2:
                     if st.button("🔄 Reset", type="secondary"):
