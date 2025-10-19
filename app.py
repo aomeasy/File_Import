@@ -843,10 +843,14 @@ def render_import_tab():
                                         """, unsafe_allow_html=True)
 
 
+                                        import json, os, tempfile
+
                                         # ✅ ปุ่มรัน Procedure ได้เลย (ใช้สิทธิ์ที่ authorize แล้ว)
                                         if not import_disabled:
                                             button_key = f"run_ai_recommendation_{selected_table}_{proc_name}"
                                             st.markdown("<br>", unsafe_allow_html=True)
+                                        
+                                            tmp_path = os.path.join(tempfile.gettempdir(), "ai_run.json")
                                         
                                             # 🟩 ปุ่มรัน Procedure ที่ระบบแนะนำ
                                             if st.button(
@@ -855,56 +859,52 @@ def render_import_tab():
                                                 use_container_width=True,
                                                 key=button_key
                                             ):
-                                                # 🧠 เก็บค่าไว้ใน session และ query params เพื่อกันหายระหว่าง rerun
-                                                st.session_state["AI_RUN_TRIGGERED"] = True
-                                                st.session_state["AI_PROC_NAME"] = proc_name
-                                                st.session_state["AI_CONFIDENCE"] = confidence
-                                                st.query_params["run_proc"] = proc_name  # ✅ ใช้ API ใหม่แทน experimental_
-                                        
-                                                # 🔍 Debug
-                                                st.write("🧠 DEBUG ก่อน rerun:", {
+                                                # 🧠 เขียน flag ลงไฟล์ชั่วคราว (กันหายตอน rerun)
+                                                run_data = {
                                                     "AI_RUN_TRIGGERED": True,
                                                     "AI_PROC_NAME": proc_name,
-                                                    "AI_CONFIDENCE": confidence
-                                                })
-                                        
-                                                # 🔄 rerun ใหม่เพื่อให้รัน procedure ต่อ
+                                                    "AI_CONFIDENCE": confidence,
+                                                    "USERNAME": username
+                                                }
+                                                with open(tmp_path, "w") as f:
+                                                    json.dump(run_data, f)
                                                 st.rerun()
                                         
                                             # ============================================================
-                                            # 🔹 ส่วนตรวจจับหลัง rerun (ใช้ session หรือ query params)
+                                            # 🔹 ส่วนตรวจหลัง rerun (อ่านจากไฟล์ temp)
                                             # ============================================================
-                                            params = st.query_params  # ✅ ใช้ API ใหม่
-                                            triggered = st.session_state.get("AI_RUN_TRIGGERED", False) or bool(params.get("run_proc"))
-                                            proc_to_run = st.session_state.get("AI_PROC_NAME") or params.get("run_proc", "")
-                                            conf_level = st.session_state.get("AI_CONFIDENCE", 0.0)
+                                            proc_to_run = None
+                                            conf_level = 0.0
+                                            username_run = username
+                                            if os.path.exists(tmp_path):
+                                                with open(tmp_path, "r") as f:
+                                                    run_data = json.load(f)
+                                                if run_data.get("AI_RUN_TRIGGERED"):
+                                                    proc_to_run = run_data.get("AI_PROC_NAME")
+                                                    conf_level = run_data.get("AI_CONFIDENCE", 0.0)
+                                                    username_run = run_data.get("USERNAME", username)
+                                                # 🧹 ลบไฟล์ทันทีหลังโหลด เพื่อไม่ให้รันซ้ำ
+                                                os.remove(tmp_path)
                                         
-                                            st.write("🧠 DEBUG หลัง rerun:", {
-                                                "AI_RUN_TRIGGERED": triggered,
+                                            st.write("🧠 DEBUG หลัง rerun (จาก temp file):", {
                                                 "AI_PROC_NAME": proc_to_run,
                                                 "AI_CONFIDENCE": conf_level
                                             })
                                         
-                                            # ✅ ถ้ามี flag แปลว่ามีการกดปุ่มรอบก่อนหน้า
-                                            if triggered and proc_to_run:
+                                            # ✅ ถ้ามีข้อมูลจาก temp → รัน procedure
+                                            if proc_to_run:
                                                 st.info(f"⏳ กำลังดำเนินการรัน Procedure `{proc_to_run}` ...")
                                         
                                                 try:
-                                                    # ✅ เรียกฟังก์ชันรัน Procedure แบบมี progress bar
                                                     result = execute_procedure_with_progress(proc_to_run)
-                                        
-                                                    # ✅ แสดงผลลัพธ์แบบ renderer กลาง
                                                     render_exec_result(proc_to_run, result)
-                                        
-                                                    # ✅ Log การทำงาน
                                                     log_activity(
-                                                        username=username,
+                                                        username=username_run,
                                                         action="Run Procedure (AI Recommendation)",
                                                         target=proc_to_run,
                                                         details=f"Executed by Smart AI Operator (confidence={conf_level:.1f}%)"
                                                     )
                                         
-                                                    # ✅ แจ้งผลลัพธ์แบบ toast
                                                     if result and result.get("success"):
                                                         st.toast(f"✅ Procedure `{proc_to_run}` executed successfully.", icon="✅")
                                                     else:
@@ -913,13 +913,9 @@ def render_import_tab():
                                                 except Exception as e:
                                                     st.exception(e)
                                                     st.error(f"❌ เกิดข้อผิดพลาดระหว่างการรัน `{proc_to_run}`: {e}")
-                                                finally:
-                                                    # 🧹 ล้าง flag เพื่อไม่ให้รันซ้ำในรอบต่อไป
-                                                    st.session_state["AI_RUN_TRIGGERED"] = False
-                                                    st.query_params.clear()  # ✅ เคลียร์ query params หลังรันเสร็จ
                                         
                                         else:
-                                            st.info("🔒 กรุณายืนยันสิทธิ์ก่อนรัน Procedure ที่ระบบแนะนำ")
+                                            st.info("🔒 กรุณายืนยันสิทธิ์ก่อนรัน Procedure ที่ระบบแนะนำ") 
  
                                     else:
                                         # ✅ กรณีไม่มีข้อมูลเพียงพอ
