@@ -730,15 +730,13 @@ def render_import_tab():
                         st.error(f"🚫 You are not allowed to import into `{selected_table}`.")
                         import_disabled = True
 
- 
-
 
                     # --- ปุ่ม Import Data ---
                     if st.button("🚀 Import Data", type="primary", use_container_width=True, disabled=import_disabled):
                         if not column_mapping:
                             st.error("Please map at least one column")
                         else:
-                            # บันทึก log
+                            # 🔹 บันทึก Log
                             try:
                                 username = secret_key.strip()
                                 db = st.session_state.get('db_manager') or DatabaseManager()
@@ -760,65 +758,107 @@ def render_import_tab():
                             except Exception as log_err:
                                 st.warning(f"⚠️ Failed to write activity log: {log_err}")
                     
-                            # ดำเนินการ Import
+                            # 🔹 Import Data เข้าฐานข้อมูล
                             fresh_db = DatabaseManager()
                             with st.spinner(f"Importing {len(df)} rows..."):
                                 result = fresh_db.import_data(selected_table, df, column_mapping)
                             fresh_db.close_connection()
                     
+                            # 🔹 แสดงผลลัพธ์ Import
                             if result.get('success'):
                                 st.success(f"✅ {result['message']}")
                                 st.balloons()
                                 st.cache_data.clear()
                                 st.metric("Rows Imported", result.get('rows_affected', 0))
                     
-                                # 🔮 แนะนำ Procedure ถัดไปโดยอิงจาก activity_log
+                                # ===========================================================
+                                # 🔮 ส่วนแนะนำ Procedure ถัดไป (AI Recommendation Unified)
+                                # ===========================================================
                                 try:
                                     current_action = f"Import Data:{selected_table}"
-                                    suggestion, freq, confidence = recommend_action(current_action)
+                                    suggestion, freq, confidence = recommend_action(current_action) or (None, 0, 0)
+                    
+                                    st.divider()
+                                    st.subheader("🧠 AI Recommendation")
                     
                                     if suggestion:
-                                        st.divider()
-                                        st.subheader("🧠 AI Suggestion")
+                                        proc_name = suggestion.replace("Execute Procedure:", "").strip()
                     
-                                        st.success(
-                                            f"ระบบแนะนำให้รัน `{suggestion.replace('Execute Procedure:', '')}` "
-                                            f"ต่อจากนี้ (จาก pattern เดิม {freq} ครั้ง, ความมั่นใจ {confidence:.1f}%)"
+                                        # สีแสดงระดับความมั่นใจ
+                                        if confidence >= 80:
+                                            conf_color = "🟢"
+                                        elif confidence >= 50:
+                                            conf_color = "🟡"
+                                        else:
+                                            conf_color = "🔴"
+                    
+                                        # ✨ ข้อความแบบมืออาชีพ
+                                        st.info(
+                                            f"🤖 **คำแนะนำจากระบบอัจฉริยะ:**  \n"
+                                            f"จากการวิเคราะห์รูปแบบการใช้งานย้อนหลัง ระบบคาดการณ์ว่า  \n"
+                                            f"**Procedure `{proc_name}`** เป็นขั้นตอนถัดไปที่เหมาะสม  \n"
+                                            f"*อ้างอิงจาก pattern เดิม {freq} ครั้ง, ความเชื่อมั่น {conf_color} {confidence:.1f}%*"
                                         )
                     
-                                        # ปุ่มรัน Procedure
-                                        if st.button(
-                                            f"▶️ Run {suggestion.replace('Execute Procedure:', '')}",
-                                            type="primary",
-                                            use_container_width=True,
-                                            key=f"run_suggested_{suggestion}"
-                                        ):
-                                            proc_name = suggestion.replace("Execute Procedure:", "").strip()
-                                            try:
-                                                db = st.session_state.get('db_manager') or DatabaseManager()
-                                                with st.spinner(f"Running procedure `{proc_name}` ..."):
-                                                    result = db.execute_procedure(proc_name)
-                                                if result:
-                                                    st.success(f"✅ Procedure `{proc_name}` executed successfully.")
-                                                    log_activity(
-                                                        username=secret_key.strip(),
-                                                        action="Run Procedure (AI Suggestion)",
-                                                        target=proc_name,
-                                                        details=f"Executed from AI suggestion (confidence={confidence:.1f}%)"
-                                                    )
-                                                else:
-                                                    st.warning("⚠️ Procedure did not return any result.")
-                                            except Exception as e:
-                                                st.error(f"❌ Error running `{proc_name}`: {e}")
+                                        # === แสดงแถบ Confidence Chart ===
+                                        import matplotlib.pyplot as plt
+                                        fig, ax = plt.subplots(figsize=(3, 0.3))
+                                        bar_color = "#4CAF50" if confidence >= 80 else "#FFC107" if confidence >= 50 else "#F44336"
+                                        ax.barh(["Confidence"], [confidence], color=bar_color)
+                                        ax.set_xlim(0, 100)
+                                        ax.set_xlabel("Confidence (%)")
+                                        for spine in ax.spines.values():
+                                            spine.set_visible(False)
+                                        ax.tick_params(left=False, labelleft=False, bottom=True, labelbottom=True)
+                                        st.pyplot(fig, use_container_width=True)
+                    
+                                        # === ปุ่มรัน Procedure ได้จริง (ไม่ต้องใส่รหัสซ้ำ) ===
+                                        if not import_disabled:
+                                            if st.button(
+                                                f"▶️ ดำเนินการรัน Procedure `{proc_name}`",
+                                                type="primary",
+                                                use_container_width=True,
+                                                key=f"run_suggested_{proc_name}"
+                                            ):
+                                                try:
+                                                    db = st.session_state.get('db_manager') or DatabaseManager()
+                                                    with st.spinner(f"กำลังรัน Procedure `{proc_name}` ..."):
+                                                        run_result = db.execute_procedure(proc_name)
+                    
+                                                    if run_result:
+                                                        st.success(f"✅ Procedure `{proc_name}` รันสำเร็จเรียบร้อยแล้ว")
+                                                        log_activity(
+                                                            username=username,
+                                                            action="Run Procedure (AI Recommendation)",
+                                                            target=proc_name,
+                                                            details=f"Executed by AI suggestion (confidence={confidence:.1f}%)"
+                                                        )
+                                                    else:
+                                                        st.warning("⚠️ Procedure ไม่มีผลลัพธ์ที่ส่งกลับ")
+                                                except Exception as e:
+                                                    st.error(f"❌ เกิดข้อผิดพลาดระหว่างการรัน `{proc_name}`: {e}")
+                                        else:
+                                            st.info("🔒 กรุณายืนยันสิทธิ์ก่อนรัน Procedure ที่ระบบแนะนำ")
+                    
                                     else:
+                                        # ไม่มีข้อมูลพอ → แสดงข้อความพร้อม confidence bar = 0%
                                         st.info("🤖 ยังไม่มีข้อมูลพอสำหรับแนะนำ Procedure ที่เหมาะสม")
+                                        import matplotlib.pyplot as plt
+                                        fig, ax = plt.subplots(figsize=(3, 0.3))
+                                        ax.barh(["Confidence"], [0], color="#E0E0E0")
+                                        ax.set_xlim(0, 100)
+                                        ax.set_xlabel("Confidence (%)")
+                                        for spine in ax.spines.values():
+                                            spine.set_visible(False)
+                                        ax.tick_params(left=False, labelleft=False, bottom=True, labelbottom=True)
+                                        st.pyplot(fig, use_container_width=True)
                     
                                 except Exception as e:
                                     st.warning(f"⚠️ Suggestion module error: {e}")
                     
                             else:
                                 st.error(f"❌ Import failed: {result.get('error')}")
- 
+
  
 
                 with c2:
