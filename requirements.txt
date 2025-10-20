@@ -8,3 +8,5 @@ python-dotenv
 plotly
 matplotlib==3.9.2
 chardet
+lxml
+html5lib
