@@ -1224,31 +1224,41 @@ def render_procedures_tab():
     if 'db_manager' not in st.session_state:
         st.session_state.db_manager = DatabaseManager()
 
+
+
     # ====== SEARCH / LOAD ======
     st.subheader("🔎 Search / Load Procedures")
-    col_a, col_b, col_c, col_d, col_e = st.columns([2, 1, 1, 1, 1])
-    with col_a:
-        name_filter = st.text_input(
-            "Procedure name",
-            value=st.session_state.get('last_proc_filter', ""),
-            placeholder="เช่น %R06% หรือระบุชื่อเต็ม"
-        )
-    with col_b:
-        limit = st.number_input("Limit", min_value=1, max_value=500, value=50, step=10)
-    with col_c:
-        exact_only = st.checkbox("Exact name",
-                                 value=st.session_state.get('last_proc_exact', False))
-    with col_d:
-        do_load = st.button("📥 Load", type="primary", use_container_width=True)
-    with col_e:
-        do_clear_loaded = st.button("🧹 Clear", use_container_width=True)
-
+    
+    # ✅ ใช้ form เพื่อให้ Enter trigger การ submit
+    with st.form(key="proc_search_form", clear_on_submit=False):
+        col_a, col_b, col_c, col_d, col_e = st.columns([2, 1, 1, 1, 1])
+        with col_a:
+            name_filter = st.text_input(
+                "Procedure name",
+                value=st.session_state.get('last_proc_filter', ""),
+                placeholder="เช่น %R06% หรือระบุชื่อเต็ม"
+            )
+        with col_b:
+            limit = st.number_input("Limit", min_value=1, max_value=500, value=50, step=10)
+        with col_c:
+            exact_only = st.checkbox(
+                "Exact name",
+                value=st.session_state.get('last_proc_exact', False)
+            )
+        with col_d:
+            # ✅ ปุ่ม Load จะถูก trigger ทั้งตอนคลิกและตอนกด Enter
+            do_load = st.form_submit_button("📥 Load", type="primary", use_container_width=True)
+        with col_e:
+            do_clear_loaded = st.form_submit_button("🧹 Clear", use_container_width=True)
+    
+    # ====== CLEAR ======
     if do_clear_loaded:
         st.session_state.loaded_procedures = []
         st.session_state['last_proc_filter'] = ""
         st.session_state['last_proc_exact'] = False
         st.toast("Cleared loaded procedures")
-
+    
+    # ====== LOAD ======
     if do_load:
         pattern = name_filter or "%"
         if exact_only and name_filter:
@@ -1261,10 +1271,11 @@ def render_procedures_tab():
             st.success(f"Loaded {len(procs)} procedure(s)")
         else:
             st.warning("No procedures matched your filter.")
-
+    
+    # ====== DISPLAY ======
     procedures = st.session_state.get("loaded_procedures", [])
     st.divider()
-
+     
 
     # ====== SHOW PROCEDURES ======
     st.subheader("🔧 Stored Procedures")
