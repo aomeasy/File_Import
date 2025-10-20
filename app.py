@@ -551,6 +551,86 @@ section.main div.block-container {
 </style>
 """, unsafe_allow_html=True)
 
+# ============================================================
+# 🧹 ฟังก์ชันทำความสะอาดข้อมูลก่อน Import
+# วางไว้ก่อนฟังก์ชัน render_import_tab() (ประมาณบรรทัด 200)
+# ============================================================
+
+def clean_dataframe_for_import(df, table_columns):
+    """
+    ทำความสะอาดข้อมูลก่อน import เข้า database
+    - แปลงค่าว่างเป็น None สำหรับฟิลด์ตัวเลข
+    - ตัด whitespace
+    - แปลง type ให้เหมาะสม
+    
+    Args:
+        df: DataFrame ที่จะ import
+        table_columns: list of dict จาก get_cached_table_columns()
+    
+    Returns:
+        DataFrame ที่ทำความสะอาดแล้ว
+    """
+    import pandas as pd
+    import numpy as np
+    
+    df_clean = df.copy()
+    
+    # สร้าง mapping ของ column types จาก database
+    col_types = {}
+    for col_info in table_columns:
+        col_name = col_info['COLUMN_NAME']
+        data_type = col_info['DATA_TYPE'].lower()
+        is_nullable = col_info.get('IS_NULLABLE', 'YES') == 'YES'
+        
+        col_types[col_name] = {
+            'type': data_type,
+            'nullable': is_nullable
+        }
+    
+    # ทำความสะอาดแต่ละ column
+    for col in df_clean.columns:
+        if col in col_types:
+            db_type = col_types[col]['type']
+            is_nullable = col_types[col]['nullable']
+            
+            # 1. ตัด whitespace
+            if df_clean[col].dtype == 'object':
+                df_clean[col] = df_clean[col].astype(str).str.strip()
+            
+            # 2. แปลงค่าว่าง/NaN เป็น None สำหรับฟิลด์ตัวเลข
+            if db_type in ['int', 'bigint', 'smallint', 'tinyint', 'integer']:
+                # แทนที่ค่าว่าง '' เป็น None
+                df_clean[col] = df_clean[col].replace(['', 'nan', 'NaN', 'NULL', 'null'], None)
+                
+                # ถ้าฟิลด์ไม่ยอมรับ NULL และมีค่าว่าง → ใส่ 0
+                if not is_nullable:
+                    df_clean[col] = df_clean[col].fillna(0)
+                
+                # แปลงเป็นตัวเลข (ถ้าไม่ได้ใส่ None)
+                df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce')
+            
+            elif db_type in ['float', 'double', 'decimal', 'numeric']:
+                df_clean[col] = df_clean[col].replace(['', 'nan', 'NaN', 'NULL', 'null'], None)
+                
+                if not is_nullable:
+                    df_clean[col] = df_clean[col].fillna(0.0)
+                
+                df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce')
+            
+            elif db_type in ['date', 'datetime', 'timestamp']:
+                df_clean[col] = df_clean[col].replace(['', 'nan', 'NaN', 'NULL', 'null'], None)
+                
+                # แปลงเป็น datetime (ถ้าไม่ได้ใส่ None)
+                df_clean[col] = pd.to_datetime(df_clean[col], errors='coerce')
+            
+            else:
+                # ฟิลด์ text: แปลงค่าว่างเป็น None หรือ ''
+                df_clean[col] = df_clean[col].replace(['nan', 'NaN', 'NULL', 'null'], '')
+                
+                if is_nullable:
+                    df_clean[col] = df_clean[col].replace('', None)
+    
+    return df_clean
 
 # ===== TAB 1: IMPORT DATA =====
 def render_import_tab():
@@ -782,12 +862,36 @@ def render_import_tab():
                     # ============================================================
                     # 🚀 ปุ่ม Import Data
                     # ============================================================
-                    
+
                     if st.button("🚀 Import Data", type="primary", use_container_width=True, disabled=import_disabled):
                         if not column_mapping:
                             st.error("Please map at least one column")
                         else:
+                            # ============================================================
+                            # 🧹 ทำความสะอาดข้อมูลก่อน import
+                            # ============================================================
+                            try:
+                                with st.spinner("🧹 Cleaning data..."):
+                                    # ดึง column info จาก database
+                                    table_columns = get_cached_table_columns(selected_table)
+                                    
+                                    # ทำความสะอาดข้อมูล
+                                    df_clean = clean_dataframe_for_import(df, table_columns)
+                                    
+                                    st.success("✅ Data cleaned successfully")
+                                    
+                                    # แสดงสถิติการทำความสะอาด
+                                    null_count = df_clean.isnull().sum().sum()
+                                    if null_count > 0:
+                                        st.info(f"ℹ️ Found {null_count} NULL values after cleaning (will be handled by database)")
+                            
+                            except Exception as clean_err:
+                                st.error(f"❌ Data cleaning failed: {clean_err}")
+                                st.stop()
+                            
+                            # ============================================================
                             # 🔹 บันทึก Log
+                            # ============================================================
                             try:
                                 username = secret_key.strip()
                                 db = st.session_state.get('db_manager') or DatabaseManager()
@@ -801,7 +905,7 @@ def render_import_tab():
                                     "Import Data",
                                     selected_table,
                                     st.session_state.get('client_ip', 'unknown'),
-                                    f"rows={len(df)}"
+                                    f"rows={len(df_clean)}"
                                 ))
                                 conn.commit()
                                 cursor.close()
@@ -809,12 +913,14 @@ def render_import_tab():
                             except Exception as log_err:
                                 st.warning(f"⚠️ Failed to write activity log: {log_err}")
                             
-                            # 🔹 Import Data เข้าฐานข้อมูล
+                            # ============================================================
+                            # 🔹 Import Data เข้าฐานข้อมูล (ใช้ df_clean แทน df)
+                            # ============================================================
                             fresh_db = DatabaseManager()
-                            with st.spinner(f"Importing {len(df)} rows..."):
-                                result = fresh_db.import_data(selected_table, df, column_mapping)
+                            with st.spinner(f"Importing {len(df_clean)} rows..."):
+                                result = fresh_db.import_data(selected_table, df_clean, column_mapping)
                             fresh_db.close_connection()
-                            
+                 
                             # 🔹 แสดงผลลัพธ์ Import
                             if result.get('success'):
                                 st.success(f"✅ {result['message']}")
