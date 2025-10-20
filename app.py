@@ -701,7 +701,7 @@ def render_import_tab():
             "</p>",
             unsafe_allow_html=True
         )
-
+ 
     if selected_table:
         # ===== Show Table Info =====
         if tables_info:
@@ -711,22 +711,58 @@ def render_import_tab():
                 with col1_info:
                     row_count = table_details.get('TABLE_ROWS', 0) or 0
                     st.metric("📊 Rows", f"{row_count:,}")
+    
                 with col2_info:
-                    update_time = table_details.get('UPDATE_TIME')
-                    if update_time:
-                        try:
-                            if isinstance(update_time, str):
-                                last_update = update_time[:10]
+                    # ✅ พยายามดึง MAX(timestamp) จากตารางจริง
+                    try:
+                        db = st.session_state.get('db_manager') or DatabaseManager()
+                        conn = db.get_connection()
+                        cursor = conn.cursor()
+                        # ตรวจหาคอลัมน์ timestamp ที่มีอยู่ในตาราง
+                        cursor.execute("""
+                            SELECT COLUMN_NAME 
+                            FROM INFORMATION_SCHEMA.COLUMNS 
+                            WHERE TABLE_SCHEMA = DATABASE() 
+                            AND TABLE_NAME = %s
+                            AND COLUMN_NAME IN ('timestamp', 'last_update', 'updated_at', 'update_time');
+                        """, (selected_table,))
+                        col = cursor.fetchone()
+                        if col:
+                            col_name = col[0]
+                            cursor.execute(f"SELECT MAX({col_name}) FROM {selected_table}")
+                            last_update_val = cursor.fetchone()[0]
+                            if last_update_val:
+                                # ✅ แสดงวันที่ + เวลาเต็ม
+                                if isinstance(last_update_val, str):
+                                    last_update = last_update_val[:19]
+                                else:
+                                    last_update = last_update_val.strftime("%Y-%m-%d %H:%M:%S")
+                                st.metric("🕒 Updated", last_update)
                             else:
-                                last_update = update_time.strftime("%Y-%m-%d")
-                            st.metric("🕒 Updated", last_update)
-                        except:
-                            st.metric("🕒 Updated", "Unknown")
+                                st.metric("🕒 Updated", "No data")
+                        else:
+                            # ถ้าไม่พบคอลัมน์ timestamp -> fallback ไปใช้ UPDATE_TIME เดิม
+                            update_time = table_details.get('UPDATE_TIME')
+                            if update_time:
+                                if isinstance(update_time, str):
+                                    last_update = update_time[:19]
+                                else:
+                                    last_update = update_time.strftime("%Y-%m-%d %H:%M:%S")
+                                st.metric("🕒 Updated", last_update)
+                            else:
+                                st.metric("🕒 Updated", "Unknown")
+                        cursor.close()
+                        conn.close()
+                    except Exception as e:
+                        st.metric("🕒 Updated", "Unknown")
+                        st.caption(f"⚠️ timestamp check failed: {e}")
+    
                 with col3_info:
                     data_length = table_details.get('DATA_LENGTH', 0) or 0
                     if data_length > 0:
                         size_mb = data_length / (1024 * 1024)
                         st.metric("💾 Size", f"{size_mb:.0f} MB")
+
 
         # ===== Show Preview Button =====
         st.subheader(f"👀 Preview: {selected_table}")
