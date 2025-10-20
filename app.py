@@ -702,16 +702,28 @@ def render_import_tab():
             unsafe_allow_html=True
         )
  
-    if selected_table:
+    if selected_table: 
         # ===== Show Table Info =====
         if tables_info:
             table_details = next((t for t in tables_info if t.get('TABLE_NAME') == selected_table), None)
             if table_details:
                 col1_info, col2_info, col3_info = st.columns(3)
                 with col1_info:
-                    row_count = table_details.get('TABLE_ROWS', 0) or 0
-                    st.metric("📊 Rows", f"{row_count:,}")
-    
+                    # ✅ พยายามใช้ COUNT(*) ก่อน ถ้า fail ให้ fallback เป็น TABLE_ROWS
+                    try:
+                        db = st.session_state.get('db_manager') or DatabaseManager()
+                        conn = db.get_connection()
+                        cursor = conn.cursor()
+                        cursor.execute(f"SELECT COUNT(*) FROM {selected_table}")
+                        exact_count = cursor.fetchone()[0]
+                        cursor.close()
+                        conn.close()
+                        st.metric("📊 Rows", f"{exact_count:,}")
+                    except Exception:
+                        # fallback ไปใช้ค่าประมาณจาก INFORMATION_SCHEMA.TABLES
+                        row_count = table_details.get('TABLE_ROWS', 0) or 0
+                        st.metric("📊 Rows (est.)", f"{row_count:,}")
+ 
                 with col2_info:
                     # ✅ พยายามดึง MAX(timestamp) จากตารางจริง
                     try:
