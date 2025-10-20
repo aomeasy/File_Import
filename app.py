@@ -749,25 +749,33 @@ def render_import_tab():
             try:
                 with st.spinner("Reading file..."):
                     if uploaded_file.name.endswith('.csv'):
-                        uploaded_file.seek(0)  # ✅ reset pointer ก่อนอ่าน
+                        uploaded_file.seek(0)
                         df = read_csv_safely(uploaded_file)
                         st.caption(f"📖 CSV encoding used: {df.attrs.get('__encoding__', 'unknown')}")
                     else:
                         try:
-                            # ✅ รองรับ Excel ปกติ (.xlsx)
+                            # ✅ ลองอ่าน Excel ปกติ (.xlsx)
                             df = pd.read_excel(uploaded_file, engine='openpyxl')
                         except Exception:
                             try:
-                                # ✅ รองรับ Excel เก่า (.xls)
+                                # ✅ ลองอ่าน Excel เก่า (.xls)
                                 df = pd.read_excel(uploaded_file, engine='xlrd')
                             except Exception as e:
-                                # ✅ fallback กรณีไฟล์เป็น pseudo-Excel (จริงๆ เป็น CSV ที่นามสกุล .xls)
                                 uploaded_file.seek(0)
-                                st.warning(f"⚠️ Excel read failed ({e}). Trying as CSV instead...")
-                                df = pd.read_csv(uploaded_file, encoding='utf-8', on_bad_lines='skip')
+                                raw_start = uploaded_file.read(512).decode(errors='ignore')
+                                uploaded_file.seek(0)
+                                # ✅ ถ้าพบว่าเป็น HTML file disguised as .xls
+                                if '<table' in raw_start.lower():
+                                    st.warning(f"⚠️ Detected HTML-based .xls file (e.g. from SCOMS Export). Reading as HTML table instead...")
+                                    tables = pd.read_html(uploaded_file)
+                                    df = tables[0] if tables else pd.DataFrame()
+                                else:
+                                    st.warning(f"⚠️ Excel read failed ({e}). Trying as CSV instead...")
+                                    df = pd.read_csv(uploaded_file, encoding='utf-8', on_bad_lines='skip')
                 
                 st.success(f"✅ File loaded: {len(df)} rows, {len(df.columns)} columns")
                 st.caption(f"Encoding: {getattr(df.attrs, '__encoding__', 'auto') if uploaded_file.name.endswith('.csv') else 'n/a'}")
+
  
                 st.subheader("📋 Data Preview")
                 st.dataframe(df.head(10), use_container_width=True)
