@@ -708,10 +708,15 @@ def render_import_tab():
                 else:
                     st.warning("⚠️ No columns mapped")
 
-                # ===== AUTH + IMPORT =====
+
+                # ============================================================
+                # 🔐 Authorization + แสดง Allowed Tables
+                # วางแทนที่ส่วน "AUTH + IMPORT" ในโค้ดเดิม
+                # ============================================================
+                
                 st.divider()
                 
-                # --- ช่องกรอก Secret Key เต็มแนวกว้าง ---
+                # --- ช่องกรอก Secret Key ---
                 secret_key = st.text_input(
                     "Secret Key to unlock import",
                     type="password",
@@ -720,22 +725,64 @@ def render_import_tab():
                 )
                 
                 user_perm = get_user_permission(secret_key)
-  
+                
                 if not user_perm:
                     st.warning("🔑 Enter correct key to unlock Import Data button.", icon="🔒")
                     import_disabled = True
                 else:
                     role = user_perm["role"]
                     allowed_tables = user_perm.get("allowed_tables", [])
+                    
+                    # ============================================================
+                    # ✅ แสดงข้อมูล Authorization พร้อม Allowed Tables
+                    # ============================================================
+                    
+                    # ตรวจสอบว่ามีสิทธิ์ import table นี้หรือไม่
                     if role == "Admin" or selected_table in allowed_tables:
                         st.success(f"✅ Authorized as **{role}**")
                         import_disabled = False
                     else:
                         st.error(f"🚫 You are not allowed to import into `{selected_table}`.")
                         import_disabled = True
-
-
-                    # --- ปุ่ม Import Data ---
+                    
+                    # ============================================================
+                    # 📋 แสดงรายการ Tables ที่มีสิทธิ์เข้าถึง
+                    # ============================================================
+                    
+                    st.markdown("---")
+                    
+                    # ตรวจสอบว่า allowed_tables ว่างหรือไม่
+                    if not allowed_tables or allowed_tables == [''] or allowed_tables == []:
+                        # ถ้าว่างเปล่า = มีสิทธิ์ทุก table
+                        st.markdown("""
+                        <div style="background-color:#e8f5e9;border-left:6px solid #4caf50;
+                                    padding:12px 18px;border-radius:8px;font-size:14px;">
+                            <strong>🔓 Unlocked Tables:</strong><br>
+                            <span style="color:#2e7d32;font-weight:bold;">All Tables</span>
+                            <span style="color:#666;font-size:13px;"> (Full Access)</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        # แสดงรายการ tables ที่มีสิทธิ์
+                        tables_list = ", ".join([f"<code>{t}</code>" for t in allowed_tables])
+                        table_count = len(allowed_tables)
+                        
+                        st.markdown(f"""
+                        <div style="background-color:#e3f2fd;border-left:6px solid #2196f3;
+                                    padding:12px 18px;border-radius:8px;font-size:14px;">
+                            <strong>🔓 Unlocked Tables ({table_count}):</strong><br>
+                            <span style="color:#1565c0;font-size:13px;line-height:1.8;">
+                                {tables_list}
+                            </span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    
+                    # ============================================================
+                    # 🚀 ปุ่ม Import Data
+                    # ============================================================
+                    
                     if st.button("🚀 Import Data", type="primary", use_container_width=True, disabled=import_disabled):
                         if not column_mapping:
                             st.error("Please map at least one column")
@@ -761,39 +808,33 @@ def render_import_tab():
                                 conn.close()
                             except Exception as log_err:
                                 st.warning(f"⚠️ Failed to write activity log: {log_err}")
-                    
+                            
                             # 🔹 Import Data เข้าฐานข้อมูล
                             fresh_db = DatabaseManager()
                             with st.spinner(f"Importing {len(df)} rows..."):
                                 result = fresh_db.import_data(selected_table, df, column_mapping)
                             fresh_db.close_connection()
-
-
-
-                            # ============================================================
-                            # 🔮 AI Suggestion Only (แสดงเฉพาะคำแนะนำ ไม่มีปุ่ม Run)
-                            # วางแทนที่ส่วน AI Recommendation ทั้งหมด
-                            # ============================================================
                             
+                            # 🔹 แสดงผลลัพธ์ Import
                             if result.get('success'):
                                 st.success(f"✅ {result['message']}")
                                 st.balloons()
                                 st.metric("Rows Imported", result.get('rows_affected', 0))
-                            
+                                
                                 # ===========================================================
                                 # 🔮 AI Recommendation (แสดงเฉพาะคำแนะนำ)
                                 # ===========================================================
                                 st.divider()
                                 st.subheader("💡 AI Recommendation")
-                            
+                                
                                 try:
                                     current_action = f"Import Data:{selected_table}"
                                     suggestion, freq, confidence = recommend_action(current_action) or (None, 0, 0)
-                            
+                                    
                                     if suggestion:
                                         proc_name = suggestion.replace("Execute Procedure:", "").strip()
-                            
-                                        # ✅ สีตามระดับความเชื่อมั่น
+                                        
+                                        # สีตามระดับความเชื่อมั่น
                                         if confidence >= 80:
                                             conf_color = "#2ecc71"
                                             emoji = "🟢"
@@ -806,8 +847,8 @@ def render_import_tab():
                                             conf_color = "#e74c3c"
                                             emoji = "🔴"
                                             conf_text = "ค่อนข้างต่ำ"
-                            
-                                        # ✅ แสดงข้อความแนะนำ
+                                        
+                                        # แสดงข้อความแนะนำ
                                         st.markdown(f"""
                                         <div style="background-color:#f8f9fb;border-left:6px solid {conf_color};
                                                     padding:12px 18px;border-radius:10px;font-size:15px;line-height:1.6;">
@@ -821,13 +862,13 @@ def render_import_tab():
                                             </span>
                                         </div>
                                         """, unsafe_allow_html=True)
-                            
-                                        # ✅ Confidence Bar + Formula
+                                        
+                                        # Confidence Bar
                                         total_patterns = round(freq / (confidence / 100)) if confidence > 0 else freq
                                         freq_fmt = f"{freq:,}"
                                         total_fmt = f"{total_patterns:,}"
                                         conf_fmt = f"{confidence:.2f}"
-                            
+                                        
                                         st.markdown(f"""
                                         <div style="background-color:#eaecef;border-radius:8px;margin-top:6px;">
                                           <div style="width:{confidence}%;background-color:{conf_color};
@@ -843,16 +884,16 @@ def render_import_tab():
                                           {freq_fmt} ÷ {total_fmt} × 100  =  <b>{conf_fmt}%</b>
                                         </div>
                                         """, unsafe_allow_html=True)
-                            
-                                        # ✅ ข้อความแนะนำให้ไปรันใน Tab Run Procedures
+                                        
+                                        # ข้อความแนะนำให้ไปรันใน Tab Run Procedures
                                         st.markdown("<br>", unsafe_allow_html=True)
                                         st.info(f"""
                                         💡 **คำแนะนำถัดไป:**  
                                         กรุณาไปที่แท็บ **⚙️ Run Procedures** เพื่อรัน Procedure `{proc_name}`
                                         """)
-                            
+                                    
                                     else:
-                                        # ✅ กรณีไม่มีข้อมูลเพียงพอ
+                                        # กรณีไม่มีข้อมูลเพียงพอ
                                         st.markdown("""
                                         <div style="background-color:#f8f9fb;border-left:6px solid #b2bec3;
                                                     padding:12px 18px;border-radius:10px;font-size:15px;line-height:1.6;">
@@ -861,24 +902,21 @@ def render_import_tab():
                                             กรุณาดำเนินการเพิ่มเติมเพื่อให้ระบบเรียนรู้ pattern ได้มากขึ้น
                                         </div>
                                         """, unsafe_allow_html=True)
-                            
-                                        # Progress Bar 0%
+                                        
                                         st.markdown("""
                                         <div style="background-color:#eaecef;border-radius:8px;margin-top:6px;">
-                                          <div style="width:0%;background-color:#b2bec3;
-                                                      height:12px;border-radius:8px;"></div>
+                                          <div style="width:0%;background-color:#b2bec3;height:12px;border-radius:8px;"></div>
                                         </div>
                                         <div style="font-size:13px;color:#555;margin-top:2px;">
                                           Confidence Level: <b style="color:#b2bec3;">0.0%</b>
                                         </div>
                                         """, unsafe_allow_html=True)
-                            
+                                
                                 except Exception as e:
                                     st.warning(f"⚠️ Suggestion module error: {e}")
                             
                             else:
-                                st.error(f"❌ Import failed: {result.get('error')}")
- 
+                                st.error(f"❌ Import failed: {result.get('error')}") 
                 with c2:
                     if st.button("🔄 Reset", type="secondary"):
                         st.rerun()
