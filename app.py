@@ -1241,23 +1241,27 @@ def render_procedures_tab():
                     else:
                         st.error(f"🚫 Not allowed to execute `{proc_name}`")
                         execute_disabled = True
-                      
+
             # ===== EXECUTE BUTTON =====
             exec_col, note_col = st.columns([1, 3])
             with exec_col:
-                # ✅ ป้องกันกดซ้ำขณะรัน
+                # ✅ ตรวจสอบสถานะว่ากำลังรันอยู่หรือไม่
                 is_running = st.session_state.get("proc_running", False)
                 btn_label = "⏳ Running..." if is_running else "▶️ Execute"
+            
+                # ✅ ปุ่มจะถูก disable ถ้ากำลังรัน
+                execute_disabled_final = execute_disabled or is_running
             
                 if st.button(
                     btn_label,
                     key=f"exec_{proc_name}",
                     type="primary",
                     use_container_width=True,
-                    disabled=execute_disabled or is_running,  # ✅ ปุ่มปิดชั่วคราวระหว่างรัน
+                    disabled=execute_disabled_final,
                 ):
-                    st.session_state['expanded_proc'] = proc_name  # ✅ คง panel เปิดหลัง execute
-                    st.session_state['proc_running'] = True        # ✅ ตั้งสถานะกำลังรัน
+                    # ✅ ตั้งสถานะกำลังรัน (จะอยู่จนกว่ารันเสร็จ)
+                    st.session_state['proc_running'] = True
+                    st.session_state['expanded_proc'] = proc_name  # คง panel เปิด
             
                     try:
                         db = st.session_state.get("db_manager") or DatabaseManager()
@@ -1282,6 +1286,7 @@ def render_procedures_tab():
                     except Exception as log_err:
                         st.warning(f"⚠️ Failed to write log: {log_err}")
             
+                    # ✅ เริ่ม event run
                     st.session_state["PROC_RUN_EVENT"] = {
                         "name": proc_name,
                         "params": None,
@@ -1299,12 +1304,17 @@ def render_procedures_tab():
             # ===== EVENT HANDLING =====
             event_run = st.session_state.get('PROC_RUN_EVENT')
             if event_run:
+                # ✅ ล็อกปุ่มไว้ตลอดระหว่าง run
+                st.session_state['proc_running'] = True
                 st.session_state['proc_progress_value'] = 20
+            
                 result = execute_procedure_with_progress(event_run['name'], event_run.get('params'))
                 render_exec_result(event_run['name'], result)
+            
+                # ✅ ปลดล็อกปุ่มหลังรันเสร็จ
+                st.session_state['proc_running'] = False
                 st.session_state['PROC_RUN_EVENT'] = None
-                st.session_state['proc_running'] = False  # ✅ ปลดล็อกปุ่มหลังรันเสร็จ
-
+ 
      
     # ===== RIGHT: STATS =====
     st.divider()
