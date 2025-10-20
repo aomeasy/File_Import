@@ -693,6 +693,15 @@ def render_import_tab():
 
     selected_table = st.selectbox("🎯 Select Target Table", options=[""] + tables, help="Choose the table where you want to import your data")
 
+    # ✅ แสดงคำอธิบายเล็ก ๆ เฉพาะเมื่อเลือกตาราง Broadband_daily
+    if selected_table == "Broadband_daily":
+        st.markdown(
+            "<p style='color: #6c757d; font-size: 13px; margin-top: -10px;'>"
+            "สำหรับ Update Ticket จากระบบ <b>SCOMS</b> และ <b>TTS</b> เพื่อจัดทำรายงาน Daily report"
+            "</p>",
+            unsafe_allow_html=True
+        )
+
     if selected_table:
         # ===== Show Table Info =====
         if tables_info:
@@ -792,15 +801,25 @@ def render_import_tab():
                 st.dataframe(df.head(10), use_container_width=True)
 
                 # ===== Column Mapping =====
+
                 st.subheader("🔗 Column Mapping")
                 table_columns = get_cached_table_columns(selected_table)
                 if not table_columns:
                     st.error("Cannot get table columns")
                     return
-
+                
                 db_column_names = [col['COLUMN_NAME'] for col in table_columns]
+                
+                # ✅ ตรวจว่าคอลัมน์ของ DataFrame เป็นตัวเลข (แสดงว่า header ไม่ถูกอ่าน)
+                if all(isinstance(c, (int, float)) for c in df.columns):
+                    first_row = df.iloc[0].tolist()
+                    # เฉพาะกรณีที่ไม่มี NaN ทั้งหมด (กัน header ที่ไม่สมบูรณ์)
+                    if any(pd.notnull(x) for x in first_row):
+                        df.columns = first_row
+                        df = df.drop(df.index[0]).reset_index(drop=True)
+                        st.info("🧩 Automatically used first row as header (detected from HTML-based Excel).")
+                
                 file_columns = list(df.columns)
-
                 st.info(f"**File Columns:** {len(file_columns)} | **Table Columns:** {len(db_column_names)}")
                 column_mapping = {}
                 cols = st.columns(2)
