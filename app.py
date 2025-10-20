@@ -11,7 +11,6 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO  # ✅ เพิ่มเพื่อใช้รีเซ็ต pointer และอ่านเป็น bytes
 
-
                 
 # Import modules with error handling
 try:
