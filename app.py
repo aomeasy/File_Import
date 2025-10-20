@@ -738,11 +738,14 @@ def render_import_tab():
             try:
                 with st.spinner("Reading file..."):
                     if uploaded_file.name.endswith('.csv'):
+                        uploaded_file.seek(0)  # ✅ reset pointer ก่อนอ่าน
                         df = read_csv_safely(uploaded_file)
+
                     else:
                         df = pd.read_excel(uploaded_file)
 
                 st.success(f"✅ File loaded: {len(df)} rows, {len(df.columns)} columns")
+                st.caption(f"📖 CSV encoding used: {df.attrs.get('__encoding__', 'unknown')}")
                 st.caption(f"Encoding: {getattr(df.attrs, '__encoding__', 'auto') if uploaded_file.name.endswith('.csv') else 'n/a'}")
 
                 st.subheader("📋 Data Preview")
