@@ -1169,12 +1169,13 @@ def render_procedures_tab():
     procedures = st.session_state.get("loaded_procedures", [])
     st.divider()
 
+
     # ====== SHOW PROCEDURES ======
     st.subheader("🔧 Stored Procedures")
     if not procedures:
         st.warning("⚠️ No procedures loaded. ใส่ชื่อแล้วกด Load ก่อน")
         return
-
+    
     search_query = st.text_input(
         "Filter in results (client-side)",
         placeholder="พิมพ์คัดกรองผลที่โหลดมา",
@@ -1182,9 +1183,16 @@ def render_procedures_tab():
     )
     filtered = [p for p in procedures if
                 search_query.lower() in p["ROUTINE_NAME"].lower()] if search_query else procedures
-
+    
+    # ✅ เก็บ procedure ที่กำลังเปิดอยู่ (เพื่อคงสถานะเปิด)
+    if 'expanded_proc' not in st.session_state:
+        st.session_state['expanded_proc'] = None
+    
     for proc in filtered:
-        with st.expander(f"📦 {proc['ROUTINE_NAME']} ({proc['ROUTINE_TYPE']})"):
+        proc_name = proc['ROUTINE_NAME']
+        expanded = st.session_state['expanded_proc'] == proc_name  # ✅ เปิดค้างถ้าเป็นตัวที่เลือกก่อนหน้า
+    
+        with st.expander(f"📦 {proc_name} ({proc['ROUTINE_TYPE']})", expanded=expanded):
             left, right = st.columns([1, 1])
             with left:
                 st.write(f"**Type:** {proc['ROUTINE_TYPE']}")
@@ -1196,16 +1204,16 @@ def render_procedures_tab():
                     st.write(f"**Last Altered:** {proc['LAST_ALTERED']}")
             with right:
                 st.info("No parameters required")
-
+    
             st.divider()
-
+    
             # ⚠️ ข้อความเตือนพิเศษ
-            if proc["ROUTINE_NAME"] == "update_Broadband_daily":
+            if proc_name == "update_Broadband_daily":
                 st.markdown(
                     "<span style='color:red;font-weight:bold;'>⚠️ ก่อน Run ให้ Import ข้อมูล Ticket ทั้ง TTS และ SCOMS ลง Broadband_daily ก่อน</span>",
                     unsafe_allow_html=True
                 )
-
+    
             # ===== AUTH SECTION =====
             st.markdown("#### 🔑 Authorization")
             key_col, status_col = st.columns([2, 1])
@@ -1214,8 +1222,10 @@ def render_procedures_tab():
                     f"Enter Secret Key (for execute permission)",
                     type="password",
                     placeholder="Enter key...",
-                    key=f"key_{proc['ROUTINE_NAME']}"
+                    key=f"key_{proc_name}",
+                    on_change=lambda name=proc_name: st.session_state.update(expanded_proc=name)  # ✅ จำชื่อ procedure ที่เปิดตอนกด Enter
                 ).strip()
+    
             with status_col:
                 user_perm = get_user_permission(local_key) if local_key else None
                 if not user_perm:
@@ -1225,23 +1235,24 @@ def render_procedures_tab():
                 else:
                     role = user_perm["role"]
                     allowed_procs = user_perm.get("allowed_procedures", [])
-                    if role == "Admin" or proc["ROUTINE_NAME"] in allowed_procs:
+                    if role == "Admin" or proc_name in allowed_procs:
                         st.success(f"✅ Authorized as **{role}**")
                         execute_disabled = False
                     else:
-                        st.error(f"🚫 Not allowed to execute `{proc['ROUTINE_NAME']}`")
+                        st.error(f"🚫 Not allowed to execute `{proc_name}`")
                         execute_disabled = True
-
+    
             # ===== EXECUTE BUTTON =====
             exec_col, note_col = st.columns([1, 3])
             with exec_col:
                 if st.button(
                     "▶️ Execute",
-                    key=f"exec_{proc['ROUTINE_NAME']}",
+                    key=f"exec_{proc_name}",
                     type="primary",
                     use_container_width=True,
                     disabled=execute_disabled,
                 ):
+                    st.session_state['expanded_proc'] = proc_name  # ✅ คง panel เปิดหลัง execute
                     try:
                         db = st.session_state.get("db_manager") or DatabaseManager()
                         conn = db.get_connection()
@@ -1254,7 +1265,7 @@ def render_procedures_tab():
                             (
                                 local_key,
                                 "Execute Procedure",
-                                proc["ROUTINE_NAME"],
+                                proc_name,
                                 st.session_state.get("client_ip", "unknown"),
                                 "{}",
                             ),
@@ -1264,14 +1275,14 @@ def render_procedures_tab():
                         conn.close()
                     except Exception as log_err:
                         st.warning(f"⚠️ Failed to write log: {log_err}")
-
+    
                     st.session_state["PROC_RUN_EVENT"] = {
-                        "name": proc["ROUTINE_NAME"],
+                        "name": proc_name,
                         "params": None,
                     }
             with note_col:
                 st.caption("Only authorized users can execute this procedure.")
-
+    
     # ===== EVENT HANDLING =====
     event_run = st.session_state.get('PROC_RUN_EVENT')
     if event_run:
@@ -1279,9 +1290,7 @@ def render_procedures_tab():
         result = execute_procedure_with_progress(event_run['name'], event_run.get('params'))
         render_exec_result(event_run['name'], result)
         st.session_state['PROC_RUN_EVENT'] = None
-
  
-
     # ===== RIGHT: STATS =====
     st.divider()
     st.subheader("📊 Quick Stats")
