@@ -552,11 +552,10 @@ section.main div.block-container {
 """, unsafe_allow_html=True)
 
 # ============================================================
-# 🧹 ฟังก์ชันทำความสะอาดข้อมูลก่อน Import
-# วางไว้ก่อนฟังก์ชัน render_import_tab() (ประมาณบรรทัด 200)
+# 🧹 ฟังก์ชันทำความสะอาดข้อมูลก่อน Import 
 # ============================================================
 
-def clean_dataframe_for_import(df, table_columns):
+def clean_dataframe_for_import(df, table_columns, column_mapping):
     """
     ทำความสะอาดข้อมูลก่อน import เข้า database
     - แปลงค่าว่างเป็น None สำหรับฟิลด์ตัวเลข
@@ -566,6 +565,7 @@ def clean_dataframe_for_import(df, table_columns):
     Args:
         df: DataFrame ที่จะ import
         table_columns: list of dict จาก get_cached_table_columns()
+        column_mapping: dict mapping จาก file column -> db column
     
     Returns:
         DataFrame ที่ทำความสะอาดแล้ว
@@ -587,50 +587,54 @@ def clean_dataframe_for_import(df, table_columns):
             'nullable': is_nullable
         }
     
-    # ทำความสะอาดแต่ละ column
-    for col in df_clean.columns:
-        if col in col_types:
-            db_type = col_types[col]['type']
-            is_nullable = col_types[col]['nullable']
+    # ทำความสะอาดเฉพาะ columns ที่จะ import
+    for file_col, db_col in column_mapping.items():
+        if file_col not in df_clean.columns or db_col not in col_types:
+            continue
+        
+        db_type = col_types[db_col]['type']
+        is_nullable = col_types[db_col]['nullable']
+        
+        # 1. ตัด whitespace
+        if df_clean[file_col].dtype == 'object':
+            df_clean[file_col] = df_clean[file_col].astype(str).str.strip()
+        
+        # 2. แปลงค่าว่าง/NaN เป็น None สำหรับฟิลด์ตัวเลข
+        if db_type in ['int', 'bigint', 'smallint', 'tinyint', 'integer']:
+            # แทนที่ค่าว่าง '' เป็น None
+            df_clean[file_col] = df_clean[file_col].replace(['', 'nan', 'NaN', 'NULL', 'null', 'None'], None)
             
-            # 1. ตัด whitespace
-            if df_clean[col].dtype == 'object':
-                df_clean[col] = df_clean[col].astype(str).str.strip()
+            # ถ้าฟิลด์ไม่ยอมรับ NULL และมีค่าว่าง → ใส่ 0
+            if not is_nullable:
+                df_clean[file_col] = df_clean[file_col].fillna(0)
             
-            # 2. แปลงค่าว่าง/NaN เป็น None สำหรับฟิลด์ตัวเลข
-            if db_type in ['int', 'bigint', 'smallint', 'tinyint', 'integer']:
-                # แทนที่ค่าว่าง '' เป็น None
-                df_clean[col] = df_clean[col].replace(['', 'nan', 'NaN', 'NULL', 'null'], None)
-                
-                # ถ้าฟิลด์ไม่ยอมรับ NULL และมีค่าว่าง → ใส่ 0
-                if not is_nullable:
-                    df_clean[col] = df_clean[col].fillna(0)
-                
-                # แปลงเป็นตัวเลข (ถ้าไม่ได้ใส่ None)
-                df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce')
+            # แปลงเป็นตัวเลข (ถ้าไม่ได้ใส่ None)
+            df_clean[file_col] = pd.to_numeric(df_clean[file_col], errors='coerce')
+        
+        elif db_type in ['float', 'double', 'decimal', 'numeric']:
+            df_clean[file_col] = df_clean[file_col].replace(['', 'nan', 'NaN', 'NULL', 'null', 'None'], None)
             
-            elif db_type in ['float', 'double', 'decimal', 'numeric']:
-                df_clean[col] = df_clean[col].replace(['', 'nan', 'NaN', 'NULL', 'null'], None)
-                
-                if not is_nullable:
-                    df_clean[col] = df_clean[col].fillna(0.0)
-                
-                df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce')
+            if not is_nullable:
+                df_clean[file_col] = df_clean[file_col].fillna(0.0)
             
-            elif db_type in ['date', 'datetime', 'timestamp']:
-                df_clean[col] = df_clean[col].replace(['', 'nan', 'NaN', 'NULL', 'null'], None)
-                
-                # แปลงเป็น datetime (ถ้าไม่ได้ใส่ None)
-                df_clean[col] = pd.to_datetime(df_clean[col], errors='coerce')
+            df_clean[file_col] = pd.to_numeric(df_clean[file_col], errors='coerce')
+        
+        elif db_type in ['date', 'datetime', 'timestamp']:
+            df_clean[file_col] = df_clean[file_col].replace(['', 'nan', 'NaN', 'NULL', 'null', 'None'], None)
             
-            else:
-                # ฟิลด์ text: แปลงค่าว่างเป็น None หรือ ''
-                df_clean[col] = df_clean[col].replace(['nan', 'NaN', 'NULL', 'null'], '')
-                
-                if is_nullable:
-                    df_clean[col] = df_clean[col].replace('', None)
+            # แปลงเป็น datetime (ถ้าไม่ได้ใส่ None)
+            df_clean[file_col] = pd.to_datetime(df_clean[file_col], errors='coerce')
+        
+        else:
+            # ฟิลด์ text: แปลงค่าว่างเป็น None หรือ ''
+            df_clean[file_col] = df_clean[file_col].replace(['nan', 'NaN', 'NULL', 'null', 'None'], '')
+            
+            if is_nullable:
+                df_clean[file_col] = df_clean[file_col].replace('', None)
     
     return df_clean
+
+
 
 # ===== TAB 1: IMPORT DATA =====
 def render_import_tab():
@@ -788,10 +792,8 @@ def render_import_tab():
                 else:
                     st.warning("⚠️ No columns mapped")
 
-
                 # ============================================================
                 # 🔐 Authorization + แสดง Allowed Tables
-                # วางแทนที่ส่วน "AUTH + IMPORT" ในโค้ดเดิม
                 # ============================================================
                 
                 st.divider()
@@ -812,10 +814,6 @@ def render_import_tab():
                 else:
                     role = user_perm["role"]
                     allowed_tables = user_perm.get("allowed_tables", [])
-                    
-                    # ============================================================
-                    # ✅ แสดงข้อมูล Authorization พร้อม Allowed Tables
-                    # ============================================================
                     
                     # ตรวจสอบว่ามีสิทธิ์ import table นี้หรือไม่
                     if role == "Admin" or selected_table in allowed_tables:
@@ -875,8 +873,8 @@ def render_import_tab():
                                     # ดึง column info จาก database
                                     table_columns = get_cached_table_columns(selected_table)
                                     
-                                    # ทำความสะอาดข้อมูล
-                                    df_clean = clean_dataframe_for_import(df, table_columns)
+                                    # ทำความสะอาดข้อมูล (ส่ง column_mapping ด้วย)
+                                    df_clean = clean_dataframe_for_import(df, table_columns, column_mapping)
                                     
                                     st.success("✅ Data cleaned successfully")
                                     
@@ -887,6 +885,7 @@ def render_import_tab():
                             
                             except Exception as clean_err:
                                 st.error(f"❌ Data cleaning failed: {clean_err}")
+                                st.exception(clean_err)
                                 st.stop()
                             
                             # ============================================================
@@ -1022,16 +1021,12 @@ def render_import_tab():
                                     st.warning(f"⚠️ Suggestion module error: {e}")
                             
                             else:
-                                st.error(f"❌ Import failed: {result.get('error')}") 
-                with c2:
-                    if st.button("🔄 Reset", type="secondary"):
-                        st.rerun()
+                                st.error(f"❌ Import failed: {result.get('error')}")
 
             except Exception as e:
                 st.error(f"❌ Error processing file: {str(e)}")
                 st.exception(e)
-
-
+ 
 def log_activity(username, action, target, details=None):
     """บันทึก Log ลงในฐานข้อมูล"""
     try:
