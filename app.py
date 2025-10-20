@@ -1241,18 +1241,24 @@ def render_procedures_tab():
                     else:
                         st.error(f"🚫 Not allowed to execute `{proc_name}`")
                         execute_disabled = True
-    
+                      
             # ===== EXECUTE BUTTON =====
             exec_col, note_col = st.columns([1, 3])
             with exec_col:
+                # ✅ ป้องกันกดซ้ำขณะรัน
+                is_running = st.session_state.get("proc_running", False)
+                btn_label = "⏳ Running..." if is_running else "▶️ Execute"
+            
                 if st.button(
-                    "▶️ Execute",
+                    btn_label,
                     key=f"exec_{proc_name}",
                     type="primary",
                     use_container_width=True,
-                    disabled=execute_disabled,
+                    disabled=execute_disabled or is_running,  # ✅ ปุ่มปิดชั่วคราวระหว่างรัน
                 ):
                     st.session_state['expanded_proc'] = proc_name  # ✅ คง panel เปิดหลัง execute
+                    st.session_state['proc_running'] = True        # ✅ ตั้งสถานะกำลังรัน
+            
                     try:
                         db = st.session_state.get("db_manager") or DatabaseManager()
                         conn = db.get_connection()
@@ -1275,22 +1281,31 @@ def render_procedures_tab():
                         conn.close()
                     except Exception as log_err:
                         st.warning(f"⚠️ Failed to write log: {log_err}")
-    
+            
                     st.session_state["PROC_RUN_EVENT"] = {
                         "name": proc_name,
                         "params": None,
                     }
+            
             with note_col:
-                st.caption("Only authorized users can execute this procedure.")
-    
-    # ===== EVENT HANDLING =====
-    event_run = st.session_state.get('PROC_RUN_EVENT')
-    if event_run:
-        st.session_state['proc_progress_value'] = 20
-        result = execute_procedure_with_progress(event_run['name'], event_run.get('params'))
-        render_exec_result(event_run['name'], result)
-        st.session_state['PROC_RUN_EVENT'] = None
- 
+                if st.session_state.get("proc_running"):
+                    st.markdown(
+                        "<span style='color:#0288d1;font-weight:bold;'>⏳ Procedure is running... กรุณารอจนกว่าจะเสร็จสิ้น</span>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.caption("Only authorized users can execute this procedure.")
+            
+            # ===== EVENT HANDLING =====
+            event_run = st.session_state.get('PROC_RUN_EVENT')
+            if event_run:
+                st.session_state['proc_progress_value'] = 20
+                result = execute_procedure_with_progress(event_run['name'], event_run.get('params'))
+                render_exec_result(event_run['name'], result)
+                st.session_state['PROC_RUN_EVENT'] = None
+                st.session_state['proc_running'] = False  # ✅ ปลดล็อกปุ่มหลังรันเสร็จ
+
+     
     # ===== RIGHT: STATS =====
     st.divider()
     st.subheader("📊 Quick Stats")
