@@ -747,6 +747,7 @@ def render_import_tab():
             """, unsafe_allow_html=True)
 
             try:
+ 
                 with st.spinner("Reading file..."):
                     if uploaded_file.name.endswith('.csv'):
                         uploaded_file.seek(0)
@@ -762,21 +763,31 @@ def render_import_tab():
                                 df = pd.read_excel(uploaded_file, engine='xlrd')
                             except Exception as e:
                                 uploaded_file.seek(0)
-                                raw_start = uploaded_file.read(512).decode(errors='ignore')
+                                raw_start = uploaded_file.read(2048)  # อ่านดูเนื้อไฟล์บางส่วน
                                 uploaded_file.seek(0)
-                                # ✅ ถ้าพบว่าเป็น HTML file disguised as .xls
-                                if '<table' in raw_start.lower():
-                                    st.warning(f"⚠️ Detected HTML-based .xls file (e.g. from SCOMS Export). Reading as HTML table instead...")
-                                    tables = pd.read_html(uploaded_file)
+                                text_sample = raw_start.decode(errors="ignore").lower()
+                
+                                if "<table" in text_sample:  # ✅ HTML-based .xls
+                                    st.warning("⚠️ Detected HTML-based .xls file (e.g. from SCOMS Export). Reading as HTML table instead...")
+                
+                                    # ✅ ตรวจ encoding แบบไทย
+                                    import chardet
+                                    detected = chardet.detect(raw_start)
+                                    encoding_used = detected.get("encoding", "utf-8")
+                
+                                    # ✅ Decode ตาม encoding ที่ตรวจเจอ
+                                    html_text = uploaded_file.read().decode(encoding_used, errors="replace")
+                
+                                    # ✅ อ่านตาราง HTML
+                                    tables = pd.read_html(html_text)
                                     df = tables[0] if tables else pd.DataFrame()
+                                    df.attrs["__encoding__"] = encoding_used
                                 else:
                                     st.warning(f"⚠️ Excel read failed ({e}). Trying as CSV instead...")
                                     df = pd.read_csv(uploaded_file, encoding='utf-8', on_bad_lines='skip')
                 
                 st.success(f"✅ File loaded: {len(df)} rows, {len(df.columns)} columns")
-                st.caption(f"Encoding: {getattr(df.attrs, '__encoding__', 'auto') if uploaded_file.name.endswith('.csv') else 'n/a'}")
-
- 
+                st.caption(f"Encoding: {getattr(df.attrs, '__encoding__', 'auto') if uploaded_file.name.endswith('.csv') else df.attrs.get('__encoding__', 'n/a')}")
                 st.subheader("📋 Data Preview")
                 st.dataframe(df.head(10), use_container_width=True)
 
