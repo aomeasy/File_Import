@@ -10,6 +10,7 @@ from functools import lru_cache
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO  # ✅ เพิ่มเพื่อใช้รีเซ็ต pointer และอ่านเป็น bytes
+import chardet
 
                 
 # Import modules with error handling
@@ -419,9 +420,17 @@ def read_csv_safely(file_or_bytes, *, sep=None):
         raw = file_or_bytes.read()
     else:
         raw = file_or_bytes  # assume bytes
+ 
+    # 🔹 ตรวจจับ encoding เบื้องต้นด้วย chardet
+    detected = chardet.detect(raw)
+    primary_enc = detected.get("encoding") or "utf-8"
+    confidence = detected.get("confidence", 0)
 
-    encodings_try = ['utf-8-sig', 'cp874', 'tis-620', 'iso-8859-11', 'utf-16', 'utf-16le', 'utf-16be', 'latin1']
+    encodings_try = [primary_enc, 'utf-8-sig', 'cp874', 'tis-620', 'iso-8859-11', 
+                     'utf-16', 'utf-16le', 'utf-16be', 'latin1']
     last_err = None
+
+    # 🔹 ลองอ่านด้วย encoding ต่าง ๆ
     for enc in encodings_try:
         try:
             buf = BytesIO(raw)
@@ -430,16 +439,18 @@ def read_csv_safely(file_or_bytes, *, sep=None):
                 encoding=enc,
                 encoding_errors='replace',
                 engine='python',
-                sep=sep,                 # sniff ถ้า None
-                on_bad_lines='skip',     # ข้ามบรรทัดพิกล
-                dtype=str                # กัน type เพี้ยน
+                sep=sep,
+                on_bad_lines='skip',
+                dtype=str
             )
             df.attrs['__encoding__'] = enc
             return df
         except Exception as e:
             last_err = e
             continue
-    raise last_err or Exception("Cannot decode CSV with known Thai encodings")
+
+    raise last_err or Exception("❌ Cannot decode CSV with known Thai encodings")
+   
 
 # ===== FILE MERGER CLASS =====
 class FileMerger:
@@ -740,12 +751,12 @@ def render_import_tab():
                     if uploaded_file.name.endswith('.csv'):
                         uploaded_file.seek(0)  # ✅ reset pointer ก่อนอ่าน
                         df = read_csv_safely(uploaded_file)
+                        st.caption(f"📖 CSV encoding used: {df.attrs.get('__encoding__', 'unknown')}")
 
                     else:
                         df = pd.read_excel(uploaded_file)
 
-                st.success(f"✅ File loaded: {len(df)} rows, {len(df.columns)} columns")
-                st.caption(f"📖 CSV encoding used: {df.attrs.get('__encoding__', 'unknown')}")
+                st.success(f"✅ File loaded: {len(df)} rows, {len(df.columns)} columns") 
                 st.caption(f"Encoding: {getattr(df.attrs, '__encoding__', 'auto') if uploaded_file.name.endswith('.csv') else 'n/a'}")
 
                 st.subheader("📋 Data Preview")
