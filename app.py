@@ -770,9 +770,10 @@ def render_import_tab():
                             fresh_db.close_connection()
 
 
+
                             # ============================================================
-                            # 🎯 วิธีแก้แบบ Direct Execution (ไม่ใช้ rerun)
-                            # วางแทนที่ส่วนปุ่ม Run Procedure ทั้งหมด
+                            # 🔮 AI Suggestion Only (แสดงเฉพาะคำแนะนำ ไม่มีปุ่ม Run)
+                            # วางแทนที่ส่วน AI Recommendation ทั้งหมด
                             # ============================================================
                             
                             if result.get('success'):
@@ -781,7 +782,7 @@ def render_import_tab():
                                 st.metric("Rows Imported", result.get('rows_affected', 0))
                             
                                 # ===========================================================
-                                # 🔮 AI Recommendation Section
+                                # 🔮 AI Recommendation (แสดงเฉพาะคำแนะนำ)
                                 # ===========================================================
                                 st.divider()
                                 st.subheader("💡 AI Recommendation")
@@ -793,7 +794,7 @@ def render_import_tab():
                                     if suggestion:
                                         proc_name = suggestion.replace("Execute Procedure:", "").strip()
                             
-                                        # สีตามระดับความเชื่อมั่น
+                                        # ✅ สีตามระดับความเชื่อมั่น
                                         if confidence >= 80:
                                             conf_color = "#2ecc71"
                                             emoji = "🟢"
@@ -807,7 +808,7 @@ def render_import_tab():
                                             emoji = "🔴"
                                             conf_text = "ค่อนข้างต่ำ"
                             
-                                        # แสดงข้อความแนะนำ
+                                        # ✅ แสดงข้อความแนะนำ
                                         st.markdown(f"""
                                         <div style="background-color:#f8f9fb;border-left:6px solid {conf_color};
                                                     padding:12px 18px;border-radius:10px;font-size:15px;line-height:1.6;">
@@ -822,119 +823,37 @@ def render_import_tab():
                                         </div>
                                         """, unsafe_allow_html=True)
                             
-                                        # Confidence Bar
+                                        # ✅ Confidence Bar + Formula
                                         total_patterns = round(freq / (confidence / 100)) if confidence > 0 else freq
+                                        freq_fmt = f"{freq:,}"
+                                        total_fmt = f"{total_patterns:,}"
+                                        conf_fmt = f"{confidence:.2f}"
+                            
                                         st.markdown(f"""
                                         <div style="background-color:#eaecef;border-radius:8px;margin-top:6px;">
                                           <div style="width:{confidence}%;background-color:{conf_color};
                                                       height:12px;border-radius:8px;"></div>
                                         </div>
+                                        
                                         <div style="font-size:13px;color:#555;margin-top:6px;">
                                           <b style="color:{conf_color};">Confidence Level:</b>
-                                          <span style="font-weight:bold;color:{conf_color};">{confidence:.2f}%</span>
+                                          <span style="font-weight:bold;color:{conf_color};">{conf_fmt}%</span>
                                         </div>
-                                        <div style="font-size:12.5px;color:#7f8c8d;margin-top:2px;font-family:Consolas,'Courier New',monospace;">
-                                          {freq:,} ÷ {total_patterns:,} × 100 = <b>{confidence:.2f}%</b>
+                                        
+                                        <div style="font-size:12.5px; color:#7f8c8d; margin-top:2px; font-family:Consolas, 'Courier New', monospace;">
+                                          {freq_fmt} ÷ {total_fmt} × 100  =  <b>{conf_fmt}%</b>
                                         </div>
                                         """, unsafe_allow_html=True)
                             
+                                        # ✅ ข้อความแนะนำให้ไปรันใน Tab Run Procedures
                                         st.markdown("<br>", unsafe_allow_html=True)
-                            
-                                        # ============================================================
-                                        # 🔑 Authorization สำหรับรัน Procedure
-                                        # ============================================================
-                                        run_secret_key = st.text_input(
-                                            "🔑 Enter Secret Key to Run Procedure",
-                                            type="password",
-                                            placeholder="Enter your key",
-                                            key=f"run_proc_auth_{proc_name}"
-                                        ).strip()
-                            
-                                        run_user_perm = get_user_permission(run_secret_key)
-                            
-                                        if not run_user_perm:
-                                            st.info("🔒 กรุณากรอก Secret Key เพื่อรัน Procedure ที่ระบบแนะนำ")
-                                            run_disabled = True
-                                        else:
-                                            run_role = run_user_perm["role"]
-                                            allowed_procs = run_user_perm.get("allowed_procedures", [])
-                                            if run_role == "Admin" or proc_name in allowed_procs:
-                                                st.success(f"✅ Authorized as **{run_role}** (can run `{proc_name}`)")
-                                                run_disabled = False
-                                            else:
-                                                st.error(f"🚫 You are not allowed to run `{proc_name}`")
-                                                run_disabled = True
-                            
-                                        # ============================================================
-                                        # 🟢 ปุ่มรัน Procedure (Direct Execution - ไม่ใช้ rerun)
-                                        # ============================================================
-                                        if st.button(
-                                            f"▶️ ดำเนินการรัน Procedure `{proc_name}`",
-                                            type="primary",
-                                            use_container_width=True,
-                                            key=f"direct_run_{proc_name}_{selected_table}",
-                                            disabled=run_disabled
-                                        ):
-                                            st.divider()
-                                            st.markdown(f"""
-                                            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                                                        padding: 1.5rem; border-radius: 12px; margin-bottom: 1rem;
-                                                        text-align: center; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                                                <h2 style="margin:0; font-size:1.8rem;">🤖 Smart AI Operator</h2>
-                                                <p style="margin:0.5rem 0 0 0; font-size:1rem; opacity:0.9;">
-                                                    กำลังดำเนินการตามคำแนะนำของระบบ AI
-                                                </p>
-                                            </div>
-                                            """, unsafe_allow_html=True)
-                            
-                                            # แสดงรายละเอียด
-                                            col1, col2, col3 = st.columns(3)
-                                            with col1:
-                                                st.metric("📦 Procedure", proc_name)
-                                            with col2:
-                                                st.metric("📊 Source Table", selected_table)
-                                            with col3:
-                                                st.metric("🎯 Confidence", f"{confidence:.1f}%")
-                            
-                                            st.divider()
-                            
-                                            # ⚠️ รันทันทีโดยไม่ rerun
-                                            try:
-                                                st.info(f"⏳ กำลังเรียกใช้ Procedure `{proc_name}`...")
-                                                
-                                                # รีเซ็ต progress value
-                                                st.session_state['proc_progress_value'] = 20
-                                                
-                                                # รัน procedure
-                                                exec_result = execute_procedure_with_progress(proc_name)
-                                                
-                                                # แสดงผลลัพธ์
-                                                render_exec_result(proc_name, exec_result)
-                                                
-                                                # บันทึก log
-                                                try:
-                                                    log_activity(
-                                                        username=run_secret_key,
-                                                        action="Run Procedure (AI Recommendation)",
-                                                        target=proc_name,
-                                                        details=f"Auto-executed after importing to {selected_table} (confidence={confidence:.1f}%)"
-                                                    )
-                                                except Exception as log_err:
-                                                    st.warning(f"⚠️ ไม่สามารถบันทึก log ได้: {log_err}")
-                                                
-                                                # แจ้งผลสำเร็จ
-                                                if exec_result and exec_result.get("success"):
-                                                    st.success(f"✅ Procedure `{proc_name}` ทำงานสำเร็จแล้ว")
-                                                    st.balloons()
-                                                else:
-                                                    st.error(f"❌ Procedure `{proc_name}` ทำงานไม่สำเร็จ")
-                                                
-                                            except Exception as e:
-                                                st.error(f"❌ เกิดข้อผิดพลาดระหว่างการรัน Procedure: {e}")
-                                                st.exception(e)
+                                        st.info(f"""
+                                        💡 **คำแนะนำถัดไป:**  
+                                        กรุณาไปที่แท็บ **⚙️ Run Procedures** เพื่อรัน Procedure `{proc_name}`
+                                        """)
                             
                                     else:
-                                        # กรณีไม่มีข้อมูลเพียงพอ
+                                        # ✅ กรณีไม่มีข้อมูลเพียงพอ
                                         st.markdown("""
                                         <div style="background-color:#f8f9fb;border-left:6px solid #b2bec3;
                                                     padding:12px 18px;border-radius:10px;font-size:15px;line-height:1.6;">
@@ -944,9 +863,11 @@ def render_import_tab():
                                         </div>
                                         """, unsafe_allow_html=True)
                             
+                                        # Progress Bar 0%
                                         st.markdown("""
                                         <div style="background-color:#eaecef;border-radius:8px;margin-top:6px;">
-                                          <div style="width:0%;background-color:#b2bec3;height:12px;border-radius:8px;"></div>
+                                          <div style="width:0%;background-color:#b2bec3;
+                                                      height:12px;border-radius:8px;"></div>
                                         </div>
                                         <div style="font-size:13px;color:#555;margin-top:2px;">
                                           Confidence Level: <b style="color:#b2bec3;">0.0%</b>
@@ -957,7 +878,8 @@ def render_import_tab():
                                     st.warning(f"⚠️ Suggestion module error: {e}")
                             
                             else:
-                                st.error(f"❌ Import failed: {result.get('error')}") 
+                                st.error(f"❌ Import failed: {result.get('error')}")
+ 
                 with c2:
                     if st.button("🔄 Reset", type="secondary"):
                         st.rerun()
