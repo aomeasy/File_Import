@@ -1088,7 +1088,6 @@ def render_import_tab():
                                     """, unsafe_allow_html=True)
                                     
                                     st.markdown("<br>", unsafe_allow_html=True)
-
                                     # ✅ ปุ่มรัน procedure (ไม่ต้องใส่ key ซ้ำ)
                                     if st.button("⚡ Run Procedure: update_AND", type="primary", use_container_width=True, key="run_update_and"):
                                         try:
@@ -1157,6 +1156,7 @@ def render_import_tab():
                                         except Exception as proc_err:
                                             st.error(f"❌ Failed to run procedure: {proc_err}")
                                             st.exception(proc_err)
+
                                    
  
                                 # ===========================================================
