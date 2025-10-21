@@ -646,7 +646,6 @@ def clean_dataframe_for_import(df, table_columns, column_mapping):
     return df_clean
 
 
-
 # ===== TAB 1: IMPORT DATA =====
 def render_import_tab():
     st.subheader("📊 Quick Stats")
@@ -774,9 +773,9 @@ def render_import_tab():
                     if data_length > 0:
                         size_mb = data_length / (1024 * 1024)
                         st.metric("💾 Size", f"{size_mb:.0f} MB")
- 
 
-      # ===== Show Preview Button (แก้ไข: แสดง 5 record ล่าสุดตาม timestamp) =====
+
+        # ===== Show Preview Button (แก้ไข: แสดง 5 record ล่าสุดตาม timestamp) =====
         st.subheader(f"👀 Preview: {selected_table}")
         if st.button("🔄 Show Preview", type="secondary"):
             try:
@@ -817,6 +816,7 @@ def render_import_tab():
                     st.warning("📭 Table is empty or preview unavailable")
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
+
         # ===== Upload File =====
         st.subheader("📤 Upload File")
         uploaded_file = st.file_uploader("Choose a file to import", type=['csv', 'xlsx', 'xls'], help="Max size: 200MB", key="import_uploader")
@@ -928,6 +928,7 @@ def render_import_tab():
                     st.success(f"✅ Mapped {len(column_mapping)} columns")
                 else:
                     st.warning("⚠️ No columns mapped")
+
                 # ============================================================
                 # 🔐 Authorization + แสดง Allowed Tables
                 # ============================================================
@@ -993,7 +994,6 @@ def render_import_tab():
                     
                     st.markdown("<br>", unsafe_allow_html=True)
                     
-             
                     # ============================================================
                     # 🚀 ปุ่ม Import Data (แก้ไข: ป้องกันการกดซ้ำ)
                     # ============================================================
@@ -1032,12 +1032,7 @@ def render_import_tab():
                                 null_count = df_clean.isnull().sum().sum()
                                 if null_count > 0:
                                     st.info(f"ℹ️ Found {null_count} NULL values after cleaning (will be handled by database)")
-                 
-                            except Exception as clean_err:
-                                st.error(f"❌ Data cleaning failed: {clean_err}")
-                                st.exception(clean_err)
-                                st.stop()
-                            
+                        
                             # ============================================================
                             # 🔹 บันทึก Log
                             # ============================================================
@@ -1075,7 +1070,7 @@ def render_import_tab():
                                 st.success(f"✅ {result['message']}")
                                 st.balloons()
                                 st.metric("Rows Imported", result.get('rows_affected', 0))
-
+                                
                                 # ============================================================
                                 # ✅ เพิ่มฟีเจอร์: ถ้า import AND_Cus ให้แสดงปุ่มรัน procedure update_AND
                                 # ============================================================
@@ -1128,7 +1123,7 @@ def render_import_tab():
                                                 
                                         except Exception as proc_err:
                                             st.error(f"❌ Failed to run procedure: {proc_err}")
-                                 
+                                
                                 # ===========================================================
                                 # 🔮 AI Recommendation (แสดงเฉพาะคำแนะนำ)
                                 # ===========================================================
@@ -1237,7 +1232,77 @@ def render_import_tab():
             except Exception as e:
                 st.error(f"❌ Error processing file: {str(e)}")
                 st.exception(e)
+ 
+def log_activity(username, action, target, details=None):
+    """บันทึก Log ลงในฐานข้อมูล"""
+    try:
+        db = st.session_state.get('db_manager') or DatabaseManager()
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        ip = st.session_state.get('client_ip', 'unknown')
+        sql = """
+            INSERT INTO activity_log (username, action, target, ip_address, details)
+            VALUES (%s, %s, %s, %s, %s)
+        """
+        cursor.execute(sql, (username, action, target, ip, str(details)))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        st.warning(f"⚠️ Failed to write activity log: {e}")
 
+# ====== 🔮 AI Suggestion Section (Auto Procedure Recommendation) ======
+
+def recommend_action(current_action):
+    """แนะนำ Procedure ที่มักถูกรันหลัง Import พร้อมค่า Confidence (%)"""
+    try:
+        db = st.session_state.get('db_manager') or DatabaseManager()
+        conn = db.get_connection()
+        cursor = conn.cursor()
+
+        # ดึง pattern ที่เกิดหลัง import (จำกัดเวลา 10 นาที)
+        query = """
+            SELECT next_action, COUNT(*) AS freq
+            FROM (
+                SELECT 
+                    CONCAT(a.action, ':', a.target) AS prev_action,
+                    CONCAT(b.action, ':', b.target) AS next_action
+                FROM activity_log a
+                JOIN activity_log b 
+                  ON a.username = b.username
+                 AND b.timestamp > a.timestamp
+                 AND TIMESTAMPDIFF(MINUTE, a.timestamp, b.timestamp) <= 30
+                WHERE a.action = 'Import Data'
+            ) seq
+            WHERE prev_action = %s
+              AND (
+                    next_action LIKE 'Run Procedure%%'
+                 OR next_action LIKE 'Execute Procedure%%'
+              )
+            GROUP BY next_action
+            ORDER BY freq DESC
+            LIMIT 1;
+        """
+        cursor.execute(query, (current_action,))
+        row = cursor.fetchone()
+
+        # ดึงจำนวนครั้งทั้งหมดของการ Import ตารางนี้ เพื่อใช้คำนวณ %
+        total_query = "SELECT COUNT(*) FROM activity_log WHERE CONCAT(action, ':', target) = %s"
+        cursor.execute(total_query, (current_action,))
+        total_imports = cursor.fetchone()[0] or 0
+
+        cursor.close()
+        conn.close()
+
+        if row:
+            next_action, freq = row
+            confidence = (freq / total_imports * 100) if total_imports > 0 else 0
+            return next_action, freq, confidence
+    except Exception as e:
+        st.warning(f"⚠️ AI suggestion failed: {e}")
+    return None, None, 0
+ 
+ 
  
 def log_activity(username, action, target, details=None):
     """บันทึก Log ลงในฐานข้อมูล"""
