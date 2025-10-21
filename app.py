@@ -1089,8 +1089,6 @@ def render_import_tab():
                                     
                                     st.markdown("<br>", unsafe_allow_html=True)
 
-
-                                  
                                     # ✅ ปุ่มรัน procedure (ไม่ต้องใส่ key ซ้ำ)
                                     if st.button("⚡ Run Procedure: update_AND", type="primary", use_container_width=True, key="run_update_and"):
                                         try:
