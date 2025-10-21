@@ -774,14 +774,42 @@ def render_import_tab():
                     if data_length > 0:
                         size_mb = data_length / (1024 * 1024)
                         st.metric("💾 Size", f"{size_mb:.0f} MB")
+ 
 
-
-        # ===== Show Preview Button =====
+      # ===== Show Preview Button (แก้ไข: แสดง 5 record ล่าสุดตาม timestamp) =====
         st.subheader(f"👀 Preview: {selected_table}")
         if st.button("🔄 Show Preview", type="secondary"):
             try:
                 with st.spinner("Loading preview..."):
-                    preview_data = get_cached_table_preview(selected_table, 5)
+                    db = st.session_state.get('db_manager') or DatabaseManager()
+                    conn = db.get_connection()
+                    cursor = conn.cursor()
+                    
+                    # ตรวจหาคอลัมน์ timestamp
+                    cursor.execute("""
+                        SELECT COLUMN_NAME 
+                        FROM INFORMATION_SCHEMA.COLUMNS 
+                        WHERE TABLE_SCHEMA = DATABASE() 
+                        AND TABLE_NAME = %s
+                        AND COLUMN_NAME IN ('timestamp', 'last_update', 'updated_at', 'update_time')
+                        ORDER BY COLUMN_NAME
+                        LIMIT 1;
+                    """, (selected_table,))
+                    
+                    timestamp_col = cursor.fetchone()
+                    
+                    if timestamp_col:
+                        # มี timestamp column -> เรียงตาม timestamp
+                        ts_name = timestamp_col[0]
+                        query = f"SELECT * FROM {selected_table} ORDER BY {ts_name} DESC LIMIT 5"
+                    else:
+                        # ไม่มี timestamp -> ใช้วิธีเดิม
+                        query = f"SELECT * FROM {selected_table} ORDER BY 1 DESC LIMIT 5"
+                    
+                    preview_data = pd.read_sql(query, conn)
+                    cursor.close()
+                    conn.close()
+                
                 if not preview_data.empty:
                     st.dataframe(preview_data, use_container_width=True, hide_index=True)
                     st.success(f"📊 Showing last 5 rows from {len(preview_data.columns)} columns")
@@ -789,7 +817,6 @@ def render_import_tab():
                     st.warning("📭 Table is empty or preview unavailable")
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
-
         # ===== Upload File =====
         st.subheader("📤 Upload File")
         uploaded_file = st.file_uploader("Choose a file to import", type=['csv', 'xlsx', 'xls'], help="Max size: 200MB", key="import_uploader")
@@ -848,8 +875,7 @@ def render_import_tab():
                 st.subheader("📋 Data Preview")
                 st.dataframe(df.head(10), use_container_width=True)
 
-                # ===== Column Mapping =====
-
+                # ===== Column Mapping (แก้ไข: ทำเป็น Collapsible) =====
                 st.subheader("🔗 Column Mapping")
                 table_columns = get_cached_table_columns(selected_table)
                 if not table_columns:
@@ -869,39 +895,39 @@ def render_import_tab():
                 
                 file_columns = list(df.columns)
                 st.info(f"**File Columns:** {len(file_columns)} | **Table Columns:** {len(db_column_names)}")
+                
                 column_mapping = {}
-                cols = st.columns(2)
-                with cols[0]:
-                    st.write("**File Column**")
-                with cols[1]:
-                    st.write("**→ Database Column**")
-                  
-                for file_col in file_columns:
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.text(file_col)
-                    with c2:
-                        default_index = 0
-                        if file_col in db_column_names:
-                            default_index = db_column_names.index(file_col)
-                        selected_db_col = st.selectbox(
-                            f"Map {file_col}",
-                            options=["-- Skip --"] + db_column_names,
-                            index=default_index + 1 if file_col in db_column_names else 0,
-                            key=f"mapping_{file_col}",
-                            label_visibility="collapsed"
-                        )
-                        if selected_db_col != "-- Skip --":
-                            column_mapping[file_col] = selected_db_col
+                
+                # ✅ ใช้ expander เพื่อให้ hide/view ได้
+                with st.expander("🔽 View/Hide Column Mapping", expanded=True):
+                    cols = st.columns(2)
+                    with cols[0]:
+                        st.write("**File Column**")
+                    with cols[1]:
+                        st.write("**→ Database Column**")
+                      
+                    for file_col in file_columns:
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.text(file_col)
+                        with c2:
+                            default_index = 0
+                            if file_col in db_column_names:
+                                default_index = db_column_names.index(file_col)
+                            selected_db_col = st.selectbox(
+                                f"Map {file_col}",
+                                options=["-- Skip --"] + db_column_names,
+                                index=default_index + 1 if file_col in db_column_names else 0,
+                                key=f"mapping_{file_col}",
+                                label_visibility="collapsed"
+                            )
+                            if selected_db_col != "-- Skip --":
+                                column_mapping[file_col] = selected_db_col
 
                 if column_mapping:
                     st.success(f"✅ Mapped {len(column_mapping)} columns")
-                    with st.expander("View Mapping Details"):
-                        for file_col, db_col in column_mapping.items():
-                            st.write(f"**{file_col}** → **{db_col}**")
                 else:
                     st.warning("⚠️ No columns mapped")
-
                 # ============================================================
                 # 🔐 Authorization + แสดง Allowed Tables
                 # ============================================================
@@ -967,32 +993,46 @@ def render_import_tab():
                     
                     st.markdown("<br>", unsafe_allow_html=True)
                     
+             
                     # ============================================================
-                    # 🚀 ปุ่ม Import Data
+                    # 🚀 ปุ่ม Import Data (แก้ไข: ป้องกันการกดซ้ำ)
                     # ============================================================
+                    
+                    # ✅ สร้าง session_state เพื่อป้องกันการกดซ้ำ
+                    if 'import_in_progress' not in st.session_state:
+                        st.session_state.import_in_progress = False
+                    
+                    # ✅ disable ปุ่มถ้ากำลัง import อยู่
+                    button_disabled = import_disabled or st.session_state.import_in_progress
 
-                    if st.button("🚀 Import Data", type="primary", use_container_width=True, disabled=import_disabled):
+                    if st.button("🚀 Import Data", type="primary", use_container_width=True, disabled=button_disabled):
                         if not column_mapping:
                             st.error("Please map at least one column")
                         else:
+                            # ✅ ล็อกปุ่มทันทีเมื่อเริ่ม import
+                            st.session_state.import_in_progress = True
+                            st.rerun()  # rerun เพื่อให้ปุ่ม disabled ทันที
+                    
+                    # ✅ ตรวจสอบว่าต้อง import จริงหรือไม่
+                    if st.session_state.import_in_progress and column_mapping:
+                        try:
                             # ============================================================
                             # 🧹 ทำความสะอาดข้อมูลก่อน import
                             # ============================================================
-                            try:
-                                with st.spinner("🧹 Cleaning data..."):
-                                    # ดึง column info จาก database
-                                    table_columns = get_cached_table_columns(selected_table)
-                                    
-                                    # ทำความสะอาดข้อมูล (ส่ง column_mapping ด้วย)
-                                    df_clean = clean_dataframe_for_import(df, table_columns, column_mapping)
-                                    
-                                    st.success("✅ Data cleaned successfully")
-                                    
-                                    # แสดงสถิติการทำความสะอาด
-                                    null_count = df_clean.isnull().sum().sum()
-                                    if null_count > 0:
-                                        st.info(f"ℹ️ Found {null_count} NULL values after cleaning (will be handled by database)")
-                            
+                            with st.spinner("🧹 Cleaning data..."):
+                                # ดึง column info จาก database
+                                table_columns = get_cached_table_columns(selected_table)
+                                
+                                # ทำความสะอาดข้อมูล (ส่ง column_mapping ด้วย)
+                                df_clean = clean_dataframe_for_import(df, table_columns, column_mapping)
+                                
+                                st.success("✅ Data cleaned successfully")
+                                
+                                # แสดงสถิติการทำความสะอาด
+                                null_count = df_clean.isnull().sum().sum()
+                                if null_count > 0:
+                                    st.info(f"ℹ️ Found {null_count} NULL values after cleaning (will be handled by database)")
+                 
                             except Exception as clean_err:
                                 st.error(f"❌ Data cleaning failed: {clean_err}")
                                 st.exception(clean_err)
@@ -1035,7 +1075,60 @@ def render_import_tab():
                                 st.success(f"✅ {result['message']}")
                                 st.balloons()
                                 st.metric("Rows Imported", result.get('rows_affected', 0))
-                                
+
+                                # ============================================================
+                                # ✅ เพิ่มฟีเจอร์: ถ้า import AND_Cus ให้แสดงปุ่มรัน procedure update_AND
+                                # ============================================================
+                                if selected_table == "AND_Cus":
+                                    st.divider()
+                                    st.subheader("⚙️ Quick Action: Run Procedure")
+                                    
+                                    st.markdown("""
+                                    <div style="background-color:#fff3cd;border-left:6px solid #ffc107;
+                                                padding:12px 18px;border-radius:8px;font-size:14px;">
+                                        <strong>💡 Suggested Next Step:</strong><br>
+                                        ตารางนี้มักใช้คู่กับ Procedure <code>update_AND</code><br>
+                                        คุณสามารถรันได้ทันทีโดยไม่ต้องใส่ Key ซ้ำ
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    
+                                    st.markdown("<br>", unsafe_allow_html=True)
+                                    
+                                    # ✅ ปุ่มรัน procedure (ไม่ต้องใส่ key ซ้ำ)
+                                    if st.button("⚡ Run Procedure: update_AND", type="primary", use_container_width=True, key="run_update_and"):
+                                        try:
+                                            with st.spinner("Running procedure update_AND..."):
+                                                db = DatabaseManager()
+                                                conn = db.get_connection()
+                                                cursor = conn.cursor()
+                                                
+                                                # รัน stored procedure
+                                                cursor.execute("CALL update_AND()")
+                                                conn.commit()
+                                                
+                                                # บันทึก log
+                                                username = secret_key.strip()
+                                                cursor.execute("""
+                                                    INSERT INTO activity_log (username, action, target, ip_address, details)
+                                                    VALUES (%s, %s, %s, %s, %s)
+                                                """, (
+                                                    username,
+                                                    "Execute Procedure",
+                                                    "update_AND",
+                                                    st.session_state.get('client_ip', 'unknown'),
+                                                    "Auto-run after AND_Cus import"
+                                                ))
+                                                conn.commit()
+                                                
+                                                cursor.close()
+                                                conn.close()
+                                                
+                                                st.success("✅ Procedure update_AND executed successfully!")
+                                                st.balloons()
+                                                
+                                        except Exception as proc_err:
+                                            st.error(f"❌ Failed to run procedure: {proc_err}")
+                                 
                                 # ===========================================================
                                 # 🔮 AI Recommendation (แสดงเฉพาะคำแนะนำ)
                                 # ===========================================================
@@ -1132,10 +1225,19 @@ def render_import_tab():
                             
                             else:
                                 st.error(f"❌ Import failed: {result.get('error')}")
+                        
+                        except Exception as import_err:
+                            st.error(f"❌ Import process error: {import_err}")
+                            st.exception(import_err)
+                        
+                        finally:
+                            # ✅ ปลดล็อกปุ่มหลังจาก import เสร็จ
+                            st.session_state.import_in_progress = False
 
             except Exception as e:
                 st.error(f"❌ Error processing file: {str(e)}")
                 st.exception(e)
+
  
 def log_activity(username, action, target, details=None):
     """บันทึก Log ลงในฐานข้อมูล"""
@@ -1207,9 +1309,7 @@ def recommend_action(current_action):
     return None, None, 0
 
 
-
-
-
+ 
 # ===== TAB 2: RUN PROCEDURES (with event flags) =====
 def render_procedures_tab():
     st.header("⚙️ Database Procedures & Updates")
