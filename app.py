@@ -899,7 +899,7 @@ def render_import_tab():
                 column_mapping = {}
                 
                 # ✅ ใช้ expander เพื่อให้ hide/view ได้
-                with st.expander("🔽 View/Hide Column Mapping", expanded=True):
+                with st.expander("🔽 View/Hide Column Mapping", expanded=False):
                     cols = st.columns(2)
                     with cols[0]:
                         st.write("**File Column**")
@@ -1088,7 +1088,7 @@ def render_import_tab():
                                     """, unsafe_allow_html=True)
                                     
                                     st.markdown("<br>", unsafe_allow_html=True)
-                                    
+
                                     # ✅ ปุ่มรัน procedure (ไม่ต้องใส่ key ซ้ำ)
                                     if st.button("⚡ Run Procedure: update_AND", type="primary", use_container_width=True, key="run_update_and"):
                                         try:
@@ -1097,12 +1097,29 @@ def render_import_tab():
                                                 conn = db.get_connection()
                                                 cursor = conn.cursor()
                                                 
+                                                # ✅ เก็บจำนวนข้อมูลก่อนรัน procedure
+                                                cursor.execute("SELECT COUNT(*) FROM AND_Cus")
+                                                before_count = cursor.fetchone()[0]
+                                                
                                                 # รัน stored procedure
                                                 cursor.execute("CALL update_AND()")
+                                                
+                                                # ✅ ดึงจำนวน rows ที่ถูก affected (ถ้า procedure return ผลลัพธ์)
+                                                rows_affected = cursor.rowcount
+                                                
+                                                # ✅ ตรวจสอบจำนวนข้อมูลหลังรัน
+                                                cursor.execute("SELECT COUNT(*) FROM AND_Cus")
+                                                after_count = cursor.fetchone()[0]
+                                                
                                                 conn.commit()
                                                 
-                                                # บันทึก log
+                                                # ✅ คำนวณผลต่าง
+                                                difference = after_count - before_count
+                                                
+                                                # บันทึก log พร้อมรายละเอียดผลลัพธ์
                                                 username = secret_key.strip()
+                                                details = f"Auto-run after AND_Cus import | Rows affected: {rows_affected} | Before: {before_count} | After: {after_count} | Diff: {difference:+d}"
+                                                
                                                 cursor.execute("""
                                                     INSERT INTO activity_log (username, action, target, ip_address, details)
                                                     VALUES (%s, %s, %s, %s, %s)
@@ -1111,18 +1128,38 @@ def render_import_tab():
                                                     "Execute Procedure",
                                                     "update_AND",
                                                     st.session_state.get('client_ip', 'unknown'),
-                                                    "Auto-run after AND_Cus import"
+                                                    details
                                                 ))
                                                 conn.commit()
                                                 
                                                 cursor.close()
                                                 conn.close()
                                                 
+                                                # ✅ แสดงผลลัพธ์ที่ชัดเจน
                                                 st.success("✅ Procedure update_AND executed successfully!")
-                                                st.balloons()
+                                                
+                                                # แสดง metrics ผลการทำงาน
+                                                col1, col2, col3 = st.columns(3)
+                                                with col1:
+                                                    st.metric("📊 Rows Affected", f"{rows_affected:,}")
+                                                with col2:
+                                                    st.metric("📥 Before", f"{before_count:,}")
+                                                with col3:
+                                                    st.metric("📤 After", f"{after_count:,}", delta=f"{difference:+,}")
+                                                
+                                                # แสดงข้อความเพิ่มเติมตามผลลัพธ์
+                                                if rows_affected > 0 or difference != 0:
+                                                    st.info(f"ℹ️ Procedure processed {rows_affected:,} rows successfully")
+                                                    st.balloons()
+                                                else:
+                                                    st.warning("⚠️ Procedure executed but no rows were affected. This might be normal if there's no data to update.")
                                                 
                                         except Exception as proc_err:
                                             st.error(f"❌ Failed to run procedure: {proc_err}")
+                                            st.exception(proc_err)
+
+
+                                   
                                 
                                 # ===========================================================
                                 # 🔮 AI Recommendation (แสดงเฉพาะคำแนะนำ)
