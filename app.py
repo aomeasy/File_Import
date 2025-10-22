@@ -873,7 +873,8 @@ def render_import_tab():
                 st.success(f"✅ File loaded: {len(df)} rows, {len(df.columns)} columns")
                 st.caption(f"Encoding: {getattr(df.attrs, '__encoding__', 'auto') if uploaded_file.name.endswith('.csv') else df.attrs.get('__encoding__', 'n/a')}")
                 st.subheader("📋 Data Preview")
-                st.dataframe(df.head(10), use_container_width=True)
+                with st.expander("📋 Data Preview (คลิกเพื่อดูข้อมูลตัวอย่าง)", expanded=False):
+                    st.dataframe(df.head(10), use_container_width=True)
 
                 # ===== Column Mapping (แก้ไข: ทำเป็น Collapsible) =====
                 st.subheader("🔗 Column Mapping")
@@ -1030,9 +1031,9 @@ def render_import_tab():
                                 # st.success("✅ Data cleaned successfully")
                                 
                                 # แสดงสถิติการทำความสะอาด
-                                null_count = df_clean.isnull().sum().sum()
-                                if null_count > 0:
-                                    st.info(f"ℹ️ Found {null_count} NULL values after cleaning (will be handled by database)")
+                                #null_count = df_clean.isnull().sum().sum()
+                                #if null_count > 0:
+                                #    st.info(f"ℹ️ Found {null_count} NULL values after cleaning (will be handled by database)")
                         
                             # ============================================================
                             # 🔹 บันทึก Log
@@ -1322,15 +1323,6 @@ def render_import_tab():
                             
                             if result.get("success"):
                                 st.success("✅ Procedure update_AND executed successfully!")
-                                
-                                col1, col2, col3 = st.columns(3)
-                                with col1:
-                                      st.metric("📊 Rows Affected", f"{result['rows_affected']:,}")
-                                with col2:
-                                      st.metric("📥 Before", f"{result['before_count']:,}")
-                                with col3:
-                                      st.metric("📤 After", f"{result['after_count']:,}", 
-                                               delta=f"{result['difference']:+,}")
                                 
                                 if result['rows_affected'] > 0 or result['difference'] != 0:
                                     # st.info(f"ℹ️ Procedure processed {result['rows_affected']:,} rows")
