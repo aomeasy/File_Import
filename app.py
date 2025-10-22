@@ -1027,12 +1027,12 @@ def render_import_tab():
                                 # ทำความสะอาดข้อมูล (ส่ง column_mapping ด้วย)
                                 df_clean = clean_dataframe_for_import(df, table_columns, column_mapping)
                                 
-                                st.success("✅ Data cleaned successfully")
+                                # st.success("✅ Data cleaned successfully")
                                 
                                 # แสดงสถิติการทำความสะอาด
                                 null_count = df_clean.isnull().sum().sum()
                                 if null_count > 0:
-                                    st.info(f"ℹ️ Found {null_count} NULL values after cleaning (will be handled by database)")
+                                    # st.info(f"ℹ️ Found {null_count} NULL values after cleaning (will be handled by database)")
                         
                             # ============================================================
                             # 🔹 บันทึก Log
@@ -1077,7 +1077,7 @@ def render_import_tab():
                             if result.get('success'):
                                 st.success(f"✅ {result['message']}")
                                 st.balloons()
-                                st.metric("Rows Imported", result.get('rows_affected', 0))
+                                # st.metric("Rows Imported", result.get('rows_affected', 0))
                                 
                                 # ✅ เก็บ import result ใน session state
                                 st.session_state['last_import_success'] = {
