@@ -1032,7 +1032,7 @@ def render_import_tab():
                                 # แสดงสถิติการทำความสะอาด
                                 null_count = df_clean.isnull().sum().sum()
                                 if null_count > 0:
-                                    # st.info(f"ℹ️ Found {null_count} NULL values after cleaning (will be handled by database)")
+                                    st.info(f"ℹ️ Found {null_count} NULL values after cleaning (will be handled by database)")
                         
                             # ============================================================
                             # 🔹 บันทึก Log
