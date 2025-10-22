@@ -1199,8 +1199,8 @@ def render_import_tab():
                     # ดึง import result จาก session
                     last_import = st.session_state.get('last_import_success')
                     
-                    # ตรวจสอบว่า import สำเร็จและเป็น table AND_Cus หรือไม่
-                    if last_import and last_import.get('table') == 'AND_Cus':
+                    # ตรวจสอบว่า import สำเร็จและเป็น table Broadband_daily หรือไม่
+                    if last_import and last_import.get('table') == 'Broadband_daily':
                         st.markdown("### ⚙️ Quick Action: Run Procedure")
                         
                         st.markdown("""
@@ -1209,7 +1209,7 @@ def render_import_tab():
                             <strong>💡 Suggested Next Step:</strong><br> 
                             หากท่านได้ดำเนินการนำเข้าข้อมูลจากระบบ <b>TTS</b> และ <b>SCOMS</b> เรียบร้อยแล้ว<br>
                             กรุณาดำเนินการกด <b>Quick Run<code style="background:#e8f4f8;padding:2px 8px;border-radius:4px;">
-                            update_AND</code></b><br> เพื่อปรับปรุงข้อมูลใน <b>Dashboard Daily Report</b> ให้เป็นปัจจุบัน
+                            update_Broadband_daily</code></b><br> เพื่อปรับปรุงข้อมูลใน <b>Dashboard Daily Report</b> ให้เป็นปัจจุบัน
                         </div>
                         """, unsafe_allow_html=True)
                         
@@ -1232,11 +1232,11 @@ def render_import_tab():
                                 cursor = conn.cursor()
                                 
                                 # นับข้อมูลก่อนรัน
-                                cursor.execute("SELECT COUNT(*) FROM AND_Cus")
+                                cursor.execute("SELECT COUNT(*) FROM Broadband_daily")
                                 before_count = cursor.fetchone()[0]
                                 
                                 # รัน procedure
-                                cursor.callproc("update_AND")
+                                cursor.callproc("update_Broadband_daily")
                                 rows_affected = cursor.rowcount
                                 
                                 # Fetch result sets
@@ -1247,7 +1247,7 @@ def render_import_tab():
                                     pass
                                 
                                 # นับข้อมูลหลังรัน
-                                cursor.execute("SELECT COUNT(*) FROM AND_Cus")
+                                cursor.execute("SELECT COUNT(*) FROM Broadband_daily")
                                 after_count = cursor.fetchone()[0]
                                 difference = after_count - before_count
                                 
@@ -1261,9 +1261,9 @@ def render_import_tab():
                                 """, (
                                     username,
                                     "Execute Procedure",
-                                    "update_AND",
+                                    "update_Broadband_daily",
                                     st.session_state.get('client_ip', 'unknown'),
-                                    f"Auto-run after AND_Cus import | Rows: {rows_affected} | Before: {before_count} | After: {after_count} | Diff: {difference:+d}"
+                                    f"Auto-run after Broadband_daily import | Rows: {rows_affected} | Before: {before_count} | After: {after_count} | Diff: {difference:+d}"
                                 ))
                                 conn.commit()
                                 
@@ -1271,7 +1271,7 @@ def render_import_tab():
                                 conn.close()
                                 
                                 # เก็บผลลัพธ์
-                                st.session_state.update_and_result = {
+                                st.session_state.update_Broadband_daily_result = {
                                     "success": True,
                                     "rows_affected": rows_affected,
                                     "before_count": before_count,
@@ -1281,7 +1281,7 @@ def render_import_tab():
                                 }
                                 
                             except Exception as e:
-                                st.session_state.update_and_result = {
+                                st.session_state.update_Broadband_daily_result = {
                                     "success": False,
                                     "error": str(e),
                                     "timestamp": time.time()
@@ -1302,9 +1302,9 @@ def render_import_tab():
                                 "⚡ Quick Run For Update",
                                 type="primary",
                                 use_container_width=True,
-                                key="btn_run_update_and",
+                                key="btn_run_update_Broadband_daily",
                                 disabled=button_disabled,
-                                help="Execute update_AND stored procedure"
+                                help="Execute update_Broadband_daily stored procedure"
                             ):
                                 st.session_state.run_proc_in_progress = True
                                 execute_update_and_callback()
@@ -1325,7 +1325,7 @@ def render_import_tab():
                             st.markdown("---")
                             
                             if result.get("success"):
-                                st.success("✅ Procedure update_AND executed successfully!")
+                                st.success("✅ Procedure update_Broadband_daily executed successfully!")
                                 
                                 if result['rows_affected'] > 0 or result['difference'] != 0:
                                     # st.info(f"ℹ️ Procedure processed {result['rows_affected']:,} rows")
