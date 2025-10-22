@@ -1117,8 +1117,13 @@ def render_import_tab():
                             if result.get('success'):
                                 st.success(f"✅ {result['message']}")
                                 st.balloons()
-                                # st.metric("Rows Imported", result.get('rows_affected', 0))
-                                
+                                # 🔁 ปุ่ม Refresh Page (ทำงานเหมือนกด F5)
+                                if st.button("🔄 Refresh Page"):
+                                    st.markdown(
+                                        "<script>setTimeout(() => window.location.reload(), 500);</script>",
+                                        unsafe_allow_html=True
+                                    )
+                          
                                 # ✅ เก็บ import result ใน session state
                                 st.session_state['last_import_success'] = {
                                     'table': selected_table,
