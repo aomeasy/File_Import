@@ -1084,7 +1084,7 @@ def render_import_tab():
                                     'table': selected_table,
                                     'message': result['message'],
                                     'rows_affected': result.get('rows_affected', 0),
-                                    'timestamp': time.time()
+                                    'timestamp': time.time(),
                                     'username': secret_key.strip()  # เก็บ username ไว้ใช้ใน procedure
                                 }
 
