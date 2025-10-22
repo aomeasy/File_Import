@@ -687,6 +687,17 @@ def clean_dataframe_for_import(df, table_columns, column_mapping):
 
 # ===== TAB 1: IMPORT DATA =====
 def render_import_tab():
+    # ✅ ตรวจสอบ force_reset ก่อนทำอะไร
+    if st.session_state.get('force_reset', False):
+        with st.spinner("🔁 กำลังโหลดหน้าใหม่..."):
+            time.sleep(0.3)
+            st.cache_data.clear()
+            # ล้างทุกอย่างยกเว้น db_manager
+            for key in list(st.session_state.keys()):
+                if key != 'db_manager':
+                    del st.session_state[key]
+        st.rerun()
+      
     st.subheader("📊 Quick Stats")
     col_stat1, col_stat2, col_stat3 = st.columns(3)
     with col_stat1:
@@ -1117,18 +1128,11 @@ def render_import_tab():
                             if result.get('success'):
                                 st.success(f"✅ {result['message']}")
                                 st.balloons() 
-  
-
+                              
+                                # ✅ ปุ่มใหม่ - ตั้ง flag แล้ว rerun
                                 if st.button("🔄 โหลดหน้าใหม่ (ล้างทุกอย่าง)", key="reset_page_btn"):
-                                    st.cache_data.clear()
-                                    for key in list(st.session_state.keys()):
-                                        if key != 'db_manager':  # เก็บเฉพาะ db connection
-                                            del st.session_state[key]
-                                    
-                                    # ✅ Force refresh ด้วย query params
-                                    st.query_params.clear()
-                                    st.query_params['refresh'] = str(time.time())
-                                    st.rerun()
+                                    st.session_state['force_reset'] = True
+                                    st.rerun() 
                                 
                           
                                 # ✅ เก็บ import result ใน session state
