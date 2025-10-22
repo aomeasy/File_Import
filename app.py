@@ -2748,50 +2748,22 @@ def main():
             </style>
             """, unsafe_allow_html=True)
 
-st.set_page_config(page_title="Data Management Hub", layout="wide")
 
-# ===== ปุ่ม Reload ทั้งระบบ (อยู่นอก tab) =====
-st.sidebar.markdown("---")
-if st.sidebar.button("🔄 Reload Application (Full Reset)"):
-    st.info("กำลังรีเซ็ตระบบ โปรดรอสักครู่...")
-    st.cache_data.clear()
-    st.cache_resource.clear()
-    st.session_state.clear()
-    time.sleep(0.5)
-    st.rerun()  # ✅ ทำงานแน่นอน
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([ "📁 Import Data", "⚙️ Run Procedures","🧾 View & Edit Data","🔗 File Merger","📜 Logs","🔑 Key Management"])
+        with tab1:
+            render_import_tab()
+        with tab2:
+            render_procedures_tab()
+        with tab3:
+            render_data_editor_tab()  # ✅ เพิ่มใหม่
+        with tab4:
+            render_merger_tab() 
+        with tab5:
+            render_log_tab()
+        with tab6:
+            render_user_management_tab()
+    except Exception as e:
+        st.error(f"Application error: {e}")
 
-# ===== Tabs =====
-try:
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📁 Import Data",
-        "⚙️ Run Procedures",
-        "🧾 View & Edit Data",
-        "🔗 File Merger",
-        "📜 Logs",
-        "🔑 Key Management"
-    ])
-
-    with tab1:
-        render_import_tab()
-
-    with tab2:
-        render_procedures_tab()
-
-    with tab3:
-        render_data_editor_tab()
-
-    with tab4:
-        render_merger_tab()
-
-    with tab5:
-        render_log_tab()
-
-    with tab6:
-        render_user_management_tab()
-
-except Exception as e:
-    st.error(f"Application error: {e}")
-
- 
 if __name__ == "__main__":
     main()
