@@ -1066,6 +1066,12 @@ def render_import_tab():
                             fresh_db.close_connection()
                  
                             # 🔹 แสดงผลลัพธ์ Import
+                            # ============================================================
+                            # ✅ FIXED: ส่วน Run Procedure หลัง Import AND_Cus
+                            # ============================================================
+                            
+                            # ใส่ใน render_import_tab() หลังจากแสดงผล import success
+                            
                             if result.get('success'):
                                 st.success(f"✅ {result['message']}")
                                 st.balloons()
@@ -1088,10 +1094,15 @@ def render_import_tab():
                                     """, unsafe_allow_html=True)
                                     
                                     st.markdown("<br>", unsafe_allow_html=True)
-                                    # ✅ ปุ่มรัน procedure (ไม่ต้องใส่ key ซ้ำ)
-                                    if st.button("⚡ Run Procedure: update_AND", type="primary", use_container_width=True, key="run_update_and"):
-                                        try:
-                                            with st.spinner("Running procedure update_AND..."):
+                                    
+                                    # ✅ สร้าง session flag เพื่อควบคุมการทำงาน
+                                    if 'run_update_and_triggered' not in st.session_state:
+                                        st.session_state.run_update_and_triggered = False
+                                    
+                                    # ✅ แสดงสถานะการทำงาน
+                                    if st.session_state.run_update_and_triggered:
+                                        with st.spinner("⏳ กำลังรัน procedure update_AND..."):
+                                            try:
                                                 db = DatabaseManager()
                                                 conn = db.get_connection()
                                                 cursor = conn.cursor()
@@ -1100,11 +1111,16 @@ def render_import_tab():
                                                 cursor.execute("SELECT COUNT(*) FROM AND_Cus")
                                                 before_count = cursor.fetchone()[0]
                                                 
-                                                # รัน stored procedure
-                                                cursor.execute("CALL update_AND()")
+                                                # ✅ รัน stored procedure
+                                                cursor.callproc("update_AND")
                                                 
-                                                # ✅ ดึงจำนวน rows ที่ถูก affected (ถ้า procedure return ผลลัพธ์)
+                                                # ✅ ดึงจำนวน rows ที่ถูก affected
                                                 rows_affected = cursor.rowcount
+                                                
+                                                # ✅ Fetch result sets (ถ้ามี)
+                                                results = []
+                                                for result_set in cursor.stored_results():
+                                                    results.extend(result_set.fetchall())
                                                 
                                                 # ✅ ตรวจสอบจำนวนข้อมูลหลังรัน
                                                 cursor.execute("SELECT COUNT(*) FROM AND_Cus")
@@ -1115,9 +1131,15 @@ def render_import_tab():
                                                 # ✅ คำนวณผลต่าง
                                                 difference = after_count - before_count
                                                 
-                                                # บันทึก log พร้อมรายละเอียดผลลัพธ์
+                                                # ✅ บันทึก log พร้อมรายละเอียดผลลัพธ์
                                                 username = secret_key.strip()
-                                                details = f"Auto-run after AND_Cus import | Rows affected: {rows_affected} | Before: {before_count} | After: {after_count} | Diff: {difference:+d}"
+                                                details = (
+                                                    f"Auto-run after AND_Cus import | "
+                                                    f"Rows affected: {rows_affected} | "
+                                                    f"Before: {before_count} | "
+                                                    f"After: {after_count} | "
+                                                    f"Diff: {difference:+d}"
+                                                )
                                                 
                                                 cursor.execute("""
                                                     INSERT INTO activity_log (username, action, target, ip_address, details)
@@ -1153,12 +1175,36 @@ def render_import_tab():
                                                 else:
                                                     st.warning("⚠️ Procedure executed but no rows were affected. This might be normal if there's no data to update.")
                                                 
-                                        except Exception as proc_err:
-                                            st.error(f"❌ Failed to run procedure: {proc_err}")
-                                            st.exception(proc_err)
+                                                # ✅ Reset flag หลังเสร็จสิ้น
+                                                st.session_state.run_update_and_triggered = False
+                                                
+                                            except mysql.connector.Error as mysql_err:
+                                                st.error(f"❌ MySQL Error: {mysql_err}")
+                                                st.exception(mysql_err)
+                                                st.session_state.run_update_and_triggered = False
+                                                
+                                            except Exception as proc_err:
+                                                st.error(f"❌ Failed to run procedure: {proc_err}")
+                                                st.exception(proc_err)
+                                                st.session_state.run_update_and_triggered = False
+                                    
+                                    else:
+                                        # ✅ แสดงปุ่มเมื่อยังไม่ได้กด
+                                        if st.button(
+                                            "⚡ Run Procedure: update_AND",
+                                            type="primary",
+                                            use_container_width=True,
+                                            key="run_update_and_btn",
+                                            help="Click to execute update_AND stored procedure"
+                                        ):
+                                            # ✅ ตั้ง flag และ rerun
+                                            st.session_state.run_update_and_triggered = True
+                                            st.rerun()
 
+                                   
+ 
                                 # ===========================================================
-                                # 🔮 AI Recommendation (Quick Run for AND_Cus only)
+                                # 🔮 AI Recommendation (แสดงเฉพาะคำแนะนำ)
                                 # ===========================================================
                                 st.divider()
                                 st.subheader("💡 AI Recommendation")
@@ -1169,11 +1215,6 @@ def render_import_tab():
                                     
                                     if suggestion:
                                         proc_name = suggestion.replace("Execute Procedure:", "").strip()
-                                        
-                                        # บันทึก AI suggestion ลง session
-                                        st.session_state['AI_SUGGESTED_PROC'] = proc_name
-                                        st.session_state['AI_CONFIDENCE'] = confidence
-                                        st.session_state['AI_SOURCE_TABLE'] = selected_table
                                         
                                         # สีตามระดับความเชื่อมั่น
                                         if confidence >= 80:
@@ -1226,71 +1267,15 @@ def render_import_tab():
                                         </div>
                                         """, unsafe_allow_html=True)
                                         
-                                        # ============================================================
-                                        # 🚀 QUICK RUN PROCEDURE (เฉพาะ AND_Cus → update_AND)
-                                        # ============================================================
+                                        # ข้อความแนะนำให้ไปรันใน Tab Run Procedures
                                         st.markdown("<br>", unsafe_allow_html=True)
-                                        
-                                        # ✅ เช็คว่าเป็น table AND_Cus และ procedure update_AND หรือไม่
-                                        if selected_table == "AND_Cus" and proc_name == "update_AND":
-                                            st.markdown("#### 🔐 Quick Run Authorization")
-                                            
-                                            proc_secret_key = st.text_input(
-                                                f"Enter Secret Key to run `{proc_name}`",
-                                                type="password",
-                                                placeholder="Enter your key...",
-                                                key=f"quick_run_key_{proc_name}"
-                                            ).strip()
-                                            
-                                            proc_user_perm = get_user_permission(proc_secret_key) if proc_secret_key else None
-                                            
-                                            if not proc_user_perm:
-                                                st.info("🔒 Enter valid key to unlock Quick Run button")
-                                                quick_run_disabled = True
-                                            else:
-                                                proc_role = proc_user_perm["role"]
-                                                allowed_procs = proc_user_perm.get("allowed_procedures", [])
-                                                if proc_role == "Admin" or proc_name in allowed_procs:
-                                                    st.success(f"✅ Authorized as **{proc_role}** — can execute `{proc_name}`")
-                                                    quick_run_disabled = False
-                                                else:
-                                                    st.error(f"🚫 You are not allowed to execute `{proc_name}`")
-                                                    quick_run_disabled = True
-                                            
-                                            # ปุ่ม Quick Run
-                                            if st.button(
-                                                f"🚀 Run Procedure: {proc_name}",
-                                                type="primary",
-                                                use_container_width=True,
-                                                disabled=quick_run_disabled,
-                                                key=f"quick_run_btn_{proc_name}"
-                                            ):
-                                                # Log activity
-                                                try:
-                                                    log_activity(
-                                                        username=proc_secret_key,
-                                                        action="Execute Procedure",
-                                                        target=proc_name,
-                                                        details=f"Quick Run from Import (table: {selected_table})"
-                                                    )
-                                                except Exception as log_err:
-                                                    st.warning(f"⚠️ Failed to log activity: {log_err}")
-                                                
-                                                # Execute procedure with progress
-                                                st.session_state['proc_progress_value'] = 20
-                                                result = execute_procedure_with_progress(proc_name, None)
-                                                render_exec_result(proc_name, result)
-                                        
-                                        else:
-                                            # ✅ กรณีอื่น ๆ แสดงแค่คำแนะนำให้ไปที่ Tab Run Procedures
-                                            st.info(f"""
-                                            💡 **Next Step:**  
-                                            Go to **⚙️ Run Procedures** tab to execute `{proc_name}`
-                                            """)
+                                        st.info(f"""
+                                        💡 **คำแนะนำถัดไป:**  
+                                        กรุณาไปที่แท็บ **⚙️ Run Procedures** เพื่อรัน Procedure `{proc_name}`
+                                        """)
                                     
                                     else:
                                         # กรณีไม่มีข้อมูลเพียงพอ
-                                        st.session_state.pop('AI_SUGGESTED_PROC', None)
                                         st.markdown("""
                                         <div style="background-color:#f8f9fb;border-left:6px solid #b2bec3;
                                                     padding:12px 18px;border-radius:10px;font-size:15px;line-height:1.6;">
@@ -1311,7 +1296,7 @@ def render_import_tab():
                                 
                                 except Exception as e:
                                     st.warning(f"⚠️ Suggestion module error: {e}")
-  
+                            
                             else:
                                 st.error(f"❌ Import failed: {result.get('error')}")
                         
