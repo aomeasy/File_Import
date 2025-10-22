@@ -1137,17 +1137,28 @@ def render_import_tab():
                             if result.get('success'):
                                 st.success(f"✅ {result['message']}")
                                 st.balloons() 
- 
-                                col1, col2, col3 = st.columns([1, 2, 1])
-                                with col2:
-                                    if st.button("🔄 โหลดหน้าใหม่ (ล้างทุกอย่าง)", 
-                                                 key="reset_page_btn", 
-                                                 type="secondary",
-                                                 use_container_width=True):
-                                        st.session_state['force_reset'] = True
-                                        st.session_state['import_in_progress'] = False  # ✅ เพิ่มบรรทัดนี้
-                                        st.rerun()
-                          
+                                # ✅ ปุ่มที่ reload หน้าจริงๆ แบบ native
+                                import streamlit.components.v1 as components
+                                
+                                if st.button("🔄 โหลดหน้าใหม่ (ล้างทุกอย่าง)", key="reset_page_btn"):
+                                    components.html(
+                                        """
+                                        <script>
+                                            window.parent.location.reload();
+                                        </script>
+                                        """,
+                                        height=0,
+                                    )
+                               
+                                st.markdown("""
+                                <a href="?" target="_self" style="display:inline-block;
+                                   background-color:#0066cc;color:white;text-decoration:none;
+                                   padding:12px 24px;border-radius:6px;text-align:center;
+                                   font-weight:bold;width:100%;box-sizing:border-box;">
+                                    🔄 โหลดหน้าใหม่ (ล้างทุกอย่าง)
+                                </a>
+                                """, unsafe_allow_html=True)
+                              
                                 # ✅ เก็บ import result ใน session state
                                 st.session_state['last_import_success'] = {
                                     'table': selected_table,
