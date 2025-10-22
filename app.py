@@ -1325,11 +1325,11 @@ def render_import_tab():
                                 
                                 col1, col2, col3 = st.columns(3)
                                 with col1:
-                                    # st.metric("📊 Rows Affected", f"{result['rows_affected']:,}")
+                                      st.metric("📊 Rows Affected", f"{result['rows_affected']:,}")
                                 with col2:
-                                    # st.metric("📥 Before", f"{result['before_count']:,}")
+                                      st.metric("📥 Before", f"{result['before_count']:,}")
                                 with col3:
-                                    # st.metric("📤 After", f"{result['after_count']:,}", 
+                                      st.metric("📤 After", f"{result['after_count']:,}", 
                                              # delta=f"{result['difference']:+,}")
                                 
                                 if result['rows_affected'] > 0 or result['difference'] != 0:
