@@ -1121,7 +1121,7 @@ def render_import_tab():
                                 if st.button("🔄 Refresh Page"):
                                     st.components.v1.html("""
                                         <script>
-                                            window.location.href = "http://10.176.21.249:8510/file-import/";
+                                            window.parent.location.href = "http://10.176.21.249:8510/file-import/";
                                         </script>
                                     """, height=0)
                           
