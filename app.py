@@ -150,6 +150,45 @@ def get_stored_procedures(name_filter: str = "", limit: int = 50):
         st.error(f"Error getting procedures: {e}")
         return []
 
+def show_loading_overlay():
+    """แสดงหน้าจอครอบทั้งหมดพร้อมข้อความ Loading"""
+    st.markdown("""
+        <style>
+        /* ====== Overlay ปิดการกดทั้งหมด ====== */
+        .overlay-blocker {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255,255,255,0.8);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            font-size: 20px;
+            color: #333;
+        }
+        .loader {
+            border: 6px solid #f3f3f3;
+            border-top: 6px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 16px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        </style>
+        <div class="overlay-blocker">
+            <div class="loader"></div>
+            <div><b>กำลังประมวลผล โปรดรอสักครู่...</b></div>
+        </div>
+    """, unsafe_allow_html=True)
+
 def get_procedure_parameters(procedure_name):
     """Get parameters for a stored procedure"""
     try:
@@ -1307,7 +1346,20 @@ def render_import_tab():
                                 help="Execute update_Broadband_daily stored procedure"
                             ):
                                 st.session_state.run_proc_in_progress = True
+                                # execute_update_and_callback() 
+                                show_loading_overlay()  # ✅ แสดง overlay ทันที
+                                st.experimental_rerun()  # ✅ รีเฟรชเพื่อให้ overlay ค้างก่อนเริ่มทำงานจริง
+                        # ============================================================
+                        # ดำเนินการเมื่อ flag ถูกเปิด
+                        # ============================================================
+                        if st.session_state.run_proc_in_progress:
+                            show_loading_overlay()
+                            with st.spinner("⚙️ Running update_Broadband_daily..."):
+                                time.sleep(0.3)  # ✅ หน่วงเล็กน้อยให้ overlay แสดง
                                 execute_update_and_callback()
+                                st.session_state.run_proc_in_progress = False
+                                st.experimental_rerun()
+                    
                         
                         with col_clear:
                             if st.button("✖️", use_container_width=True, key="btn_close_quick_action", help="Close this section"):
