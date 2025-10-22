@@ -1118,20 +1118,15 @@ def render_import_tab():
                                 st.success(f"✅ {result['message']}")
                                 st.balloons() 
 
-                        
-
-                                if st.button("🔄 โหลดหน้าใหม่ (รีเซ็ตทั้งหมด)"):
-                                    # 🔹 ล้าง cache ทั้งหมด
+                                if st.button("🔄 โหลดหน้าใหม่ (ล้างทุกอย่าง)"):
+                                    st.info("🔁 กำลังโหลดหน้าใหม่ โปรดรอสักครู่...")
                                     st.cache_data.clear()
-                                
-                                    # 🔹 ล้าง session_state ทั้งหมด
                                     for key in list(st.session_state.keys()):
                                         del st.session_state[key]
+                                    time.sleep(1)
+                                    st.rerun()
+
                                 
-                                    # 🔹 redirect ไปหน้า file-import จริง
-                                    st.markdown("""
-                                        <meta http-equiv="refresh" content="0; url='http://10.176.21.249:8510/file-import/'">
-                                    """, unsafe_allow_html=True)
                           
                                 # ✅ เก็บ import result ใน session state
                                 st.session_state['last_import_success'] = {
