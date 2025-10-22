@@ -1210,9 +1210,10 @@ def render_import_tab():
                         st.markdown("""
                         <div style="background-color:#fff3cd;border-left:6px solid #ffc107;
                                     padding:12px 18px;border-radius:8px;font-size:14px;margin-bottom:15px;">
-                            <strong>💡 Suggested Next Step:</strong><br>
-                            ตารางนี้มักใช้คู่กับ Procedure <code>update_AND</code><br>
-                            คุณสามารถรันได้ทันทีโดยไม่ต้องใส่ Key ซ้ำ
+                            <strong>💡 Suggested Next Step:</strong><br> 
+                            หากท่านได้ดำเนินการนำเข้าข้อมูลจากระบบ <b>TTS</b> และ <b>SCOMS</b> เรียบร้อยแล้ว<br>
+                            กรุณาดำเนินการรัน <b>Procedure: <code style="background:#e8f4f8;padding:2px 8px;border-radius:4px;">
+                            update_AND</code></b><br> เพื่อปรับปรุงข้อมูลใน <b>Dashboard Daily Report</b> ให้เป็นปัจจุบัน
                         </div>
                         """, unsafe_allow_html=True)
                         
