@@ -1116,14 +1116,14 @@ def render_import_tab():
                             # ✅ เมื่อ Import สำเร็จ → เก็บ result ไว้ใน session
                             if result.get('success'):
                                 st.success(f"✅ {result['message']}")
-                                st.balloons()
- 
-                                if st.button("🔄 Refresh Page"):
-                                    st.components.v1.html("""
-                                        <script>
-                                            window.parent.location.href = "http://10.176.21.249:8510/file-import/";
-                                        </script>
-                                    """, height=0)
+                                st.balloons() 
+
+                                if st.button("🔄 โหลดหน้าใหม่  "):
+                                    st.cache_data.clear()
+                                    for key in list(st.session_state.keys()):
+                                        del st.session_state[key]
+                                    st.rerun()
+                                    st.components.v1.html("<script>window.parent.location.reload();</script>", height=0)
                           
                                 # ✅ เก็บ import result ใน session state
                                 st.session_state['last_import_success'] = {
