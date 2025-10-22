@@ -692,11 +692,20 @@ def render_import_tab():
         with st.spinner("🔁 กำลังโหลดหน้าใหม่..."):
             time.sleep(0.3)
             st.cache_data.clear()
-            # ล้างทุกอย่างยกเว้น db_manager
-            for key in list(st.session_state.keys()):
-                if key != 'db_manager':
-                    del st.session_state[key]
-        st.rerun()
+            # ล้างทุกอย่างยกเว้น db_manager 
+            keys_to_delete = [k for k in st.session_state.keys() if k != 'db_manager']
+            for key in keys_to_delete:
+                del st.session_state[key]
+            
+            # ✅ ล้าง query params (บังคับ refresh)
+            try:
+                st.query_params.clear()
+            except:
+                pass
+            
+            # ✅ Rerun ครั้งที่ 2 เพื่อให้หน้าโหลดสะอาด
+            st.rerun()
+            
       
     st.subheader("📊 Quick Stats")
     col_stat1, col_stat2, col_stat3 = st.columns(3)
@@ -1128,12 +1137,16 @@ def render_import_tab():
                             if result.get('success'):
                                 st.success(f"✅ {result['message']}")
                                 st.balloons() 
-                              
-                                # ✅ ปุ่มใหม่ - ตั้ง flag แล้ว rerun
-                                if st.button("🔄 โหลดหน้าใหม่ (ล้างทุกอย่าง)", key="reset_page_btn"):
-                                    st.session_state['force_reset'] = True
-                                    st.rerun() 
-                                
+ 
+                                col1, col2, col3 = st.columns([1, 2, 1])
+                                with col2:
+                                    if st.button("🔄 โหลดหน้าใหม่ (ล้างทุกอย่าง)", 
+                                                 key="reset_page_btn", 
+                                                 type="secondary",
+                                                 use_container_width=True):
+                                        st.session_state['force_reset'] = True
+                                        st.session_state['import_in_progress'] = False  # ✅ เพิ่มบรรทัดนี้
+                                        st.rerun()
                           
                                 # ✅ เก็บ import result ใน session state
                                 st.session_state['last_import_success'] = {
