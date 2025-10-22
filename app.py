@@ -1117,9 +1117,13 @@ def render_import_tab():
                             if result.get('success'):
                                 st.success(f"✅ {result['message']}")
                                 st.balloons()
-                                # 🔁 ปุ่ม Refresh Page (ทำงานเหมือนกด F5)
+ 
                                 if st.button("🔄 Refresh Page"):
-                                    st.components.v1.html("<script>window.location.reload(true);</script>")
+                                    st.components.v1.html("""
+                                        <script>
+                                            window.location.href = "http://10.176.21.249:8510/file-import/";
+                                        </script>
+                                    """, height=0)
                           
                                 # ✅ เก็บ import result ใน session state
                                 st.session_state['last_import_success'] = {
