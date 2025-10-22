@@ -1119,10 +1119,7 @@ def render_import_tab():
                                 st.balloons()
                                 # 🔁 ปุ่ม Refresh Page (ทำงานเหมือนกด F5)
                                 if st.button("🔄 Refresh Page"):
-                                    st.markdown(
-                                        "<script>setTimeout(() => window.location.reload(), 500);</script>",
-                                        unsafe_allow_html=True
-                                    )
+                                    st.write('<meta http-equiv="refresh" content="0">', unsafe_allow_html=True)
                           
                                 # ✅ เก็บ import result ใน session state
                                 st.session_state['last_import_success'] = {
