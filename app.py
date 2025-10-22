@@ -1330,7 +1330,7 @@ def render_import_tab():
                                       st.metric("📥 Before", f"{result['before_count']:,}")
                                 with col3:
                                       st.metric("📤 After", f"{result['after_count']:,}", 
-                                             # delta=f"{result['difference']:+,}")
+                                               delta=f"{result['difference']:+,}")
                                 
                                 if result['rows_affected'] > 0 or result['difference'] != 0:
                                     # st.info(f"ℹ️ Procedure processed {result['rows_affected']:,} rows")
