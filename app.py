@@ -1296,21 +1296,29 @@ def render_import_tab():
                         # UI Controls
                         # ============================================================
                         col_btn, col_clear = st.columns([4, 1])
+                        # ✅ ป้องกันกดซ้ำ
+                        if "run_proc_in_progress" not in st.session_state:
+                            st.session_state.run_proc_in_progress = False
+                        
+                        button_disabled = st.session_state.run_proc_in_progress
                         
                         with col_btn:
                             st.button(
-                                "⚡ Run Procedure: update_AND",
+                                "⚡ Quick Run For Update",
                                 type="primary",
                                 use_container_width=True,
                                 key="btn_run_update_and",
-                                on_click=execute_update_and_callback,
+                                disabled=button_disabled,
                                 help="Execute update_AND stored procedure"
-                            )
+                            ):
+                                st.session_state.run_proc_in_progress = True
+                                execute_update_and_callback()
                         
                         with col_clear:
                             if st.button("✖️", use_container_width=True, key="btn_close_quick_action", help="Close this section"):
                                 st.session_state.pop('last_import_success', None)
                                 st.session_state.pop('update_and_result', None)
+                                st.session_state.run_proc_in_progress = False  # ✅ รีเซ็ต flag
                                 st.rerun()
                         
                         # ============================================================
