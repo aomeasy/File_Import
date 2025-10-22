@@ -1136,26 +1136,13 @@ def render_import_tab():
                             # ✅ เมื่อ Import สำเร็จ → เก็บ result ไว้ใน session
                             if result.get('success'):
                                 st.success(f"✅ {result['message']}")
-                                st.balloons() 
-                                # ✅ ปุ่มที่ reload หน้าจริงๆ แบบ native
-                                import streamlit.components.v1 as components
-                                
-                                if st.button("🔄 โหลดหน้าใหม่ (ล้างทุกอย่าง)", key="reset_page_btn"):
-                                    components.html(
-                                        """
-                                        <script>
-                                            window.parent.location.reload();
-                                        </script>
-                                        """,
-                                        height=0,
-                                    )
-                               
+                                st.balloons()  
                                 st.markdown("""
                                 <a href="?" target="_self" style="display:inline-block;
                                    background-color:#0066cc;color:white;text-decoration:none;
                                    padding:12px 24px;border-radius:6px;text-align:center;
                                    font-weight:bold;width:100%;box-sizing:border-box;">
-                                    🔄 โหลดหน้าใหม่ (ล้างทุกอย่าง)
+                                    🔄 โหลดหน้าใหม่  
                                 </a>
                                 """, unsafe_allow_html=True)
                               
@@ -1291,6 +1278,16 @@ def render_import_tab():
                             update_Broadband_daily</code></b><br> เพื่อปรับปรุงข้อมูลใน <b>Dashboard Daily Report</b> ให้เป็นปัจจุบัน
                         </div>
                         """, unsafe_allow_html=True)
+
+
+                        st.markdown("""
+                        <a href="?" target="_self" style="display:inline-block;
+                        background-color:#0066cc;color:white;text-decoration:none;
+                        padding:12px 24px;border-radius:6px;text-align:center;
+                        font-weight:bold;width:100%;box-sizing:border-box;">
+                        🔄 โหลดหน้าใหม่  
+                        </a>
+                        """, unsafe_allow_html=True)                      
                         
                         # แสดงข้อมูล import ที่เพิ่งทำ
                         import_time = time.strftime('%H:%M:%S', time.localtime(last_import['timestamp']))
