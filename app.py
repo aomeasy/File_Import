@@ -1208,7 +1208,7 @@ def render_import_tab():
                                     padding:12px 18px;border-radius:8px;font-size:14px;margin-bottom:15px;">
                             <strong>💡 Suggested Next Step:</strong><br> 
                             หากท่านได้ดำเนินการนำเข้าข้อมูลจากระบบ <b>TTS</b> และ <b>SCOMS</b> เรียบร้อยแล้ว<br>
-                            กรุณาดำเนินการกด <b>Quick Run<code style="background:#e8f4f8;padding:2px 8px;border-radius:4px;">
+                            กรุณาดำเนินการกด<b>Quick Run<code style="background:#e8f4f8;padding:2px 8px;border-radius:4px;">
                             update_Broadband_daily</code></b><br> เพื่อปรับปรุงข้อมูลใน <b>Dashboard Daily Report</b> ให้เป็นปัจจุบัน
                         </div>
                         """, unsafe_allow_html=True)
@@ -1271,7 +1271,7 @@ def render_import_tab():
                                 conn.close()
                                 
                                 # เก็บผลลัพธ์
-                                st.session_state.update_Broadband_daily_result = {
+                                st.session_state.update_and_result = {
                                     "success": True,
                                     "rows_affected": rows_affected,
                                     "before_count": before_count,
@@ -1281,7 +1281,7 @@ def render_import_tab():
                                 }
                                 
                             except Exception as e:
-                                st.session_state.update_Broadband_daily_result = {
+                                st.session_state.update_and_result = {
                                     "success": False,
                                     "error": str(e),
                                     "timestamp": time.time()
