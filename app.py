@@ -1298,7 +1298,7 @@ def render_import_tab():
                         button_disabled = st.session_state.run_proc_in_progress
                         
                         with col_btn:
-                            st.button(
+                            if st.button(
                                 "⚡ Quick Run For Update",
                                 type="primary",
                                 use_container_width=True,
