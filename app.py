@@ -1064,10 +1064,10 @@ def render_import_tab():
                             with st.spinner(f"Importing {len(df_clean)} rows..."):
                                 result = fresh_db.import_data(selected_table, df_clean, column_mapping)
                             fresh_db.close_connection()
-                 
-                            # 🔹 แสดงผลลัพธ์ Import
+
+
                             # ============================================================
-                            # ✅ FIXED: ส่วน Run Procedure หลัง Import AND_Cus
+                            # ✅ FIXED v3: Run Procedure หลัง Import AND_Cus (ไม่รีโหลดหน้า)
                             # ============================================================
                             
                             # ใส่ใน render_import_tab() หลังจากแสดงผล import success
@@ -1095,112 +1095,137 @@ def render_import_tab():
                                     
                                     st.markdown("<br>", unsafe_allow_html=True)
                                     
-                                    # ✅ สร้าง session flag เพื่อควบคุมการทำงาน
-                                    if 'run_update_and_triggered' not in st.session_state:
-                                        st.session_state.run_update_and_triggered = False
+                                    # ✅ สร้าง session state เฉพาะ procedure นี้
+                                    proc_key = "update_and_result"
+                                    if proc_key not in st.session_state:
+                                        st.session_state[proc_key] = None
                                     
-                                    # ✅ แสดงสถานะการทำงาน
-                                    if st.session_state.run_update_and_triggered:
-                                        with st.spinner("⏳ กำลังรัน procedure update_AND..."):
-                                            try:
-                                                db = DatabaseManager()
-                                                conn = db.get_connection()
-                                                cursor = conn.cursor()
-                                                
-                                                # ✅ เก็บจำนวนข้อมูลก่อนรัน procedure
-                                                cursor.execute("SELECT COUNT(*) FROM AND_Cus")
-                                                before_count = cursor.fetchone()[0]
-                                                
-                                                # ✅ รัน stored procedure
-                                                cursor.callproc("update_AND")
-                                                
-                                                # ✅ ดึงจำนวน rows ที่ถูก affected
-                                                rows_affected = cursor.rowcount
-                                                
-                                                # ✅ Fetch result sets (ถ้ามี)
-                                                results = []
-                                                for result_set in cursor.stored_results():
-                                                    results.extend(result_set.fetchall())
-                                                
-                                                # ✅ ตรวจสอบจำนวนข้อมูลหลังรัน
-                                                cursor.execute("SELECT COUNT(*) FROM AND_Cus")
-                                                after_count = cursor.fetchone()[0]
-                                                
-                                                conn.commit()
-                                                
-                                                # ✅ คำนวณผลต่าง
-                                                difference = after_count - before_count
-                                                
-                                                # ✅ บันทึก log พร้อมรายละเอียดผลลัพธ์
-                                                username = secret_key.strip()
-                                                details = (
-                                                    f"Auto-run after AND_Cus import | "
-                                                    f"Rows affected: {rows_affected} | "
-                                                    f"Before: {before_count} | "
-                                                    f"After: {after_count} | "
-                                                    f"Diff: {difference:+d}"
-                                                )
-                                                
-                                                cursor.execute("""
-                                                    INSERT INTO activity_log (username, action, target, ip_address, details)
-                                                    VALUES (%s, %s, %s, %s, %s)
-                                                """, (
-                                                    username,
-                                                    "Execute Procedure",
-                                                    "update_AND",
-                                                    st.session_state.get('client_ip', 'unknown'),
-                                                    details
-                                                ))
-                                                conn.commit()
-                                                
-                                                cursor.close()
-                                                conn.close()
-                                                
-                                                # ✅ แสดงผลลัพธ์ที่ชัดเจน
-                                                st.success("✅ Procedure update_AND executed successfully!")
-                                                
-                                                # แสดง metrics ผลการทำงาน
-                                                col1, col2, col3 = st.columns(3)
-                                                with col1:
-                                                    st.metric("📊 Rows Affected", f"{rows_affected:,}")
-                                                with col2:
-                                                    st.metric("📥 Before", f"{before_count:,}")
-                                                with col3:
-                                                    st.metric("📤 After", f"{after_count:,}", delta=f"{difference:+,}")
-                                                
-                                                # แสดงข้อความเพิ่มเติมตามผลลัพธ์
-                                                if rows_affected > 0 or difference != 0:
-                                                    st.info(f"ℹ️ Procedure processed {rows_affected:,} rows successfully")
-                                                    st.balloons()
-                                                else:
-                                                    st.warning("⚠️ Procedure executed but no rows were affected. This might be normal if there's no data to update.")
-                                                
-                                                # ✅ Reset flag หลังเสร็จสิ้น
-                                                st.session_state.run_update_and_triggered = False
-                                                
-                                            except mysql.connector.Error as mysql_err:
-                                                st.error(f"❌ MySQL Error: {mysql_err}")
-                                                st.exception(mysql_err)
-                                                st.session_state.run_update_and_triggered = False
-                                                
-                                            except Exception as proc_err:
-                                                st.error(f"❌ Failed to run procedure: {proc_err}")
-                                                st.exception(proc_err)
-                                                st.session_state.run_update_and_triggered = False
-                                    
-                                    else:
-                                        # ✅ แสดงปุ่มเมื่อยังไม่ได้กด
-                                        if st.button(
+                                    # ✅ ใช้ form ป้องกัน rerun
+                                    with st.form(key="run_update_and_form", clear_on_submit=False):
+                                        submitted = st.form_submit_button(
                                             "⚡ Run Procedure: update_AND",
                                             type="primary",
                                             use_container_width=True,
-                                            key="run_update_and_btn",
                                             help="Click to execute update_AND stored procedure"
-                                        ):
-                                            # ✅ ตั้ง flag และ rerun
-                                            st.session_state.run_update_and_triggered = True
-                                            st.rerun()
-
+                                        )
+                                        
+                                        if submitted:
+                                            # ✅ ทำงานใน form context (ไม่ rerun ทันที)
+                                            with st.spinner("⏳ กำลังรัน procedure update_AND..."):
+                                                try:
+                                                    db = DatabaseManager()
+                                                    conn = db.get_connection()
+                                                    cursor = conn.cursor()
+                                                    
+                                                    # ✅ เก็บจำนวนข้อมูลก่อนรัน procedure
+                                                    cursor.execute("SELECT COUNT(*) FROM AND_Cus")
+                                                    before_count = cursor.fetchone()[0]
+                                                    
+                                                    # ✅ รัน stored procedure
+                                                    cursor.callproc("update_AND")
+                                                    
+                                                    # ✅ ดึงจำนวน rows ที่ถูก affected
+                                                    rows_affected = cursor.rowcount
+                                                    
+                                                    # ✅ Fetch result sets (ถ้ามี)
+                                                    results = []
+                                                    try:
+                                                        for result_set in cursor.stored_results():
+                                                            results.extend(result_set.fetchall())
+                                                    except:
+                                                        pass
+                                                    
+                                                    # ✅ ตรวจสอบจำนวนข้อมูลหลังรัน
+                                                    cursor.execute("SELECT COUNT(*) FROM AND_Cus")
+                                                    after_count = cursor.fetchone()[0]
+                                                    
+                                                    conn.commit()
+                                                    
+                                                    # ✅ คำนวณผลต่าง
+                                                    difference = after_count - before_count
+                                                    
+                                                    # ✅ บันทึก log พร้อมรายละเอียดผลลัพธ์
+                                                    username = secret_key.strip()
+                                                    details = (
+                                                        f"Auto-run after AND_Cus import | "
+                                                        f"Rows affected: {rows_affected} | "
+                                                        f"Before: {before_count} | "
+                                                        f"After: {after_count} | "
+                                                        f"Diff: {difference:+d}"
+                                                    )
+                                                    
+                                                    cursor.execute("""
+                                                        INSERT INTO activity_log (username, action, target, ip_address, details)
+                                                        VALUES (%s, %s, %s, %s, %s)
+                                                    """, (
+                                                        username,
+                                                        "Execute Procedure",
+                                                        "update_AND",
+                                                        st.session_state.get('client_ip', 'unknown'),
+                                                        details
+                                                    ))
+                                                    conn.commit()
+                                                    
+                                                    cursor.close()
+                                                    conn.close()
+                                                    
+                                                    # ✅ เก็บผลลัพธ์ใน session state
+                                                    st.session_state[proc_key] = {
+                                                        "success": True,
+                                                        "rows_affected": rows_affected,
+                                                        "before_count": before_count,
+                                                        "after_count": after_count,
+                                                        "difference": difference,
+                                                        "timestamp": time.time()
+                                                    }
+                                                    
+                                                except mysql.connector.Error as mysql_err:
+                                                    st.session_state[proc_key] = {
+                                                        "success": False,
+                                                        "error": str(mysql_err),
+                                                        "error_type": "MySQL Error"
+                                                    }
+                                                    
+                                                except Exception as proc_err:
+                                                    st.session_state[proc_key] = {
+                                                        "success": False,
+                                                        "error": str(proc_err),
+                                                        "error_type": "General Error"
+                                                    }
+                                    
+                                    # ✅ แสดงผลลัพธ์ (นอก form)
+                                    if st.session_state[proc_key] is not None:
+                                        proc_result = st.session_state[proc_key]
+                                        
+                                        if proc_result.get("success"):
+                                            st.success("✅ Procedure update_AND executed successfully!")
+                                            
+                                            # แสดง metrics ผลการทำงาน
+                                            col1, col2, col3 = st.columns(3)
+                                            with col1:
+                                                st.metric("📊 Rows Affected", f"{proc_result['rows_affected']:,}")
+                                            with col2:
+                                                st.metric("📥 Before", f"{proc_result['before_count']:,}")
+                                            with col3:
+                                                st.metric("📤 After", f"{proc_result['after_count']:,}", 
+                                                         delta=f"{proc_result['difference']:+,}")
+                                            
+                                            # แสดงข้อความเพิ่มเติมตามผลลัพธ์
+                                            if proc_result['rows_affected'] > 0 or proc_result['difference'] != 0:
+                                                st.info(f"ℹ️ Procedure processed {proc_result['rows_affected']:,} rows successfully")
+                                                st.balloons()
+                                            else:
+                                                st.warning("⚠️ Procedure executed but no rows were affected. This might be normal if there's no data to update.")
+                                        
+                                        else:
+                                            # แสดง error
+                                            st.error(f"❌ {proc_result.get('error_type', 'Error')}")
+                                            st.error(proc_result.get('error', 'Unknown error occurred'))
+                                            
+                                            # แสดง error details ใน expander
+                                            with st.expander("🔍 View Error Details"):
+                                                st.code(proc_result.get('error', ''), language='text')
+                  
                                    
  
                                 # ===========================================================
