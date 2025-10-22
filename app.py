@@ -1117,15 +1117,18 @@ def render_import_tab():
                             if result.get('success'):
                                 st.success(f"✅ {result['message']}")
                                 st.balloons() 
+  
 
-                                if st.button("🔄 โหลดหน้าใหม่ (ล้างทุกอย่าง)"):
-                                    st.info("🔁 กำลังโหลดหน้าใหม่ โปรดรอสักครู่...")
+                                if st.button("🔄 โหลดหน้าใหม่ (ล้างทุกอย่าง)", key="reset_page_btn"):
                                     st.cache_data.clear()
                                     for key in list(st.session_state.keys()):
-                                        del st.session_state[key]
-                                    time.sleep(1)
+                                        if key != 'db_manager':  # เก็บเฉพาะ db connection
+                                            del st.session_state[key]
+                                    
+                                    # ✅ Force refresh ด้วย query params
+                                    st.query_params.clear()
+                                    st.query_params['refresh'] = str(time.time())
                                     st.rerun()
-
                                 
                           
                                 # ✅ เก็บ import result ใน session state
