@@ -2644,36 +2644,21 @@ def render_user_management_tab():
         st.warning(f"⚠️ Role `{role}` has no access to this section.")
         st.stop() 
 
-
-import streamlit as st
-import pandas as pd
-import tempfile, os
-from datetime import datetime
-import mysql.connector
-
-# ===== Database Connection =====
-def get_db_connection():
-    return mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="your_password",
-        database="your_database",
-        charset="utf8mb4"
-    )
-
-# ===== OCR Tab =====
 def render_ocr_tab():
-    st.subheader("🧠 AI OCR Document Reader") 
+    st.subheader("🧠 AI OCR Document Reader")
 
-    # ===== Upload Section =====
-    uploaded = st.file_uploader("📤 Upload PDF or Image", type=["pdf", "png", "jpg", "jpeg"])
+    try:
+        ocr = EnhancedThaiDocumentOCR()
+    except Exception as e:
+        st.error(f"⚠️ ไม่สามารถเริ่มระบบ OCR ได้: {e}")
+        return
 
+    uploaded = st.file_uploader("📄 Upload PDF or Image", type=["pdf", "png", "jpg", "jpeg"])
     if uploaded:
         with st.spinner("🔍 กำลังประมวลผล OCR..."):
-            try:
-                from ocr_engine import EnhancedThaiDocumentOCR  # 🔸 ใช้โมดูล OCR ที่คุณมีอยู่
-                ocr = EnhancedThaiDocumentOCR()
+            import tempfile, os
 
+            try:
                 file_ext = os.path.splitext(uploaded.name)[1].lower()
                 if not file_ext:
                     file_ext = ".pdf"
@@ -2682,67 +2667,19 @@ def render_ocr_tab():
                     tmp.write(uploaded.read())
                     temp_path = tmp.name
 
-                # 🔹 เรียกใช้ OCR
+                # ใช้ OCR
                 result = ocr.process_document(temp_path)
-                os.remove(temp_path)
 
-                if not result:
+                if result:
+                    st.success("✅ OCR Completed!")
+                    st.text_area("📜 Extracted Text:", result["text"], height=400)
+                    st.json(result["key_fields"])
+                else:
                     st.warning("⚠️ ไม่สามารถอ่านข้อมูลจากไฟล์นี้ได้")
-                    return
-
-                # ===== Show OCR Result =====
-                st.success("✅ OCR Completed!")
-                st.text_area("📜 Extracted Text:", result.get("text", ""), height=300)
-                st.json(result.get("key_fields", {}))
-
-                # ===== Save Section =====
-                if st.button("💾 บันทึกลงฐานข้อมูล"):
-                    conn = get_db_connection()
-                    cursor = conn.cursor()
-
-                    key = result.get("key_fields", {})
-                    sql = """
-                        INSERT INTO ocr 
-                        (doc_no, doc_date, subject, recipient, content, full_text, ocr_confidence, source_file)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    """
-                    values = (
-                        key.get("เลขที่", ""),
-                        key.get("วันที่", ""),
-                        key.get("เรื่อง", ""),
-                        key.get("เรียน", ""),
-                        result.get("summary", result.get("text", "")[:500]),
-                        result.get("text", ""),
-                        result.get("confidence", 0.0),
-                        uploaded.name
-                    )
-                    cursor.execute(sql, values)
-                    conn.commit()
-                    conn.close()
-
-                    st.success("🗂️ บันทึกข้อมูลสำเร็จ!")
 
             except Exception as e:
                 st.error(f"⚠️ เกิดข้อผิดพลาดระหว่าง OCR: {e}")
 
-    st.divider()
-
-    # ===== Display Existing Records =====
-    st.markdown("### 📚 รายการเอกสารที่อยู่ในระบบ")
-
-    try:
-        conn = get_db_connection()
-        df = pd.read_sql("SELECT id, doc_no, doc_date, subject, recipient, created_at FROM ocr ORDER BY id DESC", conn)
-        conn.close()
-
-        if not df.empty:
-            st.dataframe(df, use_container_width=True, height=300)
-        else:
-            st.info("ยังไม่มีข้อมูลบันทึกในระบบ")
-
-    except Exception as e:
-        st.warning(f"⚠️ ไม่สามารถโหลดข้อมูลจากฐานข้อมูลได้: {e}")
- 
  
 
 # ===== MAIN APPLICATION =====
