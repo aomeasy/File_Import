@@ -2644,20 +2644,23 @@ def render_user_management_tab():
         st.warning(f"⚠️ Role `{role}` has no access to this section.")
         st.stop() 
 
-
-
 def render_ocr_tab():
     st.subheader("🧠 AI OCR Document Reader")
-    
-    # ============ Upload Section ============
-    uploaded = st.file_uploader("📤 Upload PDF or Image", type=["pdf", "png", "jpg", "jpeg"])
 
+    # ✅ ตรวจสอบว่า OCR module พร้อมหรือไม่
+    if not OCR_AVAILABLE:
+        st.warning("⚠️ ระบบ OCR ยังไม่พร้อมใช้งาน กรุณาตรวจสอบการติดตั้งโมดูล ocr_module.py")
+        return
+
+    uploaded = st.file_uploader("📤 Upload PDF or Image", type=["pdf", "png", "jpg", "jpeg"])
     if uploaded:
         with st.spinner("🔍 กำลังประมวลผล OCR..."):
             try:
                 ocr = EnhancedThaiDocumentOCR()
-                file_ext = os.path.splitext(uploaded.name)[1].lower() or ".pdf"
 
+                # บันทึกไฟล์ชั่วคราว
+                import tempfile
+                file_ext = os.path.splitext(uploaded.name)[1].lower() or ".pdf"
                 with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
                     tmp.write(uploaded.read())
                     temp_path = tmp.name
@@ -2671,26 +2674,21 @@ def render_ocr_tab():
 
                 st.success("✅ OCR Completed!")
 
-                # ============ Display OCR Result ============
                 key_fields = result.get("key_fields", {})
-                col1, col2 = st.columns(2)
-                with col1:
-                    doc_no = st.text_input("เลขที่หนังสือ", key_fields.get("เลขที่", ""))
-                    doc_date = st.text_input("วันที่", key_fields.get("วันที่", ""))
-                    recipient = st.text_input("เรียน / ผู้รับ", key_fields.get("เรียน", ""))
-                with col2:
-                    subject = st.text_area("เรื่อง", key_fields.get("เรื่อง", ""), height=80)
-                    content = st.text_area("เนื้อหา (ย่อ)", key_fields.get("เนื้อหา", ""), height=100)
+                doc_no = st.text_input("เลขที่หนังสือ", key_fields.get("เลขที่", ""))
+                doc_date = st.text_input("วันที่", key_fields.get("วันที่", ""))
+                subject = st.text_area("เรื่อง", key_fields.get("เรื่อง", ""), height=80)
+                recipient = st.text_input("เรียน / ผู้รับ", key_fields.get("เรียน", ""))
+                content = st.text_area("เนื้อหา (ย่อ)", key_fields.get("เนื้อหา", ""), height=120)
 
                 st.text_area("📜 ข้อความทั้งหมด", result.get("text", ""), height=300)
-                confidence = result.get("confidence", 0.0)
+                st.metric("OCR Confidence", f"{result.get('confidence', 0.0):.2f}%")
 
-                st.metric("OCR Confidence", f"{confidence:.2f}%")
-
-                # ============ Save to Database ============
+                # === บันทึกข้อมูลลง DB ===
                 if st.button("💾 บันทึกลงฐานข้อมูล"):
                     try:
-                        conn = get_db_connection()
+                        db_manager = DatabaseManager()
+                        conn = db_manager.get_connection()
                         cursor = conn.cursor()
 
                         sql = """
@@ -2700,32 +2698,38 @@ def render_ocr_tab():
                         """
                         cursor.execute(sql, (
                             doc_no, doc_date, subject, recipient,
-                            content, result.get("text", ""), confidence, uploaded.name
+                            content, result.get("text", ""),
+                            result.get("confidence", 0.0), uploaded.name
                         ))
                         conn.commit()
+                        cursor.close()
                         conn.close()
-
                         st.success("🗂️ บันทึกข้อมูลเรียบร้อยแล้ว!")
 
                     except Exception as e:
-                        st.error(f"❌ บันทึกไม่สำเร็จ: {e}")
+                        st.error(f"❌ ไม่สามารถบันทึกข้อมูลได้: {e}")
 
             except Exception as e:
                 st.error(f"⚠️ เกิดข้อผิดพลาดระหว่าง OCR: {e}")
 
     st.divider()
 
-    # ============ Display Existing OCR Records ============
+    # === ตารางแสดงข้อมูลจากฐานข้อมูล ===
     st.markdown("### 📚 เอกสารทั้งหมดในระบบ")
 
-    search_term = st.text_input("🔎 ค้นหา (เช่น เลขที่หนังสือ หรือ เรื่อง)")
+    search_term = st.text_input("🔎 ค้นหา (เลขที่ / เรื่อง / ผู้รับ)")
     refresh = st.button("🔄 Refresh")
 
     try:
-        conn = get_db_connection()
-        query = "SELECT id, doc_no, doc_date, subject, recipient, created_at FROM ocr"
+        db_manager = DatabaseManager()
+        conn = db_manager.get_connection()
+
+        query = """
+            SELECT id, doc_no, doc_date, subject, recipient, created_at 
+            FROM ocr
+        """
         if search_term:
-            query += f" WHERE doc_no LIKE '%{search_term}%' OR subject LIKE '%{search_term}%'"
+            query += f" WHERE doc_no LIKE '%{search_term}%' OR subject LIKE '%{search_term}%' OR recipient LIKE '%{search_term}%'"
         query += " ORDER BY id DESC"
 
         df = pd.read_sql(query, conn)
@@ -2734,12 +2738,12 @@ def render_ocr_tab():
         if not df.empty:
             st.dataframe(df, use_container_width=True, height=320)
         else:
-            st.info("ไม่พบข้อมูลในระบบ")
+            st.info("ยังไม่มีข้อมูลในระบบ")
 
     except Exception as e:
         st.warning(f"⚠️ ไม่สามารถโหลดข้อมูลจากฐานข้อมูลได้: {e}")
-   
 
+ 
 # ===== MAIN APPLICATION =====
 def main():
     try:
