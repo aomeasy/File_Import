@@ -10,9 +10,7 @@ from functools import lru_cache
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO  # ✅ เพิ่มเพื่อใช้รีเซ็ต pointer และอ่านเป็น bytes
-import chardet
-from ocr_module import render_ocr_tab
-
+import chardet 
 
                 
 # Import modules with error handling
@@ -2638,12 +2636,13 @@ def render_user_management_tab():
         st.warning(f"⚠️ Role `{role}` has no access to this section.")
         st.stop() 
 
- 
 def render_ocr_tab():
-    """
-    แท็บ OCR สำหรับใช้งานใน Streamlit
-    """
-    st.header("🧠 AI OCR - ระบบอ่านข้อความอัตโนมัติ (PDF/ภาพ)")
+    import streamlit as st
+    import pandas as pd
+    import tempfile
+    from ocr_module import EnhancedThaiDocumentOCR  # ✅ import ภายในฟังก์ชัน
+
+    st.markdown("## 🧠 AI OCR - ระบบอ่านข้อความอัตโนมัติ (PDF/ภาพ)")
 
     uploaded_file = st.file_uploader(
         "📂 เลือกไฟล์ PDF หรือภาพ (.pdf, .jpg, .png)",
@@ -2651,60 +2650,46 @@ def render_ocr_tab():
     )
 
     if uploaded_file:
-        # --- Save temporary file ---
-        temp_path = f"temp_{uploaded_file.name}"
-        with open(temp_path, "wb") as f:
-            f.write(uploaded_file.read())
+        # 🔧 บันทึกไฟล์ชั่วคราว
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+            tmp_file.write(uploaded_file.read())
+            temp_path = tmp_file.name
 
-        st.info(f"📄 ไฟล์ที่อัปโหลด: `{uploaded_file.name}`")
+        st.info(f"📄 อัปโหลดไฟล์เรียบร้อย: `{uploaded_file.name}`")
 
-        # --- OCR options ---
         col1, col2 = st.columns(2)
         with col1:
             use_pdf_mode = st.toggle("📘 บังคับโหมด PDF OCR", value=False)
         with col2:
             show_debug = st.checkbox("🧩 แสดงภาพ Debug", value=False)
 
-        # --- OCR Process Button ---
-        if st.button("🚀 เริ่มประมวลผล OCR", type="primary"):
+        if st.button("🚀 เริ่มประมวลผล OCR", type="primary", use_container_width=True):
             with st.spinner("🔍 กำลังอ่านข้อความและวิเคราะห์..."):
                 try:
                     ocr = EnhancedThaiDocumentOCR()
-                    result = ocr.process_document(
-                        temp_path,
-                        save_debug=show_debug,
-                        from_pdf=use_pdf_mode
-                    )
+                    result = ocr.process_document(temp_path, save_debug=show_debug, from_pdf=use_pdf_mode)
 
                     if result:
                         st.success(f"✅ OCR สำเร็จ! ความมั่นใจเฉลี่ย: {result['confidence']:.2f}%")
 
-                        # --- Key Fields ---
+                        # 🔑 แสดง key fields ที่ดึงได้
                         key_fields = result.get("key_fields", {})
                         if key_fields:
                             st.subheader("📌 ข้อมูลสำคัญที่ตรวจพบ")
-                            df = (
-                                pd.DataFrame(list(key_fields.items()), columns=["ฟิลด์", "ค่า"])
-                                if len(key_fields) > 0 else None
-                            )
-                            if df is not None:
-                                st.dataframe(df, use_container_width=True)
+                            df = pd.DataFrame(list(key_fields.items()), columns=["ฟิลด์", "ค่า"])
+                            st.dataframe(df, use_container_width=True)
 
-                        # --- Full Text ---
+                        # 🔹 แสดงข้อความทั้งหมด
                         with st.expander("📜 ข้อความทั้งหมด (หลัง OCR และแก้คำผิด)"):
-                            st.text_area(
-                                "ผลลัพธ์ OCR",
-                                result["text"],
-                                height=400,
-                                key="ocr_text_output"
-                            )
+                            st.text_area("ผลลัพธ์ OCR", result["text"], height=400, key="ocr_text_output")
 
-                        # --- Save Option ---
+                        # 🔽 ปุ่มดาวน์โหลดผลลัพธ์
                         st.download_button(
                             "💾 ดาวน์โหลดผลลัพธ์ (TXT)",
                             data=result["text"].encode("utf-8"),
                             file_name=f"OCR_{uploaded_file.name}.txt",
-                            mime="text/plain"
+                            mime="text/plain",
+                            use_container_width=True
                         )
 
                     else:
@@ -2712,11 +2697,10 @@ def render_ocr_tab():
 
                 except Exception as e:
                     st.error(f"⚠️ เกิดข้อผิดพลาดระหว่าง OCR: {e}")
-                    import traceback
-                    st.code(traceback.format_exc())
 
     else:
         st.warning("⬆️ กรุณาอัปโหลดไฟล์ก่อนเริ่มการประมวลผล")
+ 
 
 # ===== MAIN APPLICATION =====
 def main():
