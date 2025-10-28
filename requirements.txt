@@ -11,7 +11,7 @@ chardet
 lxml
 html5lib
 pytesseract
-opencv-python
+opencv-python-headless
 pillow
 PyPDF2
 PyMuPDF
