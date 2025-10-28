@@ -10,3 +10,11 @@ matplotlib==3.9.2
 chardet
 lxml
 html5lib
+pytesseract
+opencv-python
+pillow
+PyPDF2
+PyMuPDF
+pythainlp
+chardet
+regex
