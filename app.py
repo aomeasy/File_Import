@@ -12,6 +12,14 @@ from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO  # ✅ เพิ่มเพื่อใช้รีเซ็ต pointer และอ่านเป็น bytes
 import chardet 
 
+
+try:
+    from ocr_module import EnhancedThaiDocumentOCR
+    OCR_AVAILABLE = True
+except Exception as e:
+    OCR_AVAILABLE = False
+    st.warning(f"⚠️ OCR module could not be loaded: {e}")
+
                 
 # Import modules with error handling
 try:
@@ -2639,8 +2647,7 @@ def render_user_management_tab():
 def render_ocr_tab():
     import streamlit as st
     import pandas as pd
-    import tempfile
-    from ocr_module import EnhancedThaiDocumentOCR  # ✅ import ภายในฟังก์ชัน
+    import tempfile 
 
     st.markdown("## 🧠 AI OCR - ระบบอ่านข้อความอัตโนมัติ (PDF/ภาพ)")
 
