@@ -2777,7 +2777,7 @@ def main():
             """, unsafe_allow_html=True)
 
 
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([ "📁 Import Data", "⚙️ Run Procedures","🧾 View & Edit Data","🔗 File Merger","🧠 AI OCR","📜 Logs","🔑 Key Management"])
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([ "📁 Import Data", "⚙️ Run Procedures","🧾 View & Edit Data","🔗 File Merger","🧠 AI OCR","📜 Logs","🔑 Key Management"])
         with tab1:
             render_import_tab()
         with tab2:
