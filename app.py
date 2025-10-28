@@ -11,6 +11,8 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO  # ✅ เพิ่มเพื่อใช้รีเซ็ต pointer และอ่านเป็น bytes
 import chardet
+from ocr_module import render_ocr_tab
+
 
                 
 # Import modules with error handling
@@ -2637,7 +2639,84 @@ def render_user_management_tab():
         st.stop() 
 
  
+def render_ocr_tab():
+    """
+    แท็บ OCR สำหรับใช้งานใน Streamlit
+    """
+    st.header("🧠 AI OCR - ระบบอ่านข้อความอัตโนมัติ (PDF/ภาพ)")
 
+    uploaded_file = st.file_uploader(
+        "📂 เลือกไฟล์ PDF หรือภาพ (.pdf, .jpg, .png)",
+        type=["pdf", "jpg", "jpeg", "png"]
+    )
+
+    if uploaded_file:
+        # --- Save temporary file ---
+        temp_path = f"temp_{uploaded_file.name}"
+        with open(temp_path, "wb") as f:
+            f.write(uploaded_file.read())
+
+        st.info(f"📄 ไฟล์ที่อัปโหลด: `{uploaded_file.name}`")
+
+        # --- OCR options ---
+        col1, col2 = st.columns(2)
+        with col1:
+            use_pdf_mode = st.toggle("📘 บังคับโหมด PDF OCR", value=False)
+        with col2:
+            show_debug = st.checkbox("🧩 แสดงภาพ Debug", value=False)
+
+        # --- OCR Process Button ---
+        if st.button("🚀 เริ่มประมวลผล OCR", type="primary"):
+            with st.spinner("🔍 กำลังอ่านข้อความและวิเคราะห์..."):
+                try:
+                    ocr = EnhancedThaiDocumentOCR()
+                    result = ocr.process_document(
+                        temp_path,
+                        save_debug=show_debug,
+                        from_pdf=use_pdf_mode
+                    )
+
+                    if result:
+                        st.success(f"✅ OCR สำเร็จ! ความมั่นใจเฉลี่ย: {result['confidence']:.2f}%")
+
+                        # --- Key Fields ---
+                        key_fields = result.get("key_fields", {})
+                        if key_fields:
+                            st.subheader("📌 ข้อมูลสำคัญที่ตรวจพบ")
+                            df = (
+                                pd.DataFrame(list(key_fields.items()), columns=["ฟิลด์", "ค่า"])
+                                if len(key_fields) > 0 else None
+                            )
+                            if df is not None:
+                                st.dataframe(df, use_container_width=True)
+
+                        # --- Full Text ---
+                        with st.expander("📜 ข้อความทั้งหมด (หลัง OCR และแก้คำผิด)"):
+                            st.text_area(
+                                "ผลลัพธ์ OCR",
+                                result["text"],
+                                height=400,
+                                key="ocr_text_output"
+                            )
+
+                        # --- Save Option ---
+                        st.download_button(
+                            "💾 ดาวน์โหลดผลลัพธ์ (TXT)",
+                            data=result["text"].encode("utf-8"),
+                            file_name=f"OCR_{uploaded_file.name}.txt",
+                            mime="text/plain"
+                        )
+
+                    else:
+                        st.error("❌ ไม่สามารถประมวลผลไฟล์นี้ได้")
+
+                except Exception as e:
+                    st.error(f"⚠️ เกิดข้อผิดพลาดระหว่าง OCR: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+
+    else:
+        st.warning("⬆️ กรุณาอัปโหลดไฟล์ก่อนเริ่มการประมวลผล")
 
 # ===== MAIN APPLICATION =====
 def main():
