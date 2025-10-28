@@ -12,6 +12,19 @@ from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO  # ✅ เพิ่มเพื่อใช้รีเซ็ต pointer และอ่านเป็น bytes
 import chardet
 
+                
+# Import modules with error handling
+try:
+    from database import DatabaseManager
+except ImportError as e:
+    st.error(f"Cannot import DatabaseManager: {e}")
+    st.stop()
+
+try:
+    from file_processor import FileProcessor
+except ImportError as e:
+    st.error(f"Cannot import FileProcessor: {e}")
+    st.stop()
 
 # Configure page
 st.set_page_config(
@@ -20,25 +33,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# Import modules with error handling
-try:
-    from database import DatabaseManager
-except ImportError as e:
-    st.error(f"Cannot import DatabaseManager: {e}")
-    st.stop()
-  
-try:
-    from ocr_module import render_ocr_tab  # ⭐ เพิ่มบรรทัดนี้
-except ImportError as e:
-    st.error(f"Cannot import OCR module: {e}")
-try:
-    from file_processor import FileProcessor
-except ImportError as e:
-    st.error(f"Cannot import FileProcessor: {e}")
-    st.stop()
-
-
  
 
 st.markdown("""
@@ -2783,20 +2777,18 @@ def main():
             """, unsafe_allow_html=True)
 
 
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([ "📁 Import Data", "⚙️ Run Procedures","🧾 View & Edit Data","🔗 File Merger","🤖 AI OCR","📜 Logs","🔑 Key Management"])
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([ "📁 Import Data", "⚙️ Run Procedures","🧾 View & Edit Data","🔗 File Merger","📜 Logs","🔑 Key Management"])
         with tab1:
             render_import_tab()
         with tab2:
             render_procedures_tab()
         with tab3:
-            render_data_editor_tab()   
+            render_data_editor_tab()  # ✅ เพิ่มใหม่
         with tab4:
             render_merger_tab() 
-        with tab5:  # ⭐ Tab ใหม่
-            render_ocr_tab()  # เรียกใช้ฟังก์ชันจาก ocr_module.py
-        with tab6:
+        with tab5:
             render_log_tab()
-        with tab7:
+        with tab6:
             render_user_management_tab()
     except Exception as e:
         st.error(f"Application error: {e}")
