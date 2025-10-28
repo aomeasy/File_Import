@@ -2645,68 +2645,41 @@ def render_user_management_tab():
         st.stop() 
 
 def render_ocr_tab():
-    import streamlit as st
-    import pandas as pd
-    import tempfile 
+    st.subheader("🧠 AI OCR Document Reader")
 
-    st.markdown("## 🧠 AI OCR - ระบบอ่านข้อความอัตโนมัติ (PDF/ภาพ)")
+    try:
+        ocr = EnhancedThaiDocumentOCR()
+    except Exception as e:
+        st.error(f"⚠️ ไม่สามารถเริ่มระบบ OCR ได้: {e}")
+        return
 
-    uploaded_file = st.file_uploader(
-        "📂 เลือกไฟล์ PDF หรือภาพ (.pdf, .jpg, .png)",
-        type=["pdf", "jpg", "jpeg", "png"]
-    )
+    uploaded = st.file_uploader("📄 Upload PDF or Image", type=["pdf", "png", "jpg", "jpeg"])
+    if uploaded:
+        with st.spinner("🔍 กำลังประมวลผล OCR..."):
+            import tempfile, os
 
-    if uploaded_file:
-        # 🔧 บันทึกไฟล์ชั่วคราว
-        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-            tmp_file.write(uploaded_file.read())
-            temp_path = tmp_file.name
+            try:
+                file_ext = os.path.splitext(uploaded.name)[1].lower()
+                if not file_ext:
+                    file_ext = ".pdf"
 
-        st.info(f"📄 อัปโหลดไฟล์เรียบร้อย: `{uploaded_file.name}`")
+                with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
+                    tmp.write(uploaded.read())
+                    temp_path = tmp.name
 
-        col1, col2 = st.columns(2)
-        with col1:
-            use_pdf_mode = st.toggle("📘 บังคับโหมด PDF OCR", value=False)
-        with col2:
-            show_debug = st.checkbox("🧩 แสดงภาพ Debug", value=False)
+                # ใช้ OCR
+                result = ocr.process_document(temp_path)
 
-        if st.button("🚀 เริ่มประมวลผล OCR", type="primary", use_container_width=True):
-            with st.spinner("🔍 กำลังอ่านข้อความและวิเคราะห์..."):
-                try:
-                    ocr = EnhancedThaiDocumentOCR()
-                    result = ocr.process_document(temp_path, save_debug=show_debug, from_pdf=use_pdf_mode)
+                if result:
+                    st.success("✅ OCR Completed!")
+                    st.text_area("📜 Extracted Text:", result["text"], height=400)
+                    st.json(result["key_fields"])
+                else:
+                    st.warning("⚠️ ไม่สามารถอ่านข้อมูลจากไฟล์นี้ได้")
 
-                    if result:
-                        st.success(f"✅ OCR สำเร็จ! ความมั่นใจเฉลี่ย: {result['confidence']:.2f}%")
+            except Exception as e:
+                st.error(f"⚠️ เกิดข้อผิดพลาดระหว่าง OCR: {e}")
 
-                        # 🔑 แสดง key fields ที่ดึงได้
-                        key_fields = result.get("key_fields", {})
-                        if key_fields:
-                            st.subheader("📌 ข้อมูลสำคัญที่ตรวจพบ")
-                            df = pd.DataFrame(list(key_fields.items()), columns=["ฟิลด์", "ค่า"])
-                            st.dataframe(df, use_container_width=True)
-
-                        # 🔹 แสดงข้อความทั้งหมด
-                        with st.expander("📜 ข้อความทั้งหมด (หลัง OCR และแก้คำผิด)"):
-                            st.text_area("ผลลัพธ์ OCR", result["text"], height=400, key="ocr_text_output")
-
-                        # 🔽 ปุ่มดาวน์โหลดผลลัพธ์
-                        st.download_button(
-                            "💾 ดาวน์โหลดผลลัพธ์ (TXT)",
-                            data=result["text"].encode("utf-8"),
-                            file_name=f"OCR_{uploaded_file.name}.txt",
-                            mime="text/plain",
-                            use_container_width=True
-                        )
-
-                    else:
-                        st.error("❌ ไม่สามารถประมวลผลไฟล์นี้ได้")
-
-                except Exception as e:
-                    st.error(f"⚠️ เกิดข้อผิดพลาดระหว่าง OCR: {e}")
-
-    else:
-        st.warning("⬆️ กรุณาอัปโหลดไฟล์ก่อนเริ่มการประมวลผล")
  
 
 # ===== MAIN APPLICATION =====
