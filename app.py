@@ -19,7 +19,11 @@ try:
 except ImportError as e:
     st.error(f"Cannot import DatabaseManager: {e}")
     st.stop()
-
+  
+try:
+    from ocr_module import render_ocr_tab  # ⭐ เพิ่มบรรทัดนี้
+except ImportError as e:
+    st.error(f"Cannot import OCR module: {e}")
 try:
     from file_processor import FileProcessor
 except ImportError as e:
@@ -2777,18 +2781,20 @@ def main():
             """, unsafe_allow_html=True)
 
 
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([ "📁 Import Data", "⚙️ Run Procedures","🧾 View & Edit Data","🔗 File Merger","📜 Logs","🔑 Key Management"])
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([ "📁 Import Data", "⚙️ Run Procedures","🧾 View & Edit Data","🔗 File Merger","🤖 AI OCR","📜 Logs","🔑 Key Management"])
         with tab1:
             render_import_tab()
         with tab2:
             render_procedures_tab()
         with tab3:
-            render_data_editor_tab()  # ✅ เพิ่มใหม่
+            render_data_editor_tab()   
         with tab4:
             render_merger_tab() 
-        with tab5:
-            render_log_tab()
+        with tab5:  # ⭐ Tab ใหม่
+            render_ocr_tab()  # เรียกใช้ฟังก์ชันจาก ocr_module.py
         with tab6:
+            render_log_tab()
+        with tab7:
             render_user_management_tab()
     except Exception as e:
         st.error(f"Application error: {e}")
