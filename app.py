@@ -3358,7 +3358,7 @@ def main():
         st.markdown("""
         <div class="main-header">
             <h1>🚀 Database Management Hub</h1>
-            <p>Complete database management system with import, procedures, update and file merger</p>
+            <p>Complete database management system with AI OCR document processing, import automation, procedures, update tracking and file merger</p>
         </div>
         """, unsafe_allow_html=True)
 
