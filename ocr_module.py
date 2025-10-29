@@ -243,9 +243,19 @@ class EnhancedThaiDocumentOCR:
         fields = {}
 
         # 🔹 เลขที่
-        match = re.search(r'เลขที่[:\s]*([^\n]+)', text)
+        match = re.search(r'(?:บ\s*)?(เอ็นที[^\s\n]+)', text)
         if match:
-            fields['เลขที่'] = match.group(1).strip()
+            fields['เลขที่หนังสือ'] = match.group(1).strip()
+        else:
+            # fallback: เดิมที่ใช้ regex "เลขที่"
+            match = re.search(r'เลขที่[:\s]*([^\n]+)', text)
+            if match:
+                num = match.group(1).strip()
+                # เพิ่ม "เอ็นที" ถ้าไม่มี
+                if not num.startswith("เอ็นที"):
+                    num = f"เอ็นที{num}"
+                fields['เลขที่หนังสือ'] = num
+            
 
         # 🔹 วันที่
         match = re.search(r'วันที่[:\s]*([^\n]+)', text)
@@ -347,5 +357,6 @@ if __name__ == "__main__":
             print("\nText:\n", result['text'][:800], "...")
     except Exception as e:
         print(f"Error: {e}")
+
 
 
