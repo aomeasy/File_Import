@@ -2644,34 +2644,115 @@ def render_user_management_tab():
         st.warning(f"⚠️ Role `{role}` has no access to this section.")
         st.stop() 
 
+
 def render_ocr_tab():
     """
-    Enhanced OCR Document Reader with professional features
-    - Auto-save with validation
-    - Edit and status management
-    - Advanced search and filtering
+    Modern OCR Document Reader with Dashboard-style Interface
     """
-    st.subheader("🧠 AI OCR Document Reader")
-
+    
     # ตรวจสอบ OCR module
     if not OCR_AVAILABLE:
         st.error("⚠️ ระบบ OCR ยังไม่พร้อมใช้งาน กรุณาตรวจสอบการติดตั้งโมดูล ocr_module.py")
         return
 
-    # === UPLOAD & OCR SECTION ===
-    with st.container():
-        col1, col2 = st.columns([3, 1])
-        
-        with col1:
-            uploaded = st.file_uploader(
-                "📤 อัพโหลดเอกสาร (PDF, PNG, JPG)", 
-                type=["pdf", "png", "jpg", "jpeg"],
-                help="ระบบรองรับไฟล์ภาษาไทยและภาษาอังกฤษ"
-            )
-        
-        with col2:
-            st.metric("เอกสารทั้งหมด", get_total_documents())
-            st.metric("รอดำเนินการ", get_pending_documents())
+    # === HEADER WITH STATS CARDS ===
+    st.markdown("""
+        <style>
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 1.5rem;
+            border-radius: 12px;
+            color: white;
+            margin-bottom: 1rem;
+        }
+        .stat-card-green {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        }
+        .stat-card-orange {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        .stat-card-blue {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+        .stat-card h3 {
+            margin: 0;
+            font-size: 2rem;
+            font-weight: bold;
+        }
+        .stat-card p {
+            margin: 0;
+            font-size: 1rem;
+            opacity: 0.9;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # Dashboard Cards
+    col1, col2, col3, col4 = st.columns(4)
+    
+    stats = get_dashboard_stats()
+    
+    with col1:
+        st.markdown(f"""
+            <div class="stat-card">
+                <p>📄 งานทั้งหมด</p>
+                <h3>{stats['total']}</h3>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+            <div class="stat-card stat-card-orange">
+                <p>⏳ รอดำเนินการ</p>
+                <h3>{stats['pending']}</h3>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(f"""
+            <div class="stat-card stat-card-green">
+                <p>✅ เสร็จแล้ว</p>
+                <h3>{stats['completed']}</h3>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col4:
+        st.markdown(f"""
+            <div class="stat-card stat-card-blue">
+                <p>📊 วันนี้</p>
+                <h3>{stats['today']}</h3>
+            </div>
+        """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # === TAB NAVIGATION ===
+    tab1, tab2 = st.tabs(["📤 อัพโหลดเอกสาร", "📋 จัดการเอกสาร"])
+    
+    with tab1:
+        render_upload_section()
+    
+    with tab2:
+        render_management_section()
+
+
+def render_upload_section():
+    """ส่วนอัพโหลดและ OCR เอกสาร"""
+    
+    st.markdown("### 📤 อัพโหลดเอกสารใหม่")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        uploaded = st.file_uploader(
+            "เลือกไฟล์เอกสาร",
+            type=["pdf", "png", "jpg", "jpeg"],
+            help="รองรับไฟล์ PDF, PNG, JPG (ขนาดไม่เกิน 10MB)",
+            label_visibility="collapsed"
+        )
+    
+    with col2:
+        st.info("💡 **Tips**: ไฟล์ที่มีความคมชัดจะให้ผลลัพธ์ที่ดีกว่า")
 
     if uploaded:
         with st.spinner("🔍 กำลังประมวลผล OCR..."):
@@ -2692,173 +2773,125 @@ def render_ocr_tab():
                     st.warning("⚠️ ไม่สามารถอ่านข้อมูลจากไฟล์นี้ได้")
                     return
 
-                st.success(f"✅ OCR สำเร็จ! ความแม่นยำ: {result.get('confidence', 0.0):.1f}%")
+                confidence = result.get('confidence', 0.0)
+                if confidence >= 80:
+                    st.success(f"✅ OCR สำเร็จ! ความแม่นยำ: {confidence:.1f}%")
+                elif confidence >= 60:
+                    st.warning(f"⚠️ OCR สำเร็จ แต่ความแม่นยำปานกลาง: {confidence:.1f}%")
+                else:
+                    st.error(f"❌ ความแม่นยำต่ำ: {confidence:.1f}% - กรุณาตรวจสอบข้อมูล")
 
-                # แสดงฟอร์มบันทึกข้อมูล
                 render_ocr_form(result, uploaded.name)
 
             except Exception as e:
-                st.error(f"❌ เกิดข้อผิดพลาดระหว่าง OCR: {str(e)}")
-                with st.expander("🔍 ดูรายละเอียดข้อผิดพลาด"):
-                    st.code(str(e))
-
-    st.divider()
-
-    # === DOCUMENT MANAGEMENT SECTION ===
-    render_document_management()
+                st.error(f"❌ เกิดข้อผิดพลาด: {str(e)}")
 
 
 def render_ocr_form(result, filename):
-    """แสดงฟอร์มสำหรับแก้ไขและบันทึกข้อมูล OCR"""
+    """ฟอร์มบันทึกข้อมูล OCR แบบ Modern"""
     
-    st.markdown("### 📝 ตรวจสอบและแก้ไขข้อมูล")
+    st.markdown("---")
+    st.markdown("### 📝 ข้อมูลเอกสาร")
     
     key_fields = result.get("key_fields", {})
     
-    # ใช้ columns เพื่อจัดวางที่สวยงาม
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        doc_no = st.text_input(
-            "📄 เลขที่หนังสือ *", 
-            key_fields.get("เลขที่", ""),
-            placeholder="เช่น ศธ 0201/1234",
-            help="กรุณากรอกเลขที่หนังสือ"
-        )
+    # Form Layout
+    with st.form("ocr_save_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
         
-        subject = st.text_area(
-            "📋 เรื่อง *", 
-            key_fields.get("เรื่อง", ""),
-            height=100,
-            placeholder="เรื่องของหนังสือ",
-            help="กรุณากรอกเรื่อง"
-        )
+        with col1:
+            doc_no = st.text_input(
+                "📄 เลขที่หนังสือ *",
+                value=key_fields.get("เลขที่", ""),
+                placeholder="เช่น ศธ 0201/1234"
+            )
+            
+            doc_date = st.date_input(
+                "📅 วันที่หนังสือ *",
+                value=parse_thai_date(key_fields.get("วันที่", ""))
+            )
+            
+            subject = st.text_area(
+                "📋 เรื่อง *",
+                value=key_fields.get("เรื่อง", ""),
+                height=120,
+                placeholder="หัวเรื่องของเอกสาร"
+            )
+        
+        with col2:
+            recipient = st.text_input(
+                "👤 เรียน / ผู้รับ",
+                value=key_fields.get("เรียน", ""),
+                placeholder="ชื่อผู้รับหนังสือ"
+            )
+            
+            priority = st.selectbox(
+                "⚡ ระดับความสำคัญ",
+                options=["ปกติ", "ด่วน", "ด่วนที่สุด"],
+                index=0
+            )
+            
+            tags = st.text_input(
+                "🏷️ Tags (คั่นด้วยเครื่องหมาย ,)",
+                placeholder="เช่น งบประมาณ, การประชุม"
+            )
         
         content = st.text_area(
-            "📄 สาระสำคัญ", 
-            key_fields.get("เนื้อหา", ""),
-            height=150,
+            "📄 สาระสำคัญ",
+            value=key_fields.get("เนื้อหา", ""),
+            height=100,
             placeholder="สรุปเนื้อหาสำคัญของเอกสาร"
         )
-    
-    with col2:
-        doc_date = st.date_input(
-            "📅 วันที่หนังสือ *",
-            value=parse_thai_date(key_fields.get("วันที่", "")),
-            help="เลือกวันที่ที่ระบุในหนังสือ"
-        )
         
-        recipient = st.text_input(
-            "👤 เรียน / ผู้รับ", 
-            key_fields.get("เรียน", ""),
-            placeholder="ชื่อผู้รับหนังสือ"
-        )
+        with st.expander("📜 ข้อความทั้งหมดจาก OCR"):
+            st.text_area(
+                "Full Text",
+                value=result.get("text", ""),
+                height=200,
+                disabled=True,
+                label_visibility="collapsed"
+            )
         
-        priority = st.selectbox(
-            "⚡ ความสำคัญ",
-            ["ปกติ", "ด่วน", "ด่วนที่สุด"],
-            index=0
-        )
+        # Submit Buttons
+        col1, col2, col3 = st.columns([2, 1, 1])
         
-        tags = st.text_input(
-            "🏷️ Tags (คั่นด้วยเครื่องหมาย ,)",
-            placeholder="เช่น งบประมาณ, การประชุม, ด่วน"
-        )
-
-    # แสดง Full OCR Text
-    with st.expander("📜 ข้อความทั้งหมดจาก OCR", expanded=False):
-        full_text = st.text_area(
-            "Full Text",
-            result.get("text", ""),
-            height=250,
-            label_visibility="collapsed"
-        )
-    
-    # Confidence Score
-    confidence = result.get("confidence", 0.0)
-    confidence_color = "🟢" if confidence >= 80 else "🟡" if confidence >= 60 else "🔴"
-    st.info(f"{confidence_color} ความแม่นยำ OCR: **{confidence:.1f}%**")
-    
-    # ปุ่มบันทึก
-    col1, col2, col3 = st.columns([2, 1, 1])
-    
-    with col1:
-        save_btn = st.button("💾 บันทึกลงฐานข้อมูล", type="primary", use_container_width=True)
-    
-    with col2:
-        if st.button("🔄 รีเซ็ตฟอร์ม", use_container_width=True):
-            st.rerun()
-    
-    # บันทึกข้อมูล
-    if save_btn:
-        # Validation
-        if not doc_no or not subject:
-            st.error("❌ กรุณากรอก **เลขที่หนังสือ** และ **เรื่อง**")
-            return
+        with col1:
+            submit = st.form_submit_button("💾 บันทึกเอกสาร", type="primary", use_container_width=True)
         
-        try:
-            db_manager = DatabaseManager()
-            conn = db_manager.get_connection()
-            cursor = conn.cursor()
-
-            sql = """
-                INSERT INTO ocr 
-                (doc_no, doc_date, subject, recipient, content, full_text, 
-                 ocr_confidence, source_file, priority, tags, status, created_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """
-            
-            cursor.execute(sql, (
-                doc_no,
-                doc_date.strftime("%Y-%m-%d"),
-                subject,
-                recipient or None,
-                content or None,
-                result.get("text", ""),
-                confidence,
-                filename,
-                priority,
-                tags or None,
-                "on_process",  # สถานะเริ่มต้น
-                st.session_state.get("username", "system")  # ถ้ามีระบบ login
-            ))
-            
-            conn.commit()
-            doc_id = cursor.lastrowid
-            cursor.close()
-            conn.close()
-            
-            st.success(f"✅ บันทึกเอกสาร ID: {doc_id} เรียบร้อยแล้ว!")
-            st.balloons()
-            
-            # Clear form
-            time.sleep(1)
-            st.rerun()
-
-        except Exception as e:
-            st.error(f"❌ ไม่สามารถบันทึกข้อมูลได้: {str(e)}")
+        with col2:
+            st.form_submit_button("🔄 รีเซ็ต", use_container_width=True)
+        
+        if submit:
+            if not doc_no or not subject:
+                st.error("❌ กรุณากรอก **เลขที่หนังสือ** และ **เรื่อง**")
+            else:
+                save_ocr_document(
+                    doc_no, doc_date, subject, recipient, content,
+                    result.get("text", ""), result.get("confidence", 0),
+                    filename, priority, tags
+                )
 
 
-def render_document_management():
-    """แสดงส่วนจัดการเอกสาร พร้อมค้นหา แก้ไข และปิดงาน"""
+def render_management_section():
+    """ส่วนจัดการเอกสาร แบบ Dashboard"""
     
-    st.markdown("### 📚 จัดการเอกสารในระบบ")
+    st.markdown("### 📋 ตารางเอกสารทั้งหมด")
     
-    # Search & Filter Bar
+    # Filter Bar
     col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
     
     with col1:
         search_term = st.text_input(
-            "🔎 ค้นหา",
+            "🔍 ค้นหา",
             placeholder="เลขที่ / เรื่อง / ผู้รับ / Tags",
-            label_visibility="collapsed"
+            key="search_doc"
         )
     
     with col2:
         status_filter = st.selectbox(
-            "สถานะ",
-            ["ทั้งหมด", "รอดำเนินการ", "ปิดงานแล้ว"],
-            label_visibility="collapsed"
+            "📊 สถานะ",
+            ["ทั้งหมด", "รอดำเนินการ", "เสร็จแล้ว"],
+            key="status_filter"
         )
     
     with col3:
@@ -2866,62 +2899,30 @@ def render_document_management():
             st.rerun()
     
     with col4:
-        export_btn = st.button("📥 Export", use_container_width=True)
+        if st.button("📥 Export", use_container_width=True):
+            export_documents(search_term, status_filter)
 
+    st.markdown("---")
+
+    # Load and Display Documents
     try:
-        db_manager = DatabaseManager()
-        conn = db_manager.get_connection()
-
-        # Build query
-        query = """
-            SELECT 
-                id, doc_no, doc_date, subject, recipient, 
-                priority, status, ocr_confidence, tags, 
-                DATE_FORMAT(created_at, '%d/%m/%Y %H:%i') as created_at
-            FROM ocr
-            WHERE 1=1
-        """
-        params = []
+        df = load_documents(search_term, status_filter)
         
-        if search_term:
-            query += """ AND (
-                doc_no LIKE %s OR 
-                subject LIKE %s OR 
-                recipient LIKE %s OR 
-                tags LIKE %s
-            )"""
-            search_pattern = f"%{search_term}%"
-            params.extend([search_pattern] * 4)
-        
-        if status_filter == "รอดำเนินการ":
-            query += " AND status = 'on_process'"
-        elif status_filter == "ปิดงานแล้ว":
-            query += " AND status = 'closed'"
-        
-        query += " ORDER BY id DESC LIMIT 100"
-
-        df = pd.read_sql(query, conn, params=params)
-        conn.close()
-
         if not df.empty:
-            # จัดรูปแบบข้อมูล (ไม่ต้องแปลง datetime เพราะ query ทำให้แล้ว)
-            df['doc_date'] = df['doc_date'].astype(str)  # แปลงเป็น string
-            df['ocr_confidence'] = df['ocr_confidence'].apply(lambda x: f"{x:.1f}%")
-            df['priority'] = df['priority'].fillna('ปกติ')
-            df['tags'] = df['tags'].fillna('-')
+            # Custom styling for dataframe
+            st.markdown("""
+                <style>
+                .dataframe {
+                    font-size: 14px;
+                }
+                </style>
+            """, unsafe_allow_html=True)
             
-            # แปลงสถานะเป็นภาษาไทย
-            status_map = {
-                'on_process': '🟡 รอดำเนินการ',
-                'closed': '🟢 ปิดงานแล้ว'
-            }
-            df['status'] = df['status'].map(status_map)
-            
-            # แสดงตาราง
+            # Display table with custom config
             st.dataframe(
                 df,
                 use_container_width=True,
-                height=400,
+                height=500,
                 column_config={
                     "id": st.column_config.NumberColumn("ID", width="small"),
                     "doc_no": st.column_config.TextColumn("เลขที่หนังสือ", width="medium"),
@@ -2929,126 +2930,111 @@ def render_document_management():
                     "subject": st.column_config.TextColumn("เรื่อง", width="large"),
                     "recipient": st.column_config.TextColumn("ผู้รับ", width="medium"),
                     "priority": st.column_config.TextColumn("ความสำคัญ", width="small"),
-                    "status": st.column_config.TextColumn("สถานะ", width="small"),
-                    "ocr_confidence": st.column_config.TextColumn("OCR %", width="small"),
-                }
+                    "status": st.column_config.TextColumn("สถานะ", width="medium"),
+                    "confidence": st.column_config.TextColumn("OCR %", width="small"),
+                    "created_at": st.column_config.TextColumn("สร้างเมื่อ", width="medium"),
+                },
+                hide_index=True
             )
             
-            # Action buttons
-            st.markdown("---")
-            render_document_actions(df)
+            st.markdown(f"**แสดง {len(df)} รายการ**")
             
-            # Export
-            if export_btn:
-                csv = df.to_csv(index=False, encoding='utf-8-sig')
-                st.download_button(
-                    "📥 ดาวน์โหลด CSV",
-                    csv,
-                    f"ocr_documents_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    "text/csv"
-                )
+            # Document Actions
+            st.markdown("---")
+            render_quick_actions(df)
+            
         else:
             st.info("📭 ไม่พบเอกสารในระบบ")
-
+    
     except Exception as e:
-        st.error(f"⚠️ ไม่สามารถโหลดข้อมูลได้: {str(e)}")
+        st.error(f"⚠️ เกิดข้อผิดพลาด: {str(e)}")
 
 
-def render_document_actions(df):
-    """แสดงส่วน Action สำหรับแก้ไขและปิดงาน"""
+def render_quick_actions(df):
+    """Quick Actions สำหรับจัดการเอกสาร"""
     
-    st.markdown("#### 🛠️ จัดการเอกสาร")
+    st.markdown("### 🛠️ จัดการเอกสาร")
     
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([3, 1])
     
     with col1:
-        doc_id = st.selectbox(
-            "เลือกเอกสารที่ต้องการจัดการ",
+        selected_id = st.selectbox(
+            "เลือกเอกสาร",
             options=df['id'].tolist(),
-            format_func=lambda x: f"ID {x}: {df[df['id']==x]['doc_no'].values[0]} - {df[df['id']==x]['subject'].values[0][:50]}..."
+            format_func=lambda x: f"ID {x}: {df[df['id']==x]['doc_no'].values[0]} - {df[df['id']==x]['subject'].values[0][:40]}...",
+            key="select_doc_action"
         )
     
     with col2:
         action = st.selectbox(
-            "เลือกการดำเนินการ",
-            ["-- เลือก --", "✏️ แก้ไขเอกสาร", "✅ ปิดงาน", "🗑️ ลบเอกสาร"]
+            "การดำเนินการ",
+            ["-- เลือก --", "✏️ แก้ไข", "✅ ปิดงาน", "🗑️ ลบ"],
+            key="action_type"
         )
     
-    if action == "✏️ แก้ไขเอกสาร":
-        render_edit_document(doc_id)
+    if action == "✏️ แก้ไข":
+        render_edit_form(selected_id)
     elif action == "✅ ปิดงาน":
-        render_close_document(doc_id)
-    elif action == "🗑️ ลบเอกสาร":
-        render_delete_document(doc_id)
+        render_close_form(selected_id)
+    elif action == "🗑️ ลบ":
+        render_delete_form(selected_id)
 
 
-def render_edit_document(doc_id):
+def render_edit_form(doc_id):
     """ฟอร์มแก้ไขเอกสาร"""
     
     try:
-        db_manager = DatabaseManager()
-        conn = db_manager.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT * FROM ocr WHERE id = %s", (doc_id,))
-        doc = cursor.fetchone()
-        
+        doc = get_document_by_id(doc_id)
         if not doc:
             st.error("❌ ไม่พบเอกสาร")
             return
         
-        # แสดงฟอร์มแก้ไข
         with st.form(f"edit_form_{doc_id}"):
-            st.markdown(f"##### แก้ไขเอกสาร ID: {doc_id}")
+            st.markdown(f"##### ✏️ แก้ไขเอกสาร ID: {doc_id}")
             
             col1, col2 = st.columns(2)
             
             with col1:
-                new_doc_no = st.text_input("เลขที่หนังสือ", doc[1])
-                new_subject = st.text_area("เรื่อง", doc[3], height=100)
-                new_content = st.text_area("สาระสำคัญ", doc[5] or "", height=120)
+                new_doc_no = st.text_input("เลขที่หนังสือ", value=doc['doc_no'])
+                new_subject = st.text_area("เรื่อง", value=doc['subject'], height=100)
+                new_content = st.text_area("สาระสำคัญ", value=doc['content'] or "", height=100)
             
             with col2:
-                new_doc_date = st.date_input("วันที่", value=doc[2])
-                new_recipient = st.text_input("ผู้รับ", doc[4] or "")
-                new_priority = st.selectbox("ความสำคัญ", ["ปกติ", "ด่วน", "ด่วนที่สุด"], 
-                                           index=["ปกติ", "ด่วน", "ด่วนที่สุด"].index(doc[9] or "ปกติ"))
-                new_tags = st.text_input("Tags", doc[10] or "")
+                new_doc_date = st.date_input("วันที่", value=parse_date_string(doc['doc_date']))
+                new_recipient = st.text_input("ผู้รับ", value=doc['recipient'] or "")
+                new_priority = st.selectbox(
+                    "ความสำคัญ",
+                    ["ปกติ", "ด่วน", "ด่วนที่สุด"],
+                    index=["ปกติ", "ด่วน", "ด่วนที่สุด"].index(doc['priority'])
+                )
+                new_tags = st.text_input("Tags", value=doc['tags'] or "")
             
-            submitted = st.form_submit_button("💾 บันทึกการแก้ไข", type="primary")
+            col1, col2 = st.columns(2)
+            with col1:
+                submit = st.form_submit_button("💾 บันทึกการแก้ไข", type="primary", use_container_width=True)
+            with col2:
+                cancel = st.form_submit_button("❌ ยกเลิก", use_container_width=True)
             
-            if submitted:
-                update_sql = """
-                    UPDATE ocr 
-                    SET doc_no=%s, doc_date=%s, subject=%s, recipient=%s, 
-                        content=%s, priority=%s, tags=%s, updated_at=NOW()
-                    WHERE id=%s
-                """
-                cursor.execute(update_sql, (
-                    new_doc_no, new_doc_date, new_subject, new_recipient,
-                    new_content, new_priority, new_tags, doc_id
-                ))
-                conn.commit()
+            if submit:
+                update_document(doc_id, new_doc_no, new_doc_date, new_subject, 
+                              new_recipient, new_content, new_priority, new_tags)
                 st.success("✅ แก้ไขข้อมูลเรียบร้อย!")
                 time.sleep(1)
                 st.rerun()
-        
-        cursor.close()
-        conn.close()
-        
+    
     except Exception as e:
         st.error(f"❌ เกิดข้อผิดพลาด: {str(e)}")
 
 
-def render_close_document(doc_id):
+def render_close_form(doc_id):
     """ฟอร์มปิดงาน"""
     
     with st.form(f"close_form_{doc_id}"):
-        st.markdown(f"##### ปิดงานเอกสาร ID: {doc_id}")
+        st.markdown(f"##### ✅ ปิดงานเอกสาร ID: {doc_id}")
         
         close_note = st.text_area(
-            "หมายเหตุการปิดงาน (ถ้ามี)",
-            placeholder="ระบุรายละเอียดการดำเนินการที่เสร็จสิ้นแล้ว...",
+            "หมายเหตุการปิดงาน",
+            placeholder="ระบุรายละเอียดการดำเนินการ...",
             height=100
         )
         
@@ -3059,114 +3045,312 @@ def render_close_document(doc_id):
             cancel = st.form_submit_button("❌ ยกเลิก", use_container_width=True)
         
         if confirm:
-            try:
-                db_manager = DatabaseManager()
-                conn = db_manager.get_connection()
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    UPDATE ocr 
-                    SET status='closed', close_note=%s, closed_at=NOW(), closed_by=%s
-                    WHERE id=%s
-                """, (close_note, st.session_state.get("username", "system"), doc_id))
-                
-                conn.commit()
-                cursor.close()
-                conn.close()
-                
-                st.success("✅ ปิดงานเรียบร้อยแล้ว!")
-                st.balloons()
-                time.sleep(1)
-                st.rerun()
-                
-            except Exception as e:
-                st.error(f"❌ เกิดข้อผิดพลาด: {str(e)}")
+            close_document(doc_id, close_note)
+            st.success("✅ ปิดงานเรียบร้อยแล้ว!")
+            st.balloons()
+            time.sleep(1)
+            st.rerun()
 
 
-def render_delete_document(doc_id):
+def render_delete_form(doc_id):
     """ฟอร์มลบเอกสาร"""
     
     st.warning("⚠️ **คำเตือน:** การลบเอกสารจะไม่สามารถกู้คืนได้!")
     
     with st.form(f"delete_form_{doc_id}"):
         confirm_text = st.text_input(
-            f"พิมพ์ 'DELETE {doc_id}' เพื่อยืนยันการลบ",
+            f"พิมพ์ 'DELETE {doc_id}' เพื่อยืนยัน",
             placeholder=f"DELETE {doc_id}"
         )
         
-        delete_btn = st.form_submit_button("🗑️ ลบเอกสาร", type="secondary")
+        col1, col2 = st.columns(2)
+        with col1:
+            delete = st.form_submit_button("🗑️ ลบเอกสาร", type="secondary", use_container_width=True)
+        with col2:
+            cancel = st.form_submit_button("❌ ยกเลิก", use_container_width=True)
         
-        if delete_btn:
+        if delete:
             if confirm_text == f"DELETE {doc_id}":
-                try:
-                    db_manager = DatabaseManager()
-                    conn = db_manager.get_connection()
-                    cursor = conn.cursor()
-                    
-                    cursor.execute("DELETE FROM ocr WHERE id=%s", (doc_id,))
-                    conn.commit()
-                    cursor.close()
-                    conn.close()
-                    
-                    st.success("🗑️ ลบเอกสารเรียบร้อยแล้ว!")
-                    time.sleep(1)
-                    st.rerun()
-                    
-                except Exception as e:
-                    st.error(f"❌ เกิดข้อผิดพลาด: {str(e)}")
+                delete_document(doc_id)
+                st.success("🗑️ ลบเอกสารเรียบร้อยแล้ว!")
+                time.sleep(1)
+                st.rerun()
             else:
                 st.error("❌ กรุณาพิมพ์ข้อความยืนยันให้ถูกต้อง")
 
 
-# === Helper Functions ===
+# === Database Helper Functions ===
 
-def get_total_documents():
-    """นับจำนวนเอกสารทั้งหมด"""
+def get_dashboard_stats():
+    """ดึงสถิติสำหรับ Dashboard"""
     try:
         db_manager = DatabaseManager()
         conn = db_manager.get_connection()
         cursor = conn.cursor()
+        
         cursor.execute("SELECT COUNT(*) FROM ocr")
-        count = cursor.fetchone()[0]
+        total = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM ocr WHERE status='on_process'")
+        pending = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM ocr WHERE status='closed'")
+        completed = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM ocr WHERE DATE(created_at) = CURDATE()")
+        today = cursor.fetchone()[0]
+        
         cursor.close()
         conn.close()
-        return count
+        
+        return {
+            'total': total,
+            'pending': pending,
+            'completed': completed,
+            'today': today
+        }
     except:
-        return 0
+        return {'total': 0, 'pending': 0, 'completed': 0, 'today': 0}
 
 
-def get_pending_documents():
-    """นับจำนวนเอกสารที่รอดำเนินการ"""
+def load_documents(search_term, status_filter):
+    """โหลดเอกสารจากฐานข้อมูล"""
+    db_manager = DatabaseManager()
+    conn = db_manager.get_connection()
+    
+    query = """
+        SELECT 
+            id, doc_no, doc_date, subject, recipient, 
+            priority, status, 
+            ROUND(ocr_confidence, 1) as confidence,
+            DATE_FORMAT(created_at, '%d/%m/%Y %H:%i') as created_at
+        FROM ocr
+        WHERE 1=1
+    """
+    params = []
+    
+    if search_term:
+        query += """ AND (
+            doc_no LIKE %s OR 
+            subject LIKE %s OR 
+            recipient LIKE %s OR 
+            tags LIKE %s
+        )"""
+        search_pattern = f"%{search_term}%"
+        params.extend([search_pattern] * 4)
+    
+    if status_filter == "รอดำเนินการ":
+        query += " AND status = 'on_process'"
+    elif status_filter == "เสร็จแล้ว":
+        query += " AND status = 'closed'"
+    
+    query += " ORDER BY id DESC LIMIT 200"
+    
+    df = pd.read_sql(query, conn, params=params)
+    conn.close()
+    
+    if not df.empty:
+        # Format data
+        df['doc_date'] = df['doc_date'].astype(str)
+        df['confidence'] = df['confidence'].apply(lambda x: f"{x}%")
+        df['priority'] = df['priority'].fillna('ปกติ')
+        
+        # Status mapping with icons
+        status_map = {
+            'on_process': '⏳ รอดำเนินการ',
+            'closed': '✅ เสร็จแล้ว'
+        }
+        df['status'] = df['status'].map(status_map)
+    
+    return df
+
+
+def get_document_by_id(doc_id):
+    """ดึงข้อมูลเอกสารตาม ID"""
     try:
         db_manager = DatabaseManager()
         conn = db_manager.get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM ocr WHERE status='on_process'")
-        count = cursor.fetchone()[0]
+        
+        cursor.execute("""
+            SELECT id, doc_no, doc_date, subject, recipient, content, 
+                   priority, tags, status
+            FROM ocr WHERE id = %s
+        """, (doc_id,))
+        
+        row = cursor.fetchone()
         cursor.close()
         conn.close()
-        return count
+        
+        if row:
+            return {
+                'id': row[0],
+                'doc_no': row[1],
+                'doc_date': row[2],
+                'subject': row[3],
+                'recipient': row[4],
+                'content': row[5],
+                'priority': row[6] or 'ปกติ',
+                'tags': row[7],
+                'status': row[8]
+            }
+        return None
     except:
-        return 0
+        return None
+
+
+def save_ocr_document(doc_no, doc_date, subject, recipient, content, 
+                      full_text, confidence, filename, priority, tags):
+    """บันทึกเอกสาร OCR"""
+    try:
+        db_manager = DatabaseManager()
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        
+        sql = """
+            INSERT INTO ocr 
+            (doc_no, doc_date, subject, recipient, content, full_text, 
+             ocr_confidence, source_file, priority, tags, status, created_by)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        
+        cursor.execute(sql, (
+            doc_no, doc_date, subject, recipient or None, content or None,
+            full_text, confidence, filename, priority, tags or None,
+            'on_process', st.session_state.get('username', 'system')
+        ))
+        
+        conn.commit()
+        doc_id = cursor.lastrowid
+        cursor.close()
+        conn.close()
+        
+        st.success(f"✅ บันทึกเอกสาร ID: {doc_id} เรียบร้อยแล้ว!")
+        st.balloons()
+        time.sleep(1.5)
+        st.rerun()
+        
+    except Exception as e:
+        st.error(f"❌ ไม่สามารถบันทึกได้: {str(e)}")
+
+
+def update_document(doc_id, doc_no, doc_date, subject, recipient, content, priority, tags):
+    """อัพเดทเอกสาร"""
+    try:
+        db_manager = DatabaseManager()
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        
+        sql = """
+            UPDATE ocr 
+            SET doc_no=%s, doc_date=%s, subject=%s, recipient=%s, 
+                content=%s, priority=%s, tags=%s, updated_at=NOW()
+            WHERE id=%s
+        """
+        
+        cursor.execute(sql, (
+            doc_no, doc_date, subject, recipient, content, priority, tags, doc_id
+        ))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+    except Exception as e:
+        st.error(f"❌ เกิดข้อผิดพลาด: {str(e)}")
+
+
+def close_document(doc_id, close_note):
+    """ปิดงานเอกสาร"""
+    try:
+        db_manager = DatabaseManager()
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            UPDATE ocr 
+            SET status='closed', close_note=%s, closed_at=NOW(), 
+                closed_by=%s
+            WHERE id=%s
+        """, (close_note, st.session_state.get('username', 'system'), doc_id))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+    except Exception as e:
+        st.error(f"❌ เกิดข้อผิดพลาด: {str(e)}")
+
+
+def delete_document(doc_id):
+    """ลบเอกสาร"""
+    try:
+        db_manager = DatabaseManager()
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("DELETE FROM ocr WHERE id=%s", (doc_id,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+    except Exception as e:
+        st.error(f"❌ เกิดข้อผิดพลาด: {str(e)}")
+
+
+def export_documents(search_term, status_filter):
+    """Export เอกสารเป็น CSV"""
+    try:
+        df = load_documents(search_term, status_filter)
+        if not df.empty:
+            csv = df.to_csv(index=False, encoding='utf-8-sig')
+            st.download_button(
+                "📥 ดาวน์โหลด CSV",
+                csv,
+                f"ocr_documents_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                "text/csv",
+                key="download_csv"
+            )
+    except Exception as e:
+        st.error(f"❌ ไม่สามารถ export ได้: {str(e)}")
 
 
 def parse_thai_date(date_str):
-    """แปลงวันที่ภาษาไทยเป็น datetime object"""
+    """แปลงวันที่ภาษาไทย"""
     from datetime import datetime
     
-    if not date_str:
+    if not date_str or date_str == 'None':
         return datetime.now().date()
     
     try:
-        # พยายามแปลงรูปแบบต่างๆ
-        for fmt in ["%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d"]:
+        date_str = str(date_str).replace('พ.ศ.', '').replace('ค.ศ.', '').strip()
+        
+        for fmt in ["%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d/%m/%y"]:
             try:
-                return datetime.strptime(date_str, fmt).date()
+                parsed = datetime.strptime(date_str, fmt)
+                if parsed.year > 2500:
+                    parsed = parsed.replace(year=parsed.year - 543)
+                return parsed.date()
             except:
                 continue
+        
         return datetime.now().date()
     except:
-        return datetime.now().date() 
+        return datetime.now().date()
+
+
+def parse_date_string(date_str):
+    """แปลง date string เป็น date object"""
+    from datetime import datetime
+    
+    try:
+        if isinstance(date_str, str):
+            return datetime.strptime(date_str, "%Y-%m-%d").date()
+        return date_str
+    except:
+        return datetime.now().date()
+         
  
 # ===== MAIN APPLICATION =====
 def main():
