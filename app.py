@@ -2802,7 +2802,7 @@ def render_ocr_form(result, filename):
         with col1:
             doc_no = st.text_input(
                 "📄 เลขที่หนังสือ *",
-                value=key_fields.get("เลขที่", ""),
+                value=key_fields.get("เลขที่หนังสือ", ""),
                 placeholder="เช่น ศธ 0201/1234"
             )
             
