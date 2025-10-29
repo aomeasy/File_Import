@@ -2644,7 +2644,6 @@ def render_user_management_tab():
         st.warning(f"⚠️ Role `{role}` has no access to this section.")
         st.stop() 
 
-
 def render_ocr_tab():
     """
     Enhanced OCR Document Reader with professional features
@@ -2877,7 +2876,8 @@ def render_document_management():
         query = """
             SELECT 
                 id, doc_no, doc_date, subject, recipient, 
-                priority, status, ocr_confidence, tags, created_at
+                priority, status, ocr_confidence, tags, 
+                DATE_FORMAT(created_at, '%d/%m/%Y %H:%i') as created_at
             FROM ocr
             WHERE 1=1
         """
@@ -2898,16 +2898,17 @@ def render_document_management():
         elif status_filter == "ปิดงานแล้ว":
             query += " AND status = 'closed'"
         
-        query += " ORDER BY created_at DESC LIMIT 100"
+        query += " ORDER BY id DESC LIMIT 100"
 
         df = pd.read_sql(query, conn, params=params)
         conn.close()
 
         if not df.empty:
-            # จัดรูปแบบข้อมูล
-            df['doc_date'] = pd.to_datetime(df['doc_date']).dt.strftime('%d/%m/%Y')
-            df['created_at'] = pd.to_datetime(df['created_at']).dt.strftime('%d/%m/%Y %H:%M')
+            # จัดรูปแบบข้อมูล (ไม่ต้องแปลง datetime เพราะ query ทำให้แล้ว)
+            df['doc_date'] = df['doc_date'].astype(str)  # แปลงเป็น string
             df['ocr_confidence'] = df['ocr_confidence'].apply(lambda x: f"{x:.1f}%")
+            df['priority'] = df['priority'].fillna('ปกติ')
+            df['tags'] = df['tags'].fillna('-')
             
             # แปลงสถานะเป็นภาษาไทย
             status_map = {
@@ -3165,9 +3166,7 @@ def parse_thai_date(date_str):
                 continue
         return datetime.now().date()
     except:
-        return datetime.now().date()
- 
-
+        return datetime.now().date() 
  
 # ===== MAIN APPLICATION =====
 def main():
