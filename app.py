@@ -898,22 +898,54 @@ def render_import_tab():
                     st.warning("📭 Table is empty or preview unavailable")
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
-
-        # ===== Upload File =====
-        st.subheader("📤 Upload File")
-        uploaded_file = st.file_uploader("Choose a file to import", type=['csv', 'xlsx', 'xls'], help="Max size: 200MB", key="import_uploader")
-
-        if uploaded_file:
-            st.markdown(f"""
-            <div class="file-info">
-                <h4>📄 {uploaded_file.name}</h4>
-                <p><strong>Size:</strong> {uploaded_file.size / 1024:.2f} KB</p>
-                <p><strong>Type:</strong> {uploaded_file.type}</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-            try:
  
+        # ===== Upload File (รองรับหลายไฟล์) =====
+        st.subheader("📤 Upload File")
+        
+        uploaded_files = st.file_uploader(
+            "Choose files to import", 
+            type=['csv', 'xlsx', 'xls'], 
+            help="Max size: 200MB per file",
+            accept_multiple_files=True,  # ✅ เปิดใช้การอัพโหลดหลายไฟล์
+            key="import_uploader"
+        )
+        
+        if uploaded_files:
+            # แสดงจำนวนไฟล์ที่อัพโหลด
+            st.info(f"📁 Selected {len(uploaded_files)} file(s)")
+            
+            # แสดงข้อมูลไฟล์ทั้งหมดในรูปแบบ grid
+            file_info_html = '<div style="display: grid; gap: 10px;">'
+            for idx, uploaded_file in enumerate(uploaded_files, 1):
+                file_info_html += f"""
+                <div class="file-info" style="background-color:#f8f9fa; padding:10px; border-radius:6px; border-left:4px solid #007bff;">
+                    <h4 style="margin:0; font-size:14px;">📄 {idx}. {uploaded_file.name}</h4>
+                    <p style="margin:5px 0 0 0; font-size:13px; color:#666;">
+                        <strong>Size:</strong> {uploaded_file.size / 1024:.2f} KB | 
+                        <strong>Type:</strong> {uploaded_file.type}
+                    </p>
+                </div>
+                """
+            file_info_html += '</div>'
+            st.markdown(file_info_html, unsafe_allow_html=True)
+            
+            # เลือกไฟล์ที่จะประมวลผล
+            if len(uploaded_files) > 1:
+                st.divider()
+                file_names = [f.name for f in uploaded_files]
+                selected_file_name = st.selectbox(
+                    "Select file to process",
+                    options=file_names,
+                    key="selected_file_to_process"
+                )
+                uploaded_file = uploaded_files[file_names.index(selected_file_name)]
+            else:
+                uploaded_file = uploaded_files[0]
+            
+            st.markdown("---")
+            st.markdown(f"### 📋 Processing: **{uploaded_file.name}**")
+            
+            try:
                 with st.spinner("Reading file..."):
                     if uploaded_file.name.endswith('.csv'):
                         uploaded_file.seek(0)
@@ -929,22 +961,19 @@ def render_import_tab():
                                 df = pd.read_excel(uploaded_file, engine='xlrd')
                             except Exception as e:
                                 uploaded_file.seek(0)
-                                raw_start = uploaded_file.read(2048)  # อ่านดูเนื้อไฟล์บางส่วน
+                                raw_start = uploaded_file.read(2048)
                                 uploaded_file.seek(0)
                                 text_sample = raw_start.decode(errors="ignore").lower()
-                
-                                if "<table" in text_sample:  # ✅ HTML-based .xls
+                                
+                                if "<table" in text_sample:
+                                    # ✅ HTML-based .xls
                                     st.warning("⚠️ Detected HTML-based .xls file (e.g. from SCOMS Export). Reading as HTML table instead...")
-                
-                                    # ✅ ตรวจ encoding แบบไทย
+                                    
                                     import chardet
                                     detected = chardet.detect(raw_start)
                                     encoding_used = detected.get("encoding", "utf-8")
-                
-                                    # ✅ Decode ตาม encoding ที่ตรวจเจอ
+                                    
                                     html_text = uploaded_file.read().decode(encoding_used, errors="replace")
-                
-                                    # ✅ อ่านตาราง HTML
                                     tables = pd.read_html(html_text)
                                     df = tables[0] if tables else pd.DataFrame()
                                     df.attrs["__encoding__"] = encoding_used
@@ -954,12 +983,14 @@ def render_import_tab():
                 
                 st.success(f"✅ File loaded: {len(df)} rows, {len(df.columns)} columns")
                 st.caption(f"Encoding: {getattr(df.attrs, '__encoding__', 'auto') if uploaded_file.name.endswith('.csv') else df.attrs.get('__encoding__', 'n/a')}")
+                
                 st.subheader("📋 Data Preview")
                 with st.expander("📋 Data Preview (คลิกเพื่อดูข้อมูลตัวอย่าง)", expanded=False):
                     st.dataframe(df.head(10), use_container_width=True)
-
-                # ===== Column Mapping (แก้ไข: ทำเป็น Collapsible) =====
+                
+                # ===== Column Mapping =====
                 st.subheader("🔗 Column Mapping")
+                
                 table_columns = get_cached_table_columns(selected_table)
                 if not table_columns:
                     st.error("Cannot get table columns")
@@ -967,10 +998,9 @@ def render_import_tab():
                 
                 db_column_names = [col['COLUMN_NAME'] for col in table_columns]
                 
-                # ✅ ตรวจว่าคอลัมน์ของ DataFrame เป็นตัวเลข (แสดงว่า header ไม่ถูกอ่าน)
+                # ✅ ตรวจว่าคอลัมน์ของ DataFrame เป็นตัวเลข
                 if all(isinstance(c, (int, float)) for c in df.columns):
                     first_row = df.iloc[0].tolist()
-                    # เฉพาะกรณีที่ไม่มี NaN ทั้งหมด (กัน header ที่ไม่สมบูรณ์)
                     if any(pd.notnull(x) for x in first_row):
                         df.columns = first_row
                         df = df.drop(df.index[0]).reset_index(drop=True)
@@ -981,14 +1011,13 @@ def render_import_tab():
                 
                 column_mapping = {}
                 
-                # ✅ ใช้ expander เพื่อให้ hide/view ได้
                 with st.expander("🔽 View/Hide Column Mapping", expanded=False):
                     cols = st.columns(2)
                     with cols[0]:
                         st.write("**File Column**")
                     with cols[1]:
                         st.write("**→ Database Column**")
-                      
+                    
                     for file_col in file_columns:
                         c1, c2 = st.columns(2)
                         with c1:
@@ -997,6 +1026,7 @@ def render_import_tab():
                             default_index = 0
                             if file_col in db_column_names:
                                 default_index = db_column_names.index(file_col)
+                            
                             selected_db_col = st.selectbox(
                                 f"Map {file_col}",
                                 options=["-- Skip --"] + db_column_names,
@@ -1004,9 +1034,10 @@ def render_import_tab():
                                 key=f"mapping_{file_col}",
                                 label_visibility="collapsed"
                             )
+                            
                             if selected_db_col != "-- Skip --":
                                 column_mapping[file_col] = selected_db_col
-
+                
                 if column_mapping:
                     st.success(f"✅ Mapped {len(column_mapping)} columns")
                 else:
