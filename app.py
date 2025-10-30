@@ -992,36 +992,36 @@ def render_import_tab():
                     column_mapping = {}
                     
                 
-                # ✅ ใช้ expander เพื่อให้ hide/view ได้
-                with st.expander("🔽 View/Hide Column Mapping", expanded=False):
-                    cols = st.columns(2)
-                    with cols[0]:
-                        st.write("**File Column**")
-                    with cols[1]:
-                        st.write("**→ Database Column**")
-                      
-                    for file_col in file_columns:
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            st.text(file_col)
-                        with c2:
-                            default_index = 0
-                            if file_col in db_column_names:
-                                default_index = db_column_names.index(file_col)
-                            selected_db_col = st.selectbox(
-                                f"Map {file_col}",
-                                options=["-- Skip --"] + db_column_names,
-                                index=default_index + 1 if file_col in db_column_names else 0,
-                                key=f"mapping_{file_col}",
-                                label_visibility="collapsed"
-                            )
-                            if selected_db_col != "-- Skip --":
-                                column_mapping[file_col] = selected_db_col
-
-                if column_mapping:
-                    st.success(f"✅ Mapped {len(column_mapping)} columns")
-                else:
-                    st.warning("⚠️ No columns mapped")
+                        # ✅ ใช้ expander เพื่อให้ hide/view ได้
+                        with st.expander("🔽 View/Hide Column Mapping", expanded=False):
+                            cols = st.columns(2)
+                            with cols[0]:
+                                st.write("**File Column**")
+                            with cols[1]:
+                                st.write("**→ Database Column**")
+                              
+                            for file_col in file_columns:
+                                c1, c2 = st.columns(2)
+                                with c1:
+                                    st.text(file_col)
+                                with c2:
+                                    default_index = 0
+                                    if file_col in db_column_names:
+                                        default_index = db_column_names.index(file_col)
+                                    selected_db_col = st.selectbox(
+                                        f"Map {file_col}",
+                                        options=["-- Skip --"] + db_column_names,
+                                        index=default_index + 1 if file_col in db_column_names else 0,
+                                        key=f"mapping_{file_col}",
+                                        label_visibility="collapsed"
+                                    )
+                                    if selected_db_col != "-- Skip --":
+                                        column_mapping[file_col] = selected_db_col
+        
+                        if column_mapping:
+                            st.success(f"✅ Mapped {len(column_mapping)} columns")
+                        else:
+                            st.warning("⚠️ No columns mapped")
 
                 # ============================================================
                 # 🔐 Authorization + แสดง Allowed Tables
