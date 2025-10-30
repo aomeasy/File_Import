@@ -1483,12 +1483,10 @@ def render_import_tab():
                                 
                                 with st.expander("🔍 Error Details"):
                                     st.code(result.get('error', ''), language='text')
-                    
-                                               
 
-                        except Exception as e:
-                            st.error(f"❌ Error processing file: {str(e)}")
-                            st.exception(e)
+                        #except Exception as e:
+                            #st.error(f"❌ Error processing file: {str(e)}")
+                            #st.exception(e)
  
 def log_activity(username, action, target, details=None):
     """บันทึก Log ลงในฐานข้อมูล"""
