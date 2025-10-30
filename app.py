@@ -899,87 +899,98 @@ def render_import_tab():
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
 
+
         # ===== Upload File =====
         st.subheader("📤 Upload File")
-        uploaded_file = st.file_uploader("Choose a file to import", type=['csv', 'xlsx', 'xls'], help="Max size: 200MB", key="import_uploader")
-
-        if uploaded_file:
-            st.markdown(f"""
-            <div class="file-info">
-                <h4>📄 {uploaded_file.name}</h4>
-                <p><strong>Size:</strong> {uploaded_file.size / 1024:.2f} KB</p>
-                <p><strong>Type:</strong> {uploaded_file.type}</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-            try:
- 
-                with st.spinner("Reading file..."):
-                    if uploaded_file.name.endswith('.csv'):
-                        uploaded_file.seek(0)
-                        df = read_csv_safely(uploaded_file)
-                        st.caption(f"📖 CSV encoding used: {df.attrs.get('__encoding__', 'unknown')}")
-                    else:
-                        try:
-                            # ✅ ลองอ่าน Excel ปกติ (.xlsx)
-                            df = pd.read_excel(uploaded_file, engine='openpyxl')
-                        except Exception:
+        
+        # 🩵 (1) เปลี่ยนเป็น accept_multiple_files=True
+        uploaded_files = st.file_uploader(
+            "Choose file(s) to import",
+            type=['csv', 'xlsx', 'xls'],
+            help="Max size: 200MB per file",
+            key="import_uploader",
+            accept_multiple_files=True
+        )
+        
+        # 🩵 (2) เปลี่ยนจาก if uploaded_file: → if uploaded_files: แล้ววนลูป
+        if uploaded_files:
+            for uploaded_file in uploaded_files:  # ✅ วนอ่านทีละไฟล์
+                st.markdown(f"""
+                <div class="file-info">
+                    <h4>📄 {uploaded_file.name}</h4>
+                    <p><strong>Size:</strong> {uploaded_file.size / 1024:.2f} KB</p>
+                    <p><strong>Type:</strong> {uploaded_file.type}</p>
+                </div>
+                """, unsafe_allow_html=True)
+        
+                try:
+                    with st.spinner("Reading file..."):
+                        if uploaded_file.name.endswith('.csv'):
+                            uploaded_file.seek(0)
+                            df = read_csv_safely(uploaded_file)
+                            st.caption(f"📖 CSV encoding used: {df.attrs.get('__encoding__', 'unknown')}")
+                        else:
                             try:
-                                # ✅ ลองอ่าน Excel เก่า (.xls)
-                                df = pd.read_excel(uploaded_file, engine='xlrd')
-                            except Exception as e:
-                                uploaded_file.seek(0)
-                                raw_start = uploaded_file.read(2048)  # อ่านดูเนื้อไฟล์บางส่วน
-                                uploaded_file.seek(0)
-                                text_sample = raw_start.decode(errors="ignore").lower()
-                
-                                if "<table" in text_sample:  # ✅ HTML-based .xls
-                                    st.warning("⚠️ Detected HTML-based .xls file (e.g. from SCOMS Export). Reading as HTML table instead...")
-                
-                                    # ✅ ตรวจ encoding แบบไทย
-                                    import chardet
-                                    detected = chardet.detect(raw_start)
-                                    encoding_used = detected.get("encoding", "utf-8")
-                
-                                    # ✅ Decode ตาม encoding ที่ตรวจเจอ
-                                    html_text = uploaded_file.read().decode(encoding_used, errors="replace")
-                
-                                    # ✅ อ่านตาราง HTML
-                                    tables = pd.read_html(html_text)
-                                    df = tables[0] if tables else pd.DataFrame()
-                                    df.attrs["__encoding__"] = encoding_used
-                                else:
-                                    st.warning(f"⚠️ Excel read failed ({e}). Trying as CSV instead...")
-                                    df = pd.read_csv(uploaded_file, encoding='utf-8', on_bad_lines='skip')
-                
-                st.success(f"✅ File loaded: {len(df)} rows, {len(df.columns)} columns")
-                st.caption(f"Encoding: {getattr(df.attrs, '__encoding__', 'auto') if uploaded_file.name.endswith('.csv') else df.attrs.get('__encoding__', 'n/a')}")
-                st.subheader("📋 Data Preview")
-                with st.expander("📋 Data Preview (คลิกเพื่อดูข้อมูลตัวอย่าง)", expanded=False):
-                    st.dataframe(df.head(10), use_container_width=True)
-
-                # ===== Column Mapping (แก้ไข: ทำเป็น Collapsible) =====
-                st.subheader("🔗 Column Mapping")
-                table_columns = get_cached_table_columns(selected_table)
-                if not table_columns:
-                    st.error("Cannot get table columns")
-                    return
-                
-                db_column_names = [col['COLUMN_NAME'] for col in table_columns]
-                
-                # ✅ ตรวจว่าคอลัมน์ของ DataFrame เป็นตัวเลข (แสดงว่า header ไม่ถูกอ่าน)
-                if all(isinstance(c, (int, float)) for c in df.columns):
-                    first_row = df.iloc[0].tolist()
-                    # เฉพาะกรณีที่ไม่มี NaN ทั้งหมด (กัน header ที่ไม่สมบูรณ์)
-                    if any(pd.notnull(x) for x in first_row):
-                        df.columns = first_row
-                        df = df.drop(df.index[0]).reset_index(drop=True)
-                        st.info("🧩 Automatically used first row as header (detected from HTML-based Excel).")
-                
-                file_columns = list(df.columns)
-                st.info(f"**File Columns:** {len(file_columns)} | **Table Columns:** {len(db_column_names)}")
-                
-                column_mapping = {}
+                                # ✅ ลองอ่าน Excel ปกติ (.xlsx)
+                                df = pd.read_excel(uploaded_file, engine='openpyxl')
+                            except Exception:
+                                try:
+                                    # ✅ ลองอ่าน Excel เก่า (.xls)
+                                    df = pd.read_excel(uploaded_file, engine='xlrd')
+                                except Exception as e:
+                                    uploaded_file.seek(0)
+                                    raw_start = uploaded_file.read(2048)  # อ่านดูเนื้อไฟล์บางส่วน
+                                    uploaded_file.seek(0)
+                                    text_sample = raw_start.decode(errors="ignore").lower()
+        
+                                    if "<table" in text_sample:  # ✅ HTML-based .xls
+                                        st.warning("⚠️ Detected HTML-based .xls file (e.g. from SCOMS Export). Reading as HTML table instead...")
+        
+                                        # ✅ ตรวจ encoding แบบไทย
+                                        import chardet
+                                        detected = chardet.detect(raw_start)
+                                        encoding_used = detected.get("encoding", "utf-8")
+        
+                                        # ✅ Decode ตาม encoding ที่ตรวจเจอ
+                                        html_text = uploaded_file.read().decode(encoding_used, errors="replace")
+        
+                                        # ✅ อ่านตาราง HTML
+                                        tables = pd.read_html(html_text)
+                                        df = tables[0] if tables else pd.DataFrame()
+                                        df.attrs["__encoding__"] = encoding_used
+                                    else:
+                                        st.warning(f"⚠️ Excel read failed ({e}). Trying as CSV instead...")
+                                        df = pd.read_csv(uploaded_file, encoding='utf-8', on_bad_lines='skip')
+        
+                    st.success(f"✅ File loaded: {len(df)} rows, {len(df.columns)} columns")
+                    st.caption(f"Encoding: {getattr(df.attrs, '__encoding__', 'auto') if uploaded_file.name.endswith('.csv') else df.attrs.get('__encoding__', 'n/a')}")
+                    st.subheader("📋 Data Preview")
+                    with st.expander("📋 Data Preview (คลิกเพื่อดูข้อมูลตัวอย่าง)", expanded=False):
+                        st.dataframe(df.head(10), use_container_width=True)
+        
+                    # ===== Column Mapping (แก้ไข: ทำเป็น Collapsible) =====
+                    st.subheader("🔗 Column Mapping")
+                    table_columns = get_cached_table_columns(selected_table)
+                    if not table_columns:
+                        st.error("Cannot get table columns")
+                        return
+        
+                    db_column_names = [col['COLUMN_NAME'] for col in table_columns]
+        
+                    # ✅ ตรวจว่าคอลัมน์ของ DataFrame เป็นตัวเลข (แสดงว่า header ไม่ถูกอ่าน)
+                    if all(isinstance(c, (int, float)) for c in df.columns):
+                        first_row = df.iloc[0].tolist()
+                        # เฉพาะกรณีที่ไม่มี NaN ทั้งหมด (กัน header ที่ไม่สมบูรณ์)
+                        if any(pd.notnull(x) for x in first_row):
+                            df.columns = first_row
+                            df = df.drop(df.index[0]).reset_index(drop=True)
+                            st.info("🧩 Automatically used first row as header (detected from HTML-based Excel).")
+        
+                    file_columns = list(df.columns)
+                    st.info(f"**File Columns:** {len(file_columns)} | **Table Columns:** {len(db_column_names)}")
+        
+                    column_mapping = {}
+                    
                 
                 # ✅ ใช้ expander เพื่อให้ hide/view ได้
                 with st.expander("🔽 View/Hide Column Mapping", expanded=False):
