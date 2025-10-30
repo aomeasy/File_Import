@@ -972,7 +972,7 @@ def render_import_tab():
                     table_columns = get_cached_table_columns(selected_table)
                     if not table_columns:
                         st.error("Cannot get table columns")
-                        return
+                        st.stop()  
         
                     db_column_names = [col['COLUMN_NAME'] for col in table_columns]
         
@@ -1021,8 +1021,8 @@ def render_import_tab():
                     else:
                         st.warning("⚠️ No columns mapped")
         
-                        except Exception as e:
-                            st.error(f"❌ Error reading {uploaded_file.name}: {e}")
+                except Exception as e:
+                    st.error(f"❌ Error reading {uploaded_file.name}: {e}")
 
         
 
