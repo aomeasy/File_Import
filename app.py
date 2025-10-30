@@ -901,6 +901,15 @@ def render_import_tab():
 
         # ===== Upload File =====
         st.subheader("📤 Upload File")
+        st.divider()
+        # ✅ ช่องกรอก Secret Key (ย้ายมานอก loop)
+        secret_key = st.text_input(
+            "Secret Key to unlock import",
+            type="password",
+            placeholder="Enter your secret key",
+            key="import_secret_key_global"  
+        )
+        user_perm = get_user_permission(secret_key)
         
         # ✅ เปลี่ยนเป็นรับหลายไฟล์ (logic เดิมทั้งหมดคงไว้)
         uploaded_files = st.file_uploader(
@@ -1024,23 +1033,7 @@ def render_import_tab():
                 except Exception as e:
                     st.error(f"❌ Error reading {uploaded_file.name}: {e}")
 
-        
-
-                # ============================================================
-                # 🔐 Authorization + แสดง Allowed Tables
-                # ============================================================
-                
-                st.divider()
-                
-                # --- ช่องกรอก Secret Key ---
-                secret_key = st.text_input(
-                    "Secret Key to unlock import",
-                    type="password",
-                    placeholder="Enter your secret key",
-                    key="import_secret_key"
-                )
-                
-                user_perm = get_user_permission(secret_key)
+         
                 
                 if not user_perm:
                     st.warning("🔑 Enter correct key to unlock Import Data button.", icon="🔒")
