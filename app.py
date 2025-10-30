@@ -901,17 +901,7 @@ def render_import_tab():
 
         # ===== Upload File =====
         st.subheader("📤 Upload File")
-        st.divider()
-        # ✅ ช่องกรอก Secret Key (ย้ายมานอก loop)
-        secret_key = st.text_input(
-            "Secret Key to unlock import",
-            type="password",
-            placeholder="Enter your secret key",
-            key="import_secret_key_global"  
-        )
-        user_perm = get_user_permission(secret_key)
-        
-        # ✅ เปลี่ยนเป็นรับหลายไฟล์ (logic เดิมทั้งหมดคงไว้)
+
         uploaded_files = st.file_uploader(
             "Choose file(s) to import",
             type=['csv', 'xlsx', 'xls'],
@@ -919,6 +909,8 @@ def render_import_tab():
             key="import_uploader",
             accept_multiple_files=True
         )
+        uploaded_dfs = []  # ✅ เก็บข้อมูลทุกไฟล์ไว้ที่นี่
+        mappings_all = []  # ✅ เก็บ mapping ของแต่ละไฟล์
         
         if uploaded_files:
             for uploaded_file in uploaded_files:  # ✅ วนทีละไฟล์
@@ -1033,22 +1025,52 @@ def render_import_tab():
                 except Exception as e:
                     st.error(f"❌ Error reading {uploaded_file.name}: {e}")
 
-         
-                
-                if not user_perm:
-                    st.warning("🔑 Enter correct key to unlock Import Data button.", icon="🔒")
-                    import_disabled = True
+        # =================================================================
+        # ✅ ส่วนนี้อยู่ “นอก loop” — แสดง Secret Key และปุ่ม Import แค่ 1 ชุด
+        # =================================================================
+        if uploaded_files:
+            st.markdown("---")
+            st.subheader("🔐 Authorization")
+        
+            secret_key = st.text_input(
+                "Secret Key to unlock import",
+                type="password",
+                placeholder="Enter your secret key",
+                key="import_secret_key_global"
+            )
+        
+            user_perm = get_user_permission(secret_key)
+        
+            if not user_perm:
+                st.warning("🔑 Enter correct key to unlock Import Data button.", icon="🔒")
+                import_disabled = True
+            else:
+                role = user_perm["role"]
+                allowed_tables = user_perm.get("allowed_tables", [])
+                import_disabled = not (role == "Admin" or selected_table in allowed_tables)
+        
+                if import_disabled:
+                    st.error(f"🚫 You are not allowed to import into `{selected_table}`.")
                 else:
-                    role = user_perm["role"]
-                    allowed_tables = user_perm.get("allowed_tables", [])
-                    
-                    # ตรวจสอบว่ามีสิทธิ์ import table นี้หรือไม่
-                    if role == "Admin" or selected_table in allowed_tables:
-                        st.success(f"✅ Authorized as **{role}**")
-                        import_disabled = False
-                    else:
-                        st.error(f"🚫 You are not allowed to import into `{selected_table}`.")
-                        import_disabled = True
+                    st.success(f"✅ Authorized as **{role}**")
+        
+            # ✅ ปุ่ม Import เดียว (ไม่ซ้ำ key)
+            if st.button("🚀 Import All Files", type="primary", use_container_width=True, key="btn_import_all", disabled=import_disabled):
+                try:
+                    with st.spinner("Importing all files..."):
+                        db = DatabaseManager()
+                        total_rows = 0
+                        for df, mapping in zip(uploaded_dfs, mappings_all):
+                            df_clean = clean_dataframe_for_import(df, get_cached_table_columns(selected_table), mapping)
+                            result = db.import_data(selected_table, df_clean, mapping)
+                            total_rows += len(df_clean)
+                        db.close_connection()
+        
+                    st.success(f"✅ Successfully imported {total_rows:,} rows from {len(uploaded_files)} files.")
+                    st.balloons()
+        
+                except Exception as e:
+                    st.error(f"❌ Import failed: {e}")
                     
                     # ============================================================
                     # 📋 แสดงรายการ Tables ที่มีสิทธิ์เข้าถึง
