@@ -898,7 +898,8 @@ def render_import_tab():
                     st.warning("📭 Table is empty or preview unavailable")
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
- 
+
+
         # ===== Upload File (รองรับหลายไฟล์) =====
         st.subheader("📤 Upload File")
         
@@ -914,24 +915,18 @@ def render_import_tab():
             # แสดงจำนวนไฟล์ที่อัพโหลด
             st.info(f"📁 Selected {len(uploaded_files)} file(s)")
             
-            # แสดงข้อมูลไฟล์ทั้งหมดในรูปแบบ grid
-            file_info_html = '<div style="display: grid; gap: 10px;">'
-            for idx, uploaded_file in enumerate(uploaded_files, 1):
-                file_info_html += f"""
-                <div class="file-info" style="background-color:#f8f9fa; padding:10px; border-radius:6px; border-left:4px solid #007bff;">
-                    <h4 style="margin:0; font-size:14px;">📄 {idx}. {uploaded_file.name}</h4>
-                    <p style="margin:5px 0 0 0; font-size:13px; color:#666;">
-                        <strong>Size:</strong> {uploaded_file.size / 1024:.2f} KB | 
-                        <strong>Type:</strong> {uploaded_file.type}
-                    </p>
-                </div>
-                """
-            file_info_html += '</div>'
-            st.markdown(file_info_html, unsafe_allow_html=True)
+            # แสดงข้อมูลไฟล์ทั้งหมดในรูปแบบ list
+            file_list = []
+            for idx, f in enumerate(uploaded_files, 1):
+                file_list.append(f"**{idx}. {f.name}** - Size: {f.size / 1024:.2f} KB | Type: {f.type}")
+            
+            with st.expander("📋 View uploaded files", expanded=True):
+                for file_info in file_list:
+                    st.markdown(f"- {file_info}")
             
             # เลือกไฟล์ที่จะประมวลผล
+            st.divider()
             if len(uploaded_files) > 1:
-                st.divider()
                 file_names = [f.name for f in uploaded_files]
                 selected_file_name = st.selectbox(
                     "Select file to process",
@@ -941,9 +936,7 @@ def render_import_tab():
                 uploaded_file = uploaded_files[file_names.index(selected_file_name)]
             else:
                 uploaded_file = uploaded_files[0]
-            
-            st.markdown("---")
-            st.markdown(f"### 📋 Processing: **{uploaded_file.name}**")
+                st.markdown(f"**Processing file:** {uploaded_file.name}")
             
             try:
                 with st.spinner("Reading file..."):
@@ -1042,6 +1035,8 @@ def render_import_tab():
                     st.success(f"✅ Mapped {len(column_mapping)} columns")
                 else:
                     st.warning("⚠️ No columns mapped")
+         
+  
 
                 # ============================================================
                 # 🔐 Authorization + แสดง Allowed Tables
