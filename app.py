@@ -1438,10 +1438,24 @@ def render_import_tab():
                             
                             if result.get("success"):
                                 st.success("✅ Procedure update_Broadband_daily executed successfully!")
+    
+    
                                 
                                 if result['rows_affected'] > 0 or result['difference'] != 0:
                                     # st.info(f"ℹ️ Procedure processed {result['rows_affected']:,} rows")
                                     st.balloons()
+                                    # ✅ เพิ่มส่วนนี้หลังจาก update สำเร็จ
+                                    st.markdown("""
+                                    <div style="margin-top:10px; padding:10px; border-left:4px solid #f39c12; background-color:#fffbea;">
+                                        ⚠️ <b>กรุณารีเฟรชข้อมูลที่ Looker Studio</b><br>
+                                        👉 <a href="https://lookerstudio.google.com/reporting/1483b6e3-3477-4906-8966-ec276423ec27" 
+                                              target="_blank" 
+                                              style="color:#0073e6; text-decoration:none; font-weight:bold;">
+                                              เปิดลิงก์เพื่อรีเฟรชข้อมูลใน Dashboard</a>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+
+            
                                 else:
                                     st.warning("⚠️ No rows affected (this might be normal)")
                                 
