@@ -1049,8 +1049,19 @@ def render_import_tab():
                 
                 if column_mapping:
                     st.success(f"✅ Mapped {len(column_mapping)} columns")
+
+                    # ✅ เพิ่มตรงนี้: แปลงข้อมูลเป็น string ทั้งหมด
+                    df_to_import = df[list(column_mapping.keys())].copy()
+                    df_to_import = df_to_import.rename(columns=column_mapping)
+                    
+                    # แปลงทุก column เป็น string และจัดการ NaN
+                    for col in df_to_import.columns:
+                        df_to_import[col] = df_to_import[col].apply(
+                            lambda x: None if pd.isna(x) else str(x)
+                        )
                 else:
                     st.warning("⚠️ No columns mapped")
+                    df_to_import = None
 
  
 
@@ -1151,7 +1162,12 @@ def render_import_tab():
                                 
                                 # ทำความสะอาดข้อมูล (ส่ง column_mapping ด้วย)
                                 df_clean = clean_dataframe_for_import(df, table_columns, column_mapping)
-                                
+
+                                # ✅ เพิ่มตรงนี้: แปลงทุก column เป็น string
+                                for col in df_clean.columns:
+                                    df_clean[col] = df_clean[col].apply(
+                                        lambda x: None if pd.isna(x) else str(x)
+                                    )
                                 # st.success("✅ Data cleaned successfully")
                                 
                                 # แสดงสถิติการทำความสะอาด
