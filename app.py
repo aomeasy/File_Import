@@ -899,11 +899,10 @@ def render_import_tab():
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
 
-
         # ===== Upload File =====
         st.subheader("📤 Upload File")
         
-        # 🩵 (1) เปลี่ยนเป็น accept_multiple_files=True
+        # ✅ เปลี่ยนเป็นรับหลายไฟล์ (logic เดิมทั้งหมดคงไว้)
         uploaded_files = st.file_uploader(
             "Choose file(s) to import",
             type=['csv', 'xlsx', 'xls'],
@@ -912,9 +911,8 @@ def render_import_tab():
             accept_multiple_files=True
         )
         
-        # 🩵 (2) เปลี่ยนจาก if uploaded_file: → if uploaded_files: แล้ววนลูป
         if uploaded_files:
-            for uploaded_file in uploaded_files:  # ✅ วนอ่านทีละไฟล์
+            for uploaded_file in uploaded_files:  # ✅ วนทีละไฟล์
                 st.markdown(f"""
                 <div class="file-info">
                     <h4>📄 {uploaded_file.name}</h4>
@@ -962,6 +960,7 @@ def render_import_tab():
                                         st.warning(f"⚠️ Excel read failed ({e}). Trying as CSV instead...")
                                         df = pd.read_csv(uploaded_file, encoding='utf-8', on_bad_lines='skip')
         
+                    # ✅ logic เดิมทั้งหมดด้านล่างนี้ ไม่แตะ
                     st.success(f"✅ File loaded: {len(df)} rows, {len(df.columns)} columns")
                     st.caption(f"Encoding: {getattr(df.attrs, '__encoding__', 'auto') if uploaded_file.name.endswith('.csv') else df.attrs.get('__encoding__', 'n/a')}")
                     st.subheader("📋 Data Preview")
@@ -990,38 +989,42 @@ def render_import_tab():
                     st.info(f"**File Columns:** {len(file_columns)} | **Table Columns:** {len(db_column_names)}")
         
                     column_mapping = {}
-                    
-                
-                        # ✅ ใช้ expander เพื่อให้ hide/view ได้
-                        with st.expander("🔽 View/Hide Column Mapping", expanded=False):
-                            cols = st.columns(2)
-                            with cols[0]:
-                                st.write("**File Column**")
-                            with cols[1]:
-                                st.write("**→ Database Column**")
-                              
-                            for file_col in file_columns:
-                                c1, c2 = st.columns(2)
-                                with c1:
-                                    st.text(file_col)
-                                with c2:
-                                    default_index = 0
-                                    if file_col in db_column_names:
-                                        default_index = db_column_names.index(file_col)
-                                    selected_db_col = st.selectbox(
-                                        f"Map {file_col}",
-                                        options=["-- Skip --"] + db_column_names,
-                                        index=default_index + 1 if file_col in db_column_names else 0,
-                                        key=f"mapping_{file_col}",
-                                        label_visibility="collapsed"
-                                    )
-                                    if selected_db_col != "-- Skip --":
-                                        column_mapping[file_col] = selected_db_col
         
-                        if column_mapping:
-                            st.success(f"✅ Mapped {len(column_mapping)} columns")
-                        else:
-                            st.warning("⚠️ No columns mapped")
+                    # ✅ ใช้ expander เพื่อให้ hide/view ได้ (เยื้องเข้าใน try)
+                    with st.expander("🔽 View/Hide Column Mapping", expanded=False):
+                        cols = st.columns(2)
+                        with cols[0]:
+                            st.write("**File Column**")
+                        with cols[1]:
+                            st.write("**→ Database Column**")
+                        
+                        for file_col in file_columns:
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                st.text(file_col)
+                            with c2:
+                                default_index = 0
+                                if file_col in db_column_names:
+                                    default_index = db_column_names.index(file_col)
+                                selected_db_col = st.selectbox(
+                                    f"Map {file_col}",
+                                    options=["-- Skip --"] + db_column_names,
+                                    index=default_index + 1 if file_col in db_column_names else 0,
+                                    key=f"mapping_{uploaded_file.name}_{file_col}",  # ✅ เพิ่มชื่อไฟล์เพื่อป้องกัน key ซ้ำ
+                                    label_visibility="collapsed"
+                                )
+                                if selected_db_col != "-- Skip --":
+                                    column_mapping[file_col] = selected_db_col
+        
+                    if column_mapping:
+                        st.success(f"✅ Mapped {len(column_mapping)} columns")
+                    else:
+                        st.warning("⚠️ No columns mapped")
+        
+                except Exception as e:
+                    st.error(f"❌ Error reading {uploaded_file.name}: {e}")
+
+        
 
                 # ============================================================
                 # 🔐 Authorization + แสดง Allowed Tables
