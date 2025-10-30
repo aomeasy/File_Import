@@ -901,176 +901,147 @@ def render_import_tab():
 
         # ===== Upload File =====
         st.subheader("📤 Upload File")
+        uploaded_file = st.file_uploader("Choose a file to import", type=['csv', 'xlsx', 'xls'], help="Max size: 200MB", key="import_uploader")
 
-        uploaded_files = st.file_uploader(
-            "Choose file(s) to import",
-            type=['csv', 'xlsx', 'xls'],
-            help="Max size: 200MB per file",
-            key="import_uploader",
-            accept_multiple_files=True
-        )
-        uploaded_dfs = []  # ✅ เก็บข้อมูลทุกไฟล์ไว้ที่นี่
-        mappings_all = []  # ✅ เก็บ mapping ของแต่ละไฟล์
-        
-        if uploaded_files:
-            for uploaded_file in uploaded_files:  # ✅ วนทีละไฟล์
-                st.markdown(f"""
-                <div class="file-info">
-                    <h4>📄 {uploaded_file.name}</h4>
-                    <p><strong>Size:</strong> {uploaded_file.size / 1024:.2f} KB</p>
-                    <p><strong>Type:</strong> {uploaded_file.type}</p>
-                </div>
-                """, unsafe_allow_html=True)
-        
-                try:
-                    with st.spinner("Reading file..."):
-                        if uploaded_file.name.endswith('.csv'):
-                            uploaded_file.seek(0)
-                            df = read_csv_safely(uploaded_file)
-                            st.caption(f"📖 CSV encoding used: {df.attrs.get('__encoding__', 'unknown')}")
-                        else:
-                            try:
-                                # ✅ ลองอ่าน Excel ปกติ (.xlsx)
-                                df = pd.read_excel(uploaded_file, engine='openpyxl')
-                            except Exception:
-                                try:
-                                    # ✅ ลองอ่าน Excel เก่า (.xls)
-                                    df = pd.read_excel(uploaded_file, engine='xlrd')
-                                except Exception as e:
-                                    uploaded_file.seek(0)
-                                    raw_start = uploaded_file.read(2048)  # อ่านดูเนื้อไฟล์บางส่วน
-                                    uploaded_file.seek(0)
-                                    text_sample = raw_start.decode(errors="ignore").lower()
-        
-                                    if "<table" in text_sample:  # ✅ HTML-based .xls
-                                        st.warning("⚠️ Detected HTML-based .xls file (e.g. from SCOMS Export). Reading as HTML table instead...")
-        
-                                        # ✅ ตรวจ encoding แบบไทย
-                                        import chardet
-                                        detected = chardet.detect(raw_start)
-                                        encoding_used = detected.get("encoding", "utf-8")
-        
-                                        # ✅ Decode ตาม encoding ที่ตรวจเจอ
-                                        html_text = uploaded_file.read().decode(encoding_used, errors="replace")
-        
-                                        # ✅ อ่านตาราง HTML
-                                        tables = pd.read_html(html_text)
-                                        df = tables[0] if tables else pd.DataFrame()
-                                        df.attrs["__encoding__"] = encoding_used
-                                    else:
-                                        st.warning(f"⚠️ Excel read failed ({e}). Trying as CSV instead...")
-                                        df = pd.read_csv(uploaded_file, encoding='utf-8', on_bad_lines='skip')
-        
-                    # ✅ logic เดิมทั้งหมดด้านล่างนี้ ไม่แตะ
-                    st.success(f"✅ File loaded: {len(df)} rows, {len(df.columns)} columns")
-                    st.caption(f"Encoding: {getattr(df.attrs, '__encoding__', 'auto') if uploaded_file.name.endswith('.csv') else df.attrs.get('__encoding__', 'n/a')}")
-                    st.subheader("📋 Data Preview")
-                    with st.expander("📋 Data Preview (คลิกเพื่อดูข้อมูลตัวอย่าง)", expanded=False):
-                        st.dataframe(df.head(10), use_container_width=True)
-        
-                    # ===== Column Mapping (แก้ไข: ทำเป็น Collapsible) =====
-                    st.subheader("🔗 Column Mapping")
-                    table_columns = get_cached_table_columns(selected_table)
-                    if not table_columns:
-                        st.error("Cannot get table columns")
-                        st.stop()  
-        
-                    db_column_names = [col['COLUMN_NAME'] for col in table_columns]
-        
-                    # ✅ ตรวจว่าคอลัมน์ของ DataFrame เป็นตัวเลข (แสดงว่า header ไม่ถูกอ่าน)
-                    if all(isinstance(c, (int, float)) for c in df.columns):
-                        first_row = df.iloc[0].tolist()
-                        # เฉพาะกรณีที่ไม่มี NaN ทั้งหมด (กัน header ที่ไม่สมบูรณ์)
-                        if any(pd.notnull(x) for x in first_row):
-                            df.columns = first_row
-                            df = df.drop(df.index[0]).reset_index(drop=True)
-                            st.info("🧩 Automatically used first row as header (detected from HTML-based Excel).")
-        
-                    file_columns = list(df.columns)
-                    st.info(f"**File Columns:** {len(file_columns)} | **Table Columns:** {len(db_column_names)}")
-        
-                    column_mapping = {}
-        
-                    # ✅ ใช้ expander เพื่อให้ hide/view ได้ (เยื้องเข้าใน try)
-                    with st.expander("🔽 View/Hide Column Mapping", expanded=False):
-                        cols = st.columns(2)
-                        with cols[0]:
-                            st.write("**File Column**")
-                        with cols[1]:
-                            st.write("**→ Database Column**")
-                        
-                        for file_col in file_columns:
-                            c1, c2 = st.columns(2)
-                            with c1:
-                                st.text(file_col)
-                            with c2:
-                                default_index = 0
-                                if file_col in db_column_names:
-                                    default_index = db_column_names.index(file_col)
-                                selected_db_col = st.selectbox(
-                                    f"Map {file_col}",
-                                    options=["-- Skip --"] + db_column_names,
-                                    index=default_index + 1 if file_col in db_column_names else 0,
-                                    key=f"mapping_{uploaded_file.name}_{file_col}",  # ✅ เพิ่มชื่อไฟล์เพื่อป้องกัน key ซ้ำ
-                                    label_visibility="collapsed"
-                                )
-                                if selected_db_col != "-- Skip --":
-                                    column_mapping[file_col] = selected_db_col
-        
-                    if column_mapping:
-                        st.success(f"✅ Mapped {len(column_mapping)} columns")
+        if uploaded_file:
+            st.markdown(f"""
+            <div class="file-info">
+                <h4>📄 {uploaded_file.name}</h4>
+                <p><strong>Size:</strong> {uploaded_file.size / 1024:.2f} KB</p>
+                <p><strong>Type:</strong> {uploaded_file.type}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            try:
+ 
+                with st.spinner("Reading file..."):
+                    if uploaded_file.name.endswith('.csv'):
+                        uploaded_file.seek(0)
+                        df = read_csv_safely(uploaded_file)
+                        st.caption(f"📖 CSV encoding used: {df.attrs.get('__encoding__', 'unknown')}")
                     else:
-                        st.warning("⚠️ No columns mapped")
-        
-                except Exception as e:
-                    st.error(f"❌ Error reading {uploaded_file.name}: {e}")
+                        try:
+                            # ✅ ลองอ่าน Excel ปกติ (.xlsx)
+                            df = pd.read_excel(uploaded_file, engine='openpyxl')
+                        except Exception:
+                            try:
+                                # ✅ ลองอ่าน Excel เก่า (.xls)
+                                df = pd.read_excel(uploaded_file, engine='xlrd')
+                            except Exception as e:
+                                uploaded_file.seek(0)
+                                raw_start = uploaded_file.read(2048)  # อ่านดูเนื้อไฟล์บางส่วน
+                                uploaded_file.seek(0)
+                                text_sample = raw_start.decode(errors="ignore").lower()
+                
+                                if "<table" in text_sample:  # ✅ HTML-based .xls
+                                    st.warning("⚠️ Detected HTML-based .xls file (e.g. from SCOMS Export). Reading as HTML table instead...")
+                
+                                    # ✅ ตรวจ encoding แบบไทย
+                                    import chardet
+                                    detected = chardet.detect(raw_start)
+                                    encoding_used = detected.get("encoding", "utf-8")
+                
+                                    # ✅ Decode ตาม encoding ที่ตรวจเจอ
+                                    html_text = uploaded_file.read().decode(encoding_used, errors="replace")
+                
+                                    # ✅ อ่านตาราง HTML
+                                    tables = pd.read_html(html_text)
+                                    df = tables[0] if tables else pd.DataFrame()
+                                    df.attrs["__encoding__"] = encoding_used
+                                else:
+                                    st.warning(f"⚠️ Excel read failed ({e}). Trying as CSV instead...")
+                                    df = pd.read_csv(uploaded_file, encoding='utf-8', on_bad_lines='skip')
+                
+                st.success(f"✅ File loaded: {len(df)} rows, {len(df.columns)} columns")
+                st.caption(f"Encoding: {getattr(df.attrs, '__encoding__', 'auto') if uploaded_file.name.endswith('.csv') else df.attrs.get('__encoding__', 'n/a')}")
+                st.subheader("📋 Data Preview")
+                with st.expander("📋 Data Preview (คลิกเพื่อดูข้อมูลตัวอย่าง)", expanded=False):
+                    st.dataframe(df.head(10), use_container_width=True)
 
-        # =================================================================
-        # ✅ ส่วนนี้อยู่ “นอก loop” — แสดง Secret Key และปุ่ม Import แค่ 1 ชุด
-        # =================================================================
-        if uploaded_files:
-            st.markdown("---")
-            st.subheader("🔐 Authorization")
-        
-            secret_key = st.text_input(
-                "Secret Key to unlock import",
-                type="password",
-                placeholder="Enter your secret key",
-                key="import_secret_key_global"
-            )
-        
-            user_perm = get_user_permission(secret_key)
-        
-            if not user_perm:
-                st.warning("🔑 Enter correct key to unlock Import Data button.", icon="🔒")
-                import_disabled = True
-            else:
-                role = user_perm["role"]
-                allowed_tables = user_perm.get("allowed_tables", [])
-                import_disabled = not (role == "Admin" or selected_table in allowed_tables)
-        
-                if import_disabled:
-                    st.error(f"🚫 You are not allowed to import into `{selected_table}`.")
+                # ===== Column Mapping (แก้ไข: ทำเป็น Collapsible) =====
+                st.subheader("🔗 Column Mapping")
+                table_columns = get_cached_table_columns(selected_table)
+                if not table_columns:
+                    st.error("Cannot get table columns")
+                    return
+                
+                db_column_names = [col['COLUMN_NAME'] for col in table_columns]
+                
+                # ✅ ตรวจว่าคอลัมน์ของ DataFrame เป็นตัวเลข (แสดงว่า header ไม่ถูกอ่าน)
+                if all(isinstance(c, (int, float)) for c in df.columns):
+                    first_row = df.iloc[0].tolist()
+                    # เฉพาะกรณีที่ไม่มี NaN ทั้งหมด (กัน header ที่ไม่สมบูรณ์)
+                    if any(pd.notnull(x) for x in first_row):
+                        df.columns = first_row
+                        df = df.drop(df.index[0]).reset_index(drop=True)
+                        st.info("🧩 Automatically used first row as header (detected from HTML-based Excel).")
+                
+                file_columns = list(df.columns)
+                st.info(f"**File Columns:** {len(file_columns)} | **Table Columns:** {len(db_column_names)}")
+                
+                column_mapping = {}
+                
+                # ✅ ใช้ expander เพื่อให้ hide/view ได้
+                with st.expander("🔽 View/Hide Column Mapping", expanded=False):
+                    cols = st.columns(2)
+                    with cols[0]:
+                        st.write("**File Column**")
+                    with cols[1]:
+                        st.write("**→ Database Column**")
+                      
+                    for file_col in file_columns:
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.text(file_col)
+                        with c2:
+                            default_index = 0
+                            if file_col in db_column_names:
+                                default_index = db_column_names.index(file_col)
+                            selected_db_col = st.selectbox(
+                                f"Map {file_col}",
+                                options=["-- Skip --"] + db_column_names,
+                                index=default_index + 1 if file_col in db_column_names else 0,
+                                key=f"mapping_{file_col}",
+                                label_visibility="collapsed"
+                            )
+                            if selected_db_col != "-- Skip --":
+                                column_mapping[file_col] = selected_db_col
+
+                if column_mapping:
+                    st.success(f"✅ Mapped {len(column_mapping)} columns")
                 else:
-                    st.success(f"✅ Authorized as **{role}**")
-        
-            # ✅ ปุ่ม Import เดียว (ไม่ซ้ำ key)
-            if st.button("🚀 Import All Files", type="primary", use_container_width=True, key="btn_import_all", disabled=import_disabled):
-                try:
-                    with st.spinner("Importing all files..."):
-                        db = DatabaseManager()
-                        total_rows = 0
-                        for df, mapping in zip(uploaded_dfs, mappings_all):
-                            df_clean = clean_dataframe_for_import(df, get_cached_table_columns(selected_table), mapping)
-                            result = db.import_data(selected_table, df_clean, mapping)
-                            total_rows += len(df_clean)
-                        db.close_connection()
-        
-                    st.success(f"✅ Successfully imported {total_rows:,} rows from {len(uploaded_files)} files.")
-                    st.balloons()
-        
-                except Exception as e:
-                    st.error(f"❌ Import failed: {e}")
+                    st.warning("⚠️ No columns mapped")
+
+                # ============================================================
+                # 🔐 Authorization + แสดง Allowed Tables
+                # ============================================================
+                
+                st.divider()
+                
+                # --- ช่องกรอก Secret Key ---
+                secret_key = st.text_input(
+                    "Secret Key to unlock import",
+                    type="password",
+                    placeholder="Enter your secret key",
+                    key="import_secret_key"
+                )
+                
+                user_perm = get_user_permission(secret_key)
+                
+                if not user_perm:
+                    st.warning("🔑 Enter correct key to unlock Import Data button.", icon="🔒")
+                    import_disabled = True
+                else:
+                    role = user_perm["role"]
+                    allowed_tables = user_perm.get("allowed_tables", [])
+                    
+                    # ตรวจสอบว่ามีสิทธิ์ import table นี้หรือไม่
+                    if role == "Admin" or selected_table in allowed_tables:
+                        st.success(f"✅ Authorized as **{role}**")
+                        import_disabled = False
+                    else:
+                        st.error(f"🚫 You are not allowed to import into `{selected_table}`.")
+                        import_disabled = True
                     
                     # ============================================================
                     # 📋 แสดงรายการ Tables ที่มีสิทธิ์เข้าถึง
@@ -1498,10 +1469,12 @@ def render_import_tab():
                                 
                                 with st.expander("🔍 Error Details"):
                                     st.code(result.get('error', ''), language='text')
+                    
+                                               
 
-                        #except Exception as e:
-                            #st.error(f"❌ Error processing file: {str(e)}")
-                            #st.exception(e)
+            except Exception as e:
+                st.error(f"❌ Error processing file: {str(e)}")
+                st.exception(e)
  
 def log_activity(username, action, target, details=None):
     """บันทึก Log ลงในฐานข้อมูล"""
