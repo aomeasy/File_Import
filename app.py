@@ -1021,8 +1021,8 @@ def render_import_tab():
                     else:
                         st.warning("⚠️ No columns mapped")
         
-                except Exception as e:
-                    st.error(f"❌ Error reading {uploaded_file.name}: {e}")
+                        except Exception as e:
+                            st.error(f"❌ Error reading {uploaded_file.name}: {e}")
 
         
 
