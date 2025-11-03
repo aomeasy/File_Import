@@ -975,7 +975,18 @@ def render_import_tab():
                                             detected = chardet.detect(raw_data)
                                             detected_enc = detected.get("encoding", "latin1")  # fallback ปลอดภัย
                                             uploaded_file.seek(0)
-                                            df_temp = pd.read_csv(uploaded_file, encoding=detected_enc, on_bad_lines='skip')
+                                            try:
+                                                df_temp = pd.read_csv(uploaded_file, encoding=detected_enc, on_bad_lines='skip')
+                                            except Exception:
+                                                uploaded_file.seek(0)
+                                                # ✅ ใช้ parser แบบ python engine ซึ่งทนไฟล์ผิด format ได้ดีกว่า
+                                                df_temp = pd.read_csv(
+                                                    uploaded_file,
+                                                    encoding=detected_enc,
+                                                    on_bad_lines='skip',
+                                                    engine='python'
+                                                )
+
                                             encoding_used = detected_enc
                                             
                         # ✅ ตรวจว่าคอลัมน์เป็นตัวเลข (แสดงว่า header ไม่ถูกอ่าน)
