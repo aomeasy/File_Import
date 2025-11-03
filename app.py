@@ -967,6 +967,9 @@ def render_import_tab():
                                             # ✅ ลองอ่านด้วย UTF-8 ก่อน
                                             df_temp = pd.read_csv(uploaded_file, encoding='utf-8', on_bad_lines='skip')
                                             encoding_used = 'utf-8'
+
+
+
                                         except UnicodeDecodeError:
                                             import chardet
                                             uploaded_file.seek(0)
@@ -978,19 +981,31 @@ def render_import_tab():
                                                 # ✅ ลองอ่านด้วย encoding ที่ตรวจเจอ
                                                 df_temp = pd.read_csv(uploaded_file, encoding=detected_enc, on_bad_lines='skip')
                                                 encoding_used = detected_enc
-                                            except UnicodeDecodeError:
+                                            except Exception as e_csv:
                                                 uploaded_file.seek(0)
-                                                # ✅ Fallback สุดท้าย ใช้ encoding ที่อ่านได้เกือบทุกไฟล์ (เช่นภาษาไทย)
+                                                st.warning(f"⚠️ Primary parser failed ({detected_enc}): {e_csv}")
+                                                # ✅ Fallback สุดท้าย: ใช้ Python engine เพื่อกัน Buffer overflow / malformed CSV
                                                 for enc in ['windows-874', 'tis-620', 'iso-8859-11', 'latin1']:
                                                     try:
                                                         uploaded_file.seek(0)
-                                                        df_temp = pd.read_csv(uploaded_file, encoding=enc, on_bad_lines='skip', engine='python')
+                                                        df_temp = pd.read_csv(
+                                                            uploaded_file,
+                                                            encoding=enc,
+                                                            on_bad_lines='skip',
+                                                            engine='python',   # ✅ ใช้ parser ที่ทน format เพี้ยน
+                                                            sep=None,          # ✅ ให้ pandas เดา delimiter เอง (, / ; / tab)
+                                                            quoting=3,         # ✅ ปิด quote parsing ป้องกัน " เปิดไม่ปิด
+                                                            dtype=str,
+                                                            keep_default_na=False
+                                                        )
                                                         encoding_used = enc
                                                         break
-                                                    except Exception:
+                                                    except Exception as e_fallback:
+                                                        last_err = e_fallback
                                                         continue
                                                 else:
-                                                    raise Exception("❌ Cannot read CSV with any fallback encoding.")
+                                                    raise Exception(f"❌ Cannot read CSV with any fallback encoding. Last error: {last_err}")
+ 
 
                                          
                                             
