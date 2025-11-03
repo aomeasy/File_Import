@@ -956,9 +956,21 @@ def render_import_tab():
                                         df_temp = tables[0] if tables else pd.DataFrame()
                                         df_temp.attrs["__encoding__"] = encoding_used
                                     else:
-                                        df_temp = pd.read_csv(uploaded_file, encoding='utf-8', on_bad_lines='skip')
-                                        encoding_used = 'utf-8'
-                        
+                                        try:
+                                            # พยายามอ่านด้วย UTF-8 ก่อน
+                                            df_temp = pd.read_csv(uploaded_file, encoding='utf-8', on_bad_lines='skip')
+                                            encoding_used = 'utf-8'
+                                        except UnicodeDecodeError:
+                                            # ถ้าอ่านไม่ได้ → ตรวจจับ encoding อัตโนมัติ
+                                            import chardet
+                                            uploaded_file.seek(0)
+                                            raw_data = uploaded_file.read(4096)
+                                            detected = chardet.detect(raw_data)
+                                            detected_enc = detected.get("encoding", "latin1")  # fallback ปลอดภัย
+                                            uploaded_file.seek(0)
+                                            df_temp = pd.read_csv(uploaded_file, encoding=detected_enc, on_bad_lines='skip')
+                                            encoding_used = detected_enc
+                                            
                         # ✅ ตรวจว่าคอลัมน์เป็นตัวเลข (แสดงว่า header ไม่ถูกอ่าน)
                         if all(isinstance(c, (int, float)) for c in df_temp.columns):
                             first_row = df_temp.iloc[0].tolist()
