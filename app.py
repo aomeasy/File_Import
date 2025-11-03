@@ -506,7 +506,7 @@ class FileMerger:
         self.processed_data = {}
         self.merged_df = None
         self.header_mapping = {}
-
+        
     def process_uploaded_files(self, files):
         processed = {}
         for file in files:
@@ -517,7 +517,7 @@ class FileMerger:
                     raw_data = file.read()
                     detected = chardet.detect(raw_data)
                     encoding = detected.get("encoding", "utf-8") or "utf-8"
-    
+
                     # ✅ พยายามอ่าน CSV ด้วย encoding ที่ตรวจพบ
                     try:
                         df = pd.read_csv(BytesIO(raw_data), dtype=str, encoding=encoding, keep_default_na=False)
@@ -526,28 +526,35 @@ class FileMerger:
                         # หาก encoding ที่ตรวจพบยังอ่านไม่ได้ ลอง fallback เป็น latin-1
                         df = pd.read_csv(BytesIO(raw_data), dtype=str, encoding='latin-1', keep_default_na=False)
                         file_info['succeeded_encoding'] = 'latin-1'
-    
+
                     file_info['sheets'] = ['Sheet1']
                     file_info['data'] = {'Sheet1': df}
-    
+
                 elif file_info['type'] == 'excel':
                     # ✅ อ่าน Excel ทุกชีตแบบ string เช่นเดิม
-                    excel_file = pd.ExcelFile(file)
-                    file_info['sheets'] = excel_file.sheet_names
-                    file_info['data'] = {
-                        sheet: pd.read_excel(excel_file, sheet_name=sheet, dtype=str, keep_default_na=False)
-                        for sheet in excel_file.sheet_names
-                    }
-    
+                    try:
+                        excel_file = pd.ExcelFile(file)
+                        file_info['sheets'] = excel_file.sheet_names
+                        file_info['data'] = {
+                            sheet: pd.read_excel(excel_file, sheet_name=sheet, dtype=str, keep_default_na=False)
+                            for sheet in excel_file.sheet_names
+                        }
+                    except Exception as e:
+                        # ✅ Fallback: Excel เสีย (เช่น not well-formed) → แจ้งเตือนและข้ามไฟล์นั้น
+                        st.warning(f"⚠️ Excel file '{file.name}' ไม่สามารถอ่านได้ตามปกติ: {e}")
+                        st.info("💡 ลองเปิดไฟล์นี้ใน Excel แล้ว Save As ใหม่อีกครั้งเพื่อแก้ XML เสียหาย")
+                        file_info['sheets'] = []
+                        file_info['data'] = {}
+                        file_info['error'] = str(e)
+
                 processed[file.name] = file_info
-    
+
             except Exception as e:
                 st.error(f"Error processing {file.name}: {str(e)}")
-    
+
         return processed
-    
 
-
+ 
      
 
 
