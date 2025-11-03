@@ -964,30 +964,35 @@ def render_import_tab():
                                         df_temp.attrs["__encoding__"] = encoding_used
                                     else:
                                         try:
-                                            # พยายามอ่านด้วย UTF-8 ก่อน
+                                            # ✅ ลองอ่านด้วย UTF-8 ก่อน
                                             df_temp = pd.read_csv(uploaded_file, encoding='utf-8', on_bad_lines='skip')
                                             encoding_used = 'utf-8'
                                         except UnicodeDecodeError:
-                                            # ถ้าอ่านไม่ได้ → ตรวจจับ encoding อัตโนมัติ
                                             import chardet
                                             uploaded_file.seek(0)
                                             raw_data = uploaded_file.read(4096)
                                             detected = chardet.detect(raw_data)
-                                            detected_enc = detected.get("encoding", "latin1")  # fallback ปลอดภัย
+                                            detected_enc = detected.get("encoding", "latin1") or "latin1"
                                             uploaded_file.seek(0)
                                             try:
+                                                # ✅ ลองอ่านด้วย encoding ที่ตรวจเจอ
                                                 df_temp = pd.read_csv(uploaded_file, encoding=detected_enc, on_bad_lines='skip')
-                                            except Exception:
+                                                encoding_used = detected_enc
+                                            except UnicodeDecodeError:
                                                 uploaded_file.seek(0)
-                                                # ✅ ใช้ parser แบบ python engine ซึ่งทนไฟล์ผิด format ได้ดีกว่า
-                                                df_temp = pd.read_csv(
-                                                    uploaded_file,
-                                                    encoding=detected_enc,
-                                                    on_bad_lines='skip',
-                                                    engine='python'
-                                                )
+                                                # ✅ Fallback สุดท้าย ใช้ encoding ที่อ่านได้เกือบทุกไฟล์ (เช่นภาษาไทย)
+                                                for enc in ['windows-874', 'tis-620', 'iso-8859-11', 'latin1']:
+                                                    try:
+                                                        uploaded_file.seek(0)
+                                                        df_temp = pd.read_csv(uploaded_file, encoding=enc, on_bad_lines='skip', engine='python')
+                                                        encoding_used = enc
+                                                        break
+                                                    except Exception:
+                                                        continue
+                                                else:
+                                                    raise Exception("❌ Cannot read CSV with any fallback encoding.")
 
-                                            encoding_used = detected_enc
+                                         
                                             
                         # ✅ ตรวจว่าคอลัมน์เป็นตัวเลข (แสดงว่า header ไม่ถูกอ่าน)
                         if all(isinstance(c, (int, float)) for c in df_temp.columns):
