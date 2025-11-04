@@ -2047,10 +2047,12 @@ def render_merger_tab():
         all_headers, has_mismatch, file_headers = merger.analyze_headers(st.session_state.merger_processed_data, selected_sheets, st.session_state.merger_selected_files)
         if has_mismatch and len(file_headers) > 1:
             st.warning("⚠️ พบความไม่สอดคล้องของ Headers")
+
             for filename, headers in file_headers.items():
                 with st.expander(f"Headers ของ {filename}"):
                     st.write(f"**จำนวน:** {len(headers)} headers")
-                    st.write(", ".join(headers))
+                    st.write(", ".join(map(str, headers)))  # ✅ Fix: รองรับ header ที่ไม่ใช่ string
+      
             st.info("💡 คุณสามารถรวมไฟล์ได้ทันที Headers ที่ไม่ตรงกันจะเป็นค่าว่าง")
         elif len(file_headers) > 1:
             st.success("✅ Headers ทั้งหมดสอดคล้องกัน")
