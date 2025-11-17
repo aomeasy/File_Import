@@ -2539,21 +2539,19 @@ def render_log_tab():
     df = db.execute_query(query, tuple(params + [limit_per_page, offset]))
 
     # ---- Username masking ----
-   
+
     def mask_username(name: str):
         if not name or not isinstance(name, str):
             return ""
-        
+    
         # ถ้าตัวอักษรเดียว เช่น "A"
         if len(name) == 1:
             return "*" * 6
-        
-        # ถ้า 2 ตัว เช่น "AB"
-        if len(name) == 2:
-            return name[0] + "*" * 6
-        
-        # ถ้าตั้งแต่ 3 ตัวขึ้นไป
+    
+        # ถ้าตั้งแต่ 2 ตัวขึ้นไป เช่น "AB", "Alex", "1177"
         return name[0] + "*" * 6 + name[-1]
+
+ 
 
     if df is not None and not df.empty:
         df = df.copy()
