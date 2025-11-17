@@ -2010,29 +2010,53 @@ def render_merger_tab():
 
         st.subheader("📋 ไฟล์ที่อัปโหลด")
         cols = st.columns([2, 1])
+
         with cols[0]:
             selected_sheets = {}
-            for filename, file_info in st.session_state.merger_processed_data.items():
+        
+            # 🚀 เพิ่มลำดับไฟล์แบบ 1,2,3,...
+            for idx, (filename, file_info) in enumerate(st.session_state.merger_processed_data.items(), start=1):
                 is_selected = st.session_state.merger_selected_files.get(filename, True)
-                with st.expander(f"{'✅' if is_selected else '❌'} {filename}", expanded=is_selected):
+        
+                # 🎯 แสดงชื่อว่า "ไฟล์ #1: filename"
+                expander_title = f"{'✅' if is_selected else '❌'} ไฟล์ #{idx}: {filename}"
+        
+                # 🔽 ซ่อนทั้งหมดเป็น default: expanded=False
+                with st.expander(expander_title, expanded=False):
+        
                     col_info, col_sheet = st.columns([2, 1])
+        
                     with col_info:
-                        st.markdown(f"**ขนาด:** {file_info['size']/1024:.2f} KB  \n**ประเภท:** {file_info['type'].upper()}  \n**จำนวน Sheets:** {len(file_info['sheets'])}")
+                        st.markdown(
+                            f"**ขนาด:** {file_info['size']/1024:.2f} KB"
+                            f"  \n**ประเภท:** {file_info['type'].upper()}"
+                            f"  \n**จำนวน Sheets:** {len(file_info['sheets'])}"
+                        )
                         if 'succeeded_encoding' in file_info:
                             st.caption(f"Encoding: {file_info.get('succeeded_encoding','auto')}")
+        
                     with col_sheet:
                         if len(file_info['sheets']) > 1:
-                            selected_sheet = st.selectbox("เลือก Sheet:", file_info['sheets'], key=f"merger_sheet_{filename}", disabled=not is_selected)
+                            selected_sheet = st.selectbox(
+                                "เลือก Sheet:",
+                                file_info['sheets'],
+                                key=f"merger_sheet_{filename}",
+                                disabled=not is_selected
+                            )
                             selected_sheets[filename] = selected_sheet
                         else:
                             selected_sheets[filename] = file_info['sheets'][0]
                             st.info(f"Sheet: {file_info['sheets'][0]}")
+        
+                    # 👉 Preview เฉพาะไฟล์ที่เลือกเท่านั้น
                     if is_selected:
                         sheet_name = selected_sheets[filename]
                         if sheet_name in file_info['data']:
                             df = file_info['data'][sheet_name]
                             st.write(f"**Preview ({len(df)} แถว, {len(df.columns)} คอลัมน์):**")
                             st.dataframe(df.head(5), use_container_width=True)
+
+ 
         with cols[1]:
             selected_files_data = {k: v for k, v in st.session_state.merger_processed_data.items() if st.session_state.merger_selected_files.get(k, True)}
             total_files = len(selected_files_data)
