@@ -3638,10 +3638,17 @@ def main():
         
             if df_log is not None and not df_log.empty:
                 # ซ่อน username กลาง
+           
                 def mask_username(name: str):
-                    if not name or not isinstance(name, str): return ""
-                    if len(name) <= 2: return name[0] + "***" if len(name) == 2 else name
-                    return name[0] + "***" * (len(name) - 2) + name[-1]
+                    if not name or not isinstance(name, str):
+                        return ""
+                
+                    # ถ้าตัวอักษรเดียว เช่น "A"
+                    if len(name) == 1:
+                        return "*" * 6
+                
+                    # ถ้าตั้งแต่ 2 ตัวขึ้นไป เช่น "AB", "Alex", "1177"
+                    return name[0] + "*" * 6 + name[-1]
         
                 df_log["username"] = df_log["username"].apply(mask_username)
                 for _, row in df_log.iterrows():
