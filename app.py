@@ -1807,21 +1807,21 @@ def render_procedures_tab():
     
     # ====== DISPLAY ======
     procedures = st.session_state.get("loaded_procedures", [])
-
-
     # ====== SHOW PROCEDURES ======
     st.subheader("🔧 Stored Procedures")
     
     if not procedures:
-        st.warning("⚠️ No procedures loaded. ใส่ชื่อแล้วกด Load ก่อน")
-        return
+        st.warning("⚠️ No procedures loaded. ใส่ชื่อแล้วกด Enter เพื่อค้นหา")
+        st.stop()
     
-    # ✅ กำหนดให้ filtered = procedures (แทนที่ filter เดิม)
+    # ✅ ใช้ข้อมูลที่ค้นได้โดยตรง
     filtered = procedures
     
-    # ====== DISPLAY ======
+    # ✅ แสดงแบบเดียว (เช่นกล่อง)
     for p in filtered:
-        st.write(p["ROUTINE_NAME"])
+        st.info(f"🧱 {p['ROUTINE_NAME']} ({p['ROUTINE_TYPE']})")
+
+ 
  
  
     
