@@ -2210,8 +2210,8 @@ def render_data_editor_tab():
             placeholder="เช่น service_type=FTTx , mm=สิงหาคม2025",
             key="search_input_field"
         )
-        match_mode = st.radio("Match Mode", ["AND", "OR"], horizontal=True)
-        row_limit_label = st.selectbox("Show rows", ["10", "100", "1000", "10000", "All"], index=1)
+        match_mode = st.radio("Match Mode", ["AND", "OR"], horizontal=True, index=1)
+        row_limit_label = st.selectbox("Show rows", ["10", "100", "1000", "10000", "All"], index=0)
         row_limit = None if row_limit_label == "All" else int(row_limit_label)
 
         if st.button("🔄 Refresh Data", use_container_width=True):
