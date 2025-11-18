@@ -319,8 +319,7 @@ def execute_procedure_with_progress(procedure_name, parameters=None, fetch_chunk
             while cursor.nextset():
                 pass
         except mysql.connector.Error:
-            pass
-        status.info("Committing transaction...")
+            pass 
         progress.progress(95)
         conn.commit()
         progress.progress(100)
