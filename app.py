@@ -324,7 +324,7 @@ def execute_procedure_with_progress(procedure_name, parameters=None, fetch_chunk
         progress.progress(95)
         conn.commit()
         progress.progress(100)
-        status.success(f"Commit done.")
+        # status.success(f"Commit done.")
         return {'success': True,'message': f'Procedure {procedure_name} executed successfully','results': results}
     except mysql.connector.Error as e:
         if conn:
