@@ -1807,10 +1807,7 @@ def render_procedures_tab():
     
     # ====== DISPLAY ======
     procedures = st.session_state.get("loaded_procedures", [])
-    st.divider()
-
  
-
     # ====== SHOW PROCEDURES ======
     st.subheader("🔧 Stored Procedures")
     if not procedures:
