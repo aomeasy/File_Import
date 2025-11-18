@@ -1751,62 +1751,57 @@ def render_procedures_tab():
 
     if 'db_manager' not in st.session_state:
         st.session_state.db_manager = DatabaseManager()
-
-
     # ====== SEARCH / LOAD ======
     st.subheader("🔎 Search / Load Procedures")
     
-    DEFAULT_LIMIT = 50  # กำหนด limit คงที่ในโค้ด (ไม่มีให้ user ปรับแล้ว)
+    DEFAULT_LIMIT = 50  # limit คงที่ (แทนที่ปุ่ม Limit เดิม)
     
-    with st.form(key="proc_search_form", clear_on_submit=False):
-        col_input, col_btns = st.columns([4, 1])
+    # --- callback เวลากด Enter ---
+    def run_proc_search():
+        name_filter = st.session_state.get("proc_search_text", "").strip()
+        pattern = name_filter or "%"  # logic เดิม: ว่าง = ทุกตัว (ตาม limit)
     
-        with col_input:
-            name_filter = st.text_input(
-                "ค้นหาจากชื่อ Procedure",
-                value=st.session_state.get('last_proc_filter', ""),
-                placeholder="เช่น R06 หรือพิมพ์บางส่วนของชื่อ",
-            )
-            st.caption("พิมพ์ชื่อหรือบางส่วนของชื่อ แล้วกด Enter เพื่อค้นหา")
-    
-            # ตัวแปรภายใน ใช้ logic เดิม แต่ไม่มีให้ user เห็น/ปรับ
-            limit = DEFAULT_LIMIT
-    
-        with col_btns:
-            # ปุ่มนี้มีไว้สำหรับรีเซ็ตอย่างเดียว
-            do_clear_loaded = st.form_submit_button("🧹 Clear", use_container_width=True)
-    
-            # ปุ่มนี้ทำหน้าที่เป็น target เวลา user กด Enter
-            do_load = st.form_submit_button(
-                "ค้นหา (Enter)",
-                type="primary",
-                use_container_width=True
-            )
-    
-    # ====== CLEAR ======
-    if do_clear_loaded:
-        st.session_state.loaded_procedures = []
-        st.session_state['last_proc_filter'] = ""
-        st.toast("Cleared loaded procedures")
-    
-    # ====== LOAD ======
-    if do_load:
-        pattern = name_filter or "%"
-        # ไม่มี Exact แล้ว → ใช้ LIKE ตาม pattern ปกติ
-        procs = get_stored_procedures(pattern, limit)
-    
+        procs = get_stored_procedures(pattern, DEFAULT_LIMIT)
         st.session_state.loaded_procedures = procs
         st.session_state['last_proc_filter'] = name_filter
     
         if procs:
-            st.success(f"Loaded {len(procs)} procedure(s)")
+            st.session_state['proc_search_feedback'] = f"พบ {len(procs)} procedure"
+            st.session_state['proc_search_feedback_type'] = "success"
         else:
-            st.warning("No procedures matched your filter.")
+            st.session_state['proc_search_feedback'] = "ไม่พบ procedure ที่ตรงกับคำค้นหา"
+            st.session_state['proc_search_feedback_type'] = "warning"
+    
+    
+    # ตั้งค่าเริ่มต้นให้ textbox ดึงค่าล่าสุดจาก session_state
+    if "proc_search_text" not in st.session_state:
+        st.session_state["proc_search_text"] = st.session_state.get("last_proc_filter", "")
+    
+    # --- กล่องค้นหาอย่างเดียว กด Enter เพื่อค้นหา ---
+    name_filter = st.text_input(
+        "ค้นหาจากชื่อ Procedure",
+        key="proc_search_text",
+        placeholder="เช่น R06 หรือพิมพ์บางส่วนของชื่อ",
+        help="พิมพ์คำค้นแล้วกด Enter เพื่อค้นหา",
+        on_change=run_proc_search,  # ✅ กด Enter แล้ววิ่ง callback นี้
+    )
+    st.caption("พิมพ์ชื่อหรือบางส่วนของชื่อ แล้วกด Enter เพื่อค้นหา")
+    
+    # แสดงผลลัพธ์การค้นหาล่าสุด (ถ้ามี)
+    feedback = st.session_state.get("proc_search_feedback")
+    feedback_type = st.session_state.get("proc_search_feedback_type")
+    
+    if feedback:
+        if feedback_type == "success":
+            st.success(feedback)
+        elif feedback_type == "warning":
+            st.warning(feedback)
+        else:
+            st.info(feedback)
     
     # ====== DISPLAY ======
     procedures = st.session_state.get("loaded_procedures", [])
     st.divider()
-
 
  
 
