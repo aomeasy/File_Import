@@ -1789,10 +1789,6 @@ def render_procedures_tab():
         if submitted:
             run_proc_search()
     
-    st.caption("พิมพ์ชื่อหรือบางส่วนของชื่อ แล้วกด Enter เพื่อค้นหา")
-
- 
-     
     # แสดงผลลัพธ์การค้นหาล่าสุด (ถ้ามี)
     feedback = st.session_state.get("proc_search_feedback")
     feedback_type = st.session_state.get("proc_search_feedback_type")
