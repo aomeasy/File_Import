@@ -1821,7 +1821,11 @@ def render_procedures_tab():
                     on_change=lambda name=proc_name: st.session_state.update(expanded_proc=name)
                 ).strip()
 
+
             with status_col:
+                # ✅ จัดตำแหน่งให้อยู่กึ่งกลางแนวเดียวกับ textbox
+                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            
                 user_perm = get_user_permission(local_key) if local_key else None
                 if not user_perm:
                     st.info("👁 Guest mode — execute locked")
@@ -1836,8 +1840,7 @@ def render_procedures_tab():
                     else:
                         st.error(f"🚫 Not allowed to execute `{proc_name}`")
                         execute_disabled = True
-
-
+ 
  
 
             # ===== EXECUTE BUTTON =====
