@@ -1763,8 +1763,12 @@ def render_procedures_tab():
                 value=st.session_state.get('last_proc_filter', ""),
                 placeholder="พิมพ์ชื่อ procedure แล้วกด Enter เพื่อค้นหา"
             )
+
+        # ✅ ทำให้ปุ่มอยู่แนวเดียวกับ textbox
         with col_b:
+            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)  # ดันปุ่มขึ้น
             do_load = st.form_submit_button("📥 Load", type="primary", use_container_width=True)
+ 
 
     # ====== LOAD ======
     if do_load:
