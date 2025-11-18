@@ -1778,18 +1778,25 @@ def render_procedures_tab():
         st.session_state["proc_search_text"] = st.session_state.get("last_proc_filter", "")
 
 
-    with st.form(key="proc_search_form"):
+    # --- กล่องค้นหาอย่างเดียว กด Enter เพื่อค้นหา ---
+    with st.form(key="proc_search_form", clear_on_submit=False):
         name_filter = st.text_input(
             "ค้นหาจากชื่อ Procedure",
             key="proc_search_text",
             placeholder="เช่น R06 หรือพิมพ์บางส่วนของชื่อ",
             help="พิมพ์คำค้นแล้วกด Enter เพื่อค้นหา",
         )
-        submitted = st.form_submit_button("🔎 ค้นหา")  # ปุ่มนี้จะ trigger เมื่อกด Enter
-        if submitted:
-            run_proc_search()
-
+        
+        # ซ่อนปุ่ม submit ไว้ แต่ยังให้ Enter ทำงานได้
+        submitted = st.form_submit_button(label="", type="secondary", use_container_width=True, disabled=True)
+        
+        # ตรวจว่ามีการ submit ด้วย Enter (แม้จะไม่มีปุ่มให้เห็น)
+        if st.session_state.get("proc_search_form") or st.session_state.get("proc_search_text"):
+            if submitted or st.session_state.get("proc_search_text") != st.session_state.get("last_proc_filter"):
+                run_proc_search()
+    
     st.caption("พิมพ์ชื่อหรือบางส่วนของชื่อ แล้วกด Enter เพื่อค้นหา")
+ 
      
     # แสดงผลลัพธ์การค้นหาล่าสุด (ถ้ามี)
     feedback = st.session_state.get("proc_search_feedback")
