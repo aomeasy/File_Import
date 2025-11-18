@@ -1807,20 +1807,19 @@ def render_procedures_tab():
     
     # ====== DISPLAY ======
     procedures = st.session_state.get("loaded_procedures", [])
- 
+
+
+
     # ====== SHOW PROCEDURES ======
     st.subheader("🔧 Stored Procedures")
     if not procedures:
         st.warning("⚠️ No procedures loaded. ใส่ชื่อแล้วกด Load ก่อน")
         return
     
-    search_query = st.text_input(
-        "Filter in results (client-side)",
-        placeholder="พิมพ์คัดกรองผลที่โหลดมา",
-        key="search_proc_client"
-    )
-    filtered = [p for p in procedures if
-                search_query.lower() in p["ROUTINE_NAME"].lower()] if search_query else procedures
+    # ใช้ข้อมูลที่โหลดมาโดยตรง
+    for p in procedures:
+        st.write(p["ROUTINE_NAME"])
+ 
     
     # ✅ เก็บ procedure ที่กำลังเปิดอยู่ (เพื่อคงสถานะเปิด)
     if 'expanded_proc' not in st.session_state:
