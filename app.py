@@ -1737,7 +1737,6 @@ def recommend_action(current_action):
     return None, None, 0
 
 
- 
 # ===== TAB 2: RUN PROCEDURES (with event flags) =====
 def render_procedures_tab():
     st.header("⚙️ Database Procedures & Updates")
@@ -1752,103 +1751,60 @@ def render_procedures_tab():
     if 'db_manager' not in st.session_state:
         st.session_state.db_manager = DatabaseManager()
 
-
-
     # ====== SEARCH / LOAD ======
     st.subheader("🔎 Search / Load Procedures")
-    
+
     # ✅ ใช้ form เพื่อให้ Enter trigger การ submit
     with st.form(key="proc_search_form", clear_on_submit=False):
-        col_a, col_b, col_c, col_d, col_e = st.columns([2, 1, 1, 1, 1])
+        col_a, col_b = st.columns([3, 1])
         with col_a:
             name_filter = st.text_input(
                 "Procedure name",
                 value=st.session_state.get('last_proc_filter', ""),
-                placeholder="เช่น %R06% หรือระบุชื่อเต็ม"
+                placeholder="พิมพ์ชื่อ procedure แล้วกด Enter เพื่อค้นหา"
             )
         with col_b:
-            limit = st.number_input("Limit", min_value=1, max_value=500, value=50, step=10)
-        with col_c:
-            exact_only = st.checkbox(
-                "Exact name",
-                value=st.session_state.get('last_proc_exact', False)
-            )
-        with col_d:
-            # ✅ ปุ่ม Load จะถูก trigger ทั้งตอนคลิกและตอนกด Enter
             do_load = st.form_submit_button("📥 Load", type="primary", use_container_width=True)
-        with col_e:
-            do_clear_loaded = st.form_submit_button("🧹 Clear", use_container_width=True)
-    
-    # ====== CLEAR ======
-    if do_clear_loaded:
-        st.session_state.loaded_procedures = []
-        st.session_state['last_proc_filter'] = ""
-        st.session_state['last_proc_exact'] = False
-        st.toast("Cleared loaded procedures")
-    
+
     # ====== LOAD ======
     if do_load:
         pattern = name_filter or "%"
-        if exact_only and name_filter:
-            pattern = name_filter
-        procs = get_stored_procedures(pattern, limit)
+        procs = get_stored_procedures(pattern, 200)  # ✅ fix limit to 200
         st.session_state.loaded_procedures = procs
         st.session_state['last_proc_filter'] = name_filter
-        st.session_state['last_proc_exact'] = exact_only
         if procs:
             st.success(f"Loaded {len(procs)} procedure(s)")
         else:
             st.warning("No procedures matched your filter.")
-    
+
     # ====== DISPLAY ======
     procedures = st.session_state.get("loaded_procedures", [])
     st.divider()
-     
 
     # ====== SHOW PROCEDURES ======
     st.subheader("🔧 Stored Procedures")
     if not procedures:
         st.warning("⚠️ No procedures loaded. ใส่ชื่อแล้วกด Load ก่อน")
         return
-    
-    search_query = st.text_input(
-        "Filter in results (client-side)",
-        placeholder="พิมพ์คัดกรองผลที่โหลดมา",
-        key="search_proc_client"
-    )
-    filtered = [p for p in procedures if
-                search_query.lower() in p["ROUTINE_NAME"].lower()] if search_query else procedures
-    
+
     # ✅ เก็บ procedure ที่กำลังเปิดอยู่ (เพื่อคงสถานะเปิด)
     if 'expanded_proc' not in st.session_state:
         st.session_state['expanded_proc'] = None
-    
-    for proc in filtered:
+
+    # ✅ แสดงผลรายการ procedure ที่โหลดมา
+    for proc in procedures:
         proc_name = proc['ROUTINE_NAME']
-        expanded = st.session_state['expanded_proc'] == proc_name  # ✅ เปิดค้างถ้าเป็นตัวที่เลือกก่อนหน้า
-    
-        with st.expander(f"📦 {proc_name} ({proc['ROUTINE_TYPE']})", expanded=expanded):
-            left, right = st.columns([1, 1])
-            with left:
-                st.write(f"**Type:** {proc['ROUTINE_TYPE']}")
-                if proc.get('ROUTINE_COMMENT'):
-                    st.write(f"**Description:** {proc['ROUTINE_COMMENT']}")
-                if proc.get('CREATED'):
-                    st.write(f"**Created:** {proc['CREATED']}")
-                if proc.get('LAST_ALTERED'):
-                    st.write(f"**Last Altered:** {proc['LAST_ALTERED']}")
-            with right:
-                st.info("No parameters required")
-    
-            st.divider()
-    
-            # ⚠️ ข้อความเตือนพิเศษ
+        expanded = st.session_state['expanded_proc'] == proc_name
+
+        with st.expander(f"📦 {proc_name}", expanded=expanded):
+
+            # ⚠️ ข้อความเตือนพิเศษ (คง logic เดิม)
             if proc_name == "update_Broadband_daily":
                 st.markdown(
                     "<span style='color:red;font-weight:bold;'>⚠️ ก่อน Run ให้ Import ข้อมูล Ticket ทั้ง TTS และ SCOMS ลง Broadband_daily ก่อน</span>",
                     unsafe_allow_html=True
                 )
-    
+
             # ===== AUTH SECTION =====
             st.markdown("#### 🔑 Authorization")
             key_col, status_col = st.columns([2, 1])
@@ -1858,9 +1814,9 @@ def render_procedures_tab():
                     type="password",
                     placeholder="Enter key...",
                     key=f"key_{proc_name}",
-                    on_change=lambda name=proc_name: st.session_state.update(expanded_proc=name)  # ✅ จำชื่อ procedure ที่เปิดตอนกด Enter
+                    on_change=lambda name=proc_name: st.session_state.update(expanded_proc=name)
                 ).strip()
-    
+
             with status_col:
                 user_perm = get_user_permission(local_key) if local_key else None
                 if not user_perm:
@@ -1876,6 +1832,9 @@ def render_procedures_tab():
                     else:
                         st.error(f"🚫 Not allowed to execute `{proc_name}`")
                         execute_disabled = True
+
+
+ 
 
             # ===== EXECUTE BUTTON =====
             exec_col, note_col = st.columns([1, 3])
