@@ -1809,16 +1809,20 @@ def render_procedures_tab():
     procedures = st.session_state.get("loaded_procedures", [])
 
 
-
     # ====== SHOW PROCEDURES ======
     st.subheader("🔧 Stored Procedures")
+    
     if not procedures:
         st.warning("⚠️ No procedures loaded. ใส่ชื่อแล้วกด Load ก่อน")
         return
     
-    # ใช้ข้อมูลที่โหลดมาโดยตรง
-    for p in procedures:
+    # ✅ กำหนดให้ filtered = procedures (แทนที่ filter เดิม)
+    filtered = procedures
+    
+    # ====== DISPLAY ======
+    for p in filtered:
         st.write(p["ROUTINE_NAME"])
+ 
  
     
     # ✅ เก็บ procedure ที่กำลังเปิดอยู่ (เพื่อคงสถานะเปิด)
