@@ -1813,10 +1813,7 @@ def render_procedures_tab():
     # ✅ ใช้ข้อมูลที่ค้นได้โดยตรง
     filtered = procedures
     
- 
- 
-    
-    # ✅ เก็บ procedure ที่กำลังเปิดอยู่ (เพื่อคงสถานะเปิด)
+     # ✅ เก็บ procedure ที่กำลังเปิดอยู่ (เพื่อคงสถานะเปิด)
     if 'expanded_proc' not in st.session_state:
         st.session_state['expanded_proc'] = None
     
@@ -1825,19 +1822,22 @@ def render_procedures_tab():
         expanded = st.session_state['expanded_proc'] == proc_name  # ✅ เปิดค้างถ้าเป็นตัวที่เลือกก่อนหน้า
     
         with st.expander(f"📦 {proc_name} ({proc['ROUTINE_TYPE']})", expanded=expanded):
-            left, right = st.columns([1, 1])
-            with left:
-                st.write(f"**Type:** {proc['ROUTINE_TYPE']}")
-                if proc.get('ROUTINE_COMMENT'):
-                    st.write(f"**Description:** {proc['ROUTINE_COMMENT']}")
-                if proc.get('CREATED'):
-                    st.write(f"**Created:** {proc['CREATED']}")
-                if proc.get('LAST_ALTERED'):
-                    st.write(f"**Last Altered:** {proc['LAST_ALTERED']}")
-            with right:
-                st.info("No parameters required")
     
+            # ===== Authorization Section =====
+            st.markdown("### 🔑 Authorization")
+            st.caption("Enter Secret Key (for execute permission)")
+    
+            auth_col1, auth_col2 = st.columns([3, 2])
+            with auth_col1:
+                st.text_input("Enter key...", type="password", key=f"auth_key_{proc_name}")
+                st.button("▶️ Execute", key=f"exec_btn_{proc_name}", disabled=True)
+            with auth_col2:
+                st.info("👁️ Guest mode — execute locked")
+    
+            st.caption("Only authorized users can execute this procedure.")
             st.divider()
+
+  
     
             # ⚠️ ข้อความเตือนพิเศษ
             if proc_name == "update_Broadband_daily":
