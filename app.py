@@ -2216,6 +2216,59 @@ def render_data_editor_tab():
         if st.button("🔄 Refresh Data", use_container_width=True):
             st.cache_data.clear()
             st.experimental_rerun()
+        # ===== EXTRA FILTERS FOR TABLE: Asset =====
+        if selected_table == "Asset":
+    
+            st.markdown("#### 📅 Filter by Month / Year")
+    
+            # --- Load min/max month & year from Asset table ---
+            try:
+                minmax = db.execute_query("""
+                    SELECT 
+                        MIN(CAST(year AS UNSIGNED)) AS min_year,
+                        MAX(CAST(year AS UNSIGNED)) AS max_year,
+                        MIN(CAST(month AS UNSIGNED)) AS min_month,
+                        MAX(CAST(month AS UNSIGNED)) AS max_month
+                    FROM Asset
+                    WHERE year REGEXP '^[0-9]+$' AND month REGEXP '^[0-9]+$';
+                """)
+            except:
+                minmax = None
+    
+            if minmax and len(minmax) > 0:
+                min_year = int(minmax[0]["min_year"] or 2020)
+                max_year = int(minmax[0]["max_year"] or min_year)
+                min_month = int(minmax[0]["min_month"] or 1)
+                max_month = int(minmax[0]["max_month"] or 12)
+            else:
+                min_year, max_year = 2020, 2025
+                min_month, max_month = 1, 12
+    
+            # --- Dropdown month/year ---
+            col_m, col_y = st.columns(2)
+            with col_m:
+                selected_month = st.selectbox(
+                    "Month",
+                    options=list(range(1, 13)),
+                    index=max_month - 1,
+                    key="asset_month"
+                )
+            with col_y:
+                selected_year = st.selectbox(
+                    "Year",
+                    options=list(range(min_year, max_year + 1)),
+                    index=list(range(min_year, max_year + 1)).index(max_year),
+                    key="asset_year"
+                )
+    
+            # --- Append month/year into search_input automatically ---
+            auto_filter = f"month={selected_month}, year={selected_year}"
+    
+            if search_input.strip():
+                search_input = f"{search_input}, {auto_filter}"
+            else:
+                search_input = auto_filter
+
 
     # ==========================================
     # 📊 RIGHT: DATA DISPLAY
