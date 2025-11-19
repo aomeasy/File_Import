@@ -2675,6 +2675,7 @@ def get_user_permission(secret_key: str):
         "allowed_edit_tables": perm.get("allowed_edit_tables", []),
     }
 
+
 # ==========================================
 # 🔑 KEY MANAGEMENT TAB (ADMIN ONLY)
 # ==========================================
@@ -2711,34 +2712,36 @@ def render_user_management_tab():
             return
 
         # ====== COMPLETE FIX FOR REACT ERROR #185 ======
-        # Step 1: Replace all types of null/NA values
-        df = df.fillna("")  # pandas NaN
-        df = df.replace({pd.NA: "", None: ""})  # pandas NA and Python None
+        # Create a completely new clean DataFrame
+        clean_data = {}
         
-        # Step 2: Handle datetime columns - convert to string
-        datetime_cols = df.select_dtypes(include=['datetime64']).columns
-        for col in datetime_cols:
-            df[col] = df[col].astype(str).replace('NaT', '')
-        
-        # Step 3: Handle id column - must be Int64 or string, not float
-        if "id" in df.columns:
-            # Convert to Int64, handling any errors
-            df["id"] = pd.to_numeric(df["id"], errors="coerce")
-            # Replace NaN with empty string for display, or keep as 0
-            df["id"] = df["id"].fillna(0).astype('int64')
-        
-        # Step 4: Convert ALL other columns to clean strings
-        # This is the critical step to prevent React errors
         for col in df.columns:
-            if col != "id":  # Skip id since we already handled it
-                # Convert to string, then replace any remaining 'nan' or '<NA>' text
-                df[col] = df[col].astype(str)
-                df[col] = df[col].replace({'nan': '', '<NA>': '', 'None': ''})
+            if col == "id":
+                # Handle id as integer
+                clean_data[col] = df[col].apply(
+                    lambda x: int(x) if pd.notna(x) and str(x).strip() != '' and str(x) != 'nan' else 0
+                )
+            elif col in ["created_at", "updated_at"]:
+                # Handle datetime columns
+                clean_data[col] = df[col].apply(
+                    lambda x: str(x) if pd.notna(x) and str(x) != 'NaT' else ''
+                )
+            else:
+                # Handle all other columns as clean strings
+                clean_data[col] = df[col].apply(
+                    lambda x: str(x) if pd.notna(x) and x is not None and str(x) not in ['nan', 'NaT', '<NA>', 'None'] else ''
+                )
         
-        # Step 5: Final cleanup - ensure no object dtype remains
-        df = df.astype(str)
+        # Create new DataFrame from clean data
+        df = pd.DataFrame(clean_data)
+        
+        # Ensure correct dtypes
         if "id" in df.columns:
-            df["id"] = df["id"].astype(int)
+            df["id"] = df["id"].astype('int64')
+        
+        for col in df.columns:
+            if col != "id":
+                df[col] = df[col].astype(str)
         # ====== END FIX ======
 
         st.markdown("### 📋 Current Users (Editable)")
@@ -2809,12 +2812,21 @@ def render_user_management_tab():
             df = db.execute_query("SELECT * FROM user_permissions WHERE username = %s", (username,))
             
             # Apply same fix for Operator view
-            df = df.fillna("")
-            df = df.replace({pd.NA: "", None: ""})
-            datetime_cols = df.select_dtypes(include=['datetime64']).columns
-            for col in datetime_cols:
-                df[col] = df[col].astype(str).replace('NaT', '')
-            df = df.astype(str)
+            clean_data = {}
+            for col in df.columns:
+                if col == "id":
+                    clean_data[col] = df[col].apply(
+                        lambda x: int(x) if pd.notna(x) and str(x).strip() != '' else 0
+                    )
+                elif col in ["created_at", "updated_at"]:
+                    clean_data[col] = df[col].apply(
+                        lambda x: str(x) if pd.notna(x) and str(x) != 'NaT' else ''
+                    )
+                else:
+                    clean_data[col] = df[col].apply(
+                        lambda x: str(x) if pd.notna(x) and str(x) not in ['nan', 'NaT', '<NA>', 'None'] else ''
+                    )
+            df = pd.DataFrame(clean_data)
             
         except Exception as e:
             st.error(f"Cannot load your data: {e}")
@@ -2826,8 +2838,7 @@ def render_user_management_tab():
 
     else:
         st.warning(f"⚠️ Role `{role}` has no access to this section.")
-        st.stop()
-         
+        st.stop() 
  
 
 def render_ocr_tab():
