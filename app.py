@@ -2207,7 +2207,7 @@ def render_data_editor_tab():
         search_input = st.text_input(
             "Enter keywords or conditions",
             placeholder="เช่น service_type=FTTx , mm=สิงหาคม2025",
-            key="search_input_field"
+            key="view_search_input"
         )
 
         # ===== EXTRA FILTERS FOR TABLE: Asset =====
@@ -2259,13 +2259,16 @@ def render_data_editor_tab():
             auto_filter = f"month={selected_month}, year={selected_year}"
         
             # อัปเดต search_input ใน session_state ให้ Search ใช้ค่าถูกต้อง
-            if st.session_state.get("search_input_field"):
-                new_value = f"{st.session_state['search_input_field']}, {auto_filter}"
+        
+
+            if st.session_state.get("view_search_input"):
+                new_value = f"{st.session_state['view_search_input']}, {auto_filter}"
             else:
                 new_value = auto_filter
-        
-            st.session_state["search_input_field"] = new_value
+            
+            st.session_state["view_search_input"] = new_value
             search_input = new_value
+
 
 
 
