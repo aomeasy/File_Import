@@ -2234,15 +2234,18 @@ def render_data_editor_tab():
                 """)
             except:
                 minmax = None
-    
-            if minmax and len(minmax) > 0:
-                min_year = int(minmax[0]["min_year"] or 2020)
-                max_year = int(minmax[0]["max_year"] or min_year)
-                min_month = int(minmax[0]["min_month"] or 1)
-                max_month = int(minmax[0]["max_month"] or 12)
+
+            if minmax is not None and not minmax.empty:
+                row = minmax.iloc[0]
+                min_year = int(row["min_year"] or 2020)
+                max_year = int(row["max_year"] or min_year)
+                min_month = int(row["min_month"] or 1)
+                max_month = int(row["max_month"] or 12)
             else:
                 min_year, max_year = 2020, 2025
                 min_month, max_month = 1, 12
+
+     
     
             # --- Dropdown month/year ---
             col_m, col_y = st.columns(2)
