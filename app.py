@@ -2675,7 +2675,6 @@ def get_user_permission(secret_key: str):
         "allowed_edit_tables": perm.get("allowed_edit_tables", []),
     }
 
-
 # ==========================================
 # 🔑 KEY MANAGEMENT TAB (ADMIN ONLY)
 # ==========================================
@@ -2711,31 +2710,35 @@ def render_user_management_tab():
             st.error(f"Cannot load users: {e}")
             return
 
-        # ====== FIX: PREVENT REACT ERROR #185 ======
-        # --- Convert NULL/NaN to empty string ---
-        df = df.fillna("")
-
-        # --- Convert datetime to string (React cannot render datetime64) ---
-        if "created_at" in df.columns:
-            df["created_at"] = df["created_at"].astype(str)
-        if "updated_at" in df.columns:
-            df["updated_at"] = df["updated_at"].astype(str)
-
-        # --- Ensure id is Int64, not float ---
-        if "id" in df.columns:
-            df["id"] = pd.to_numeric(df["id"], errors="coerce").astype("Int64")
-
- 
-
-        # Convert id
-        if "id" in df.columns:
-            df["id"] = pd.to_numeric(df["id"], errors="coerce").astype("Int64")
+        # ====== COMPLETE FIX FOR REACT ERROR #185 ======
+        # Step 1: Replace all types of null/NA values
+        df = df.fillna("")  # pandas NaN
+        df = df.replace({pd.NA: "", None: ""})  # pandas NA and Python None
         
-        # Force all other columns to clean string
+        # Step 2: Handle datetime columns - convert to string
+        datetime_cols = df.select_dtypes(include=['datetime64']).columns
+        for col in datetime_cols:
+            df[col] = df[col].astype(str).replace('NaT', '')
+        
+        # Step 3: Handle id column - must be Int64 or string, not float
+        if "id" in df.columns:
+            # Convert to Int64, handling any errors
+            df["id"] = pd.to_numeric(df["id"], errors="coerce")
+            # Replace NaN with empty string for display, or keep as 0
+            df["id"] = df["id"].fillna(0).astype('int64')
+        
+        # Step 4: Convert ALL other columns to clean strings
+        # This is the critical step to prevent React errors
         for col in df.columns:
-            if col != "id":
-                df[col] = df[col].astype(object).astype(str)
-
+            if col != "id":  # Skip id since we already handled it
+                # Convert to string, then replace any remaining 'nan' or '<NA>' text
+                df[col] = df[col].astype(str)
+                df[col] = df[col].replace({'nan': '', '<NA>': '', 'None': ''})
+        
+        # Step 5: Final cleanup - ensure no object dtype remains
+        df = df.astype(str)
+        if "id" in df.columns:
+            df["id"] = df["id"].astype(int)
         # ====== END FIX ======
 
         st.markdown("### 📋 Current Users (Editable)")
@@ -2758,12 +2761,12 @@ def render_user_management_tab():
                         VALUES (%s,%s,%s,%s,%s,%s,NOW(),NOW())
                     """
                     params = (
-                        int(row["id"]) if str(row["id"]).isdigit() else None,
-                        row["username"],
-                        row["role"],
-                        row.get("allowed_tables", None),
-                        row.get("allowed_procedures", None),
-                        row.get("allowed_edit_tables", None)
+                        int(row["id"]) if str(row["id"]).strip().isdigit() and str(row["id"]).strip() != "" else None,
+                        row["username"] if row["username"] != "" else None,
+                        row["role"] if row["role"] != "" else None,
+                        row.get("allowed_tables") if row.get("allowed_tables") != "" else None,
+                        row.get("allowed_procedures") if row.get("allowed_procedures") != "" else None,
+                        row.get("allowed_edit_tables") if row.get("allowed_edit_tables") != "" else None
                     )
                     db.execute_nonquery(query, params)
 
@@ -2804,6 +2807,15 @@ def render_user_management_tab():
 
         try:
             df = db.execute_query("SELECT * FROM user_permissions WHERE username = %s", (username,))
+            
+            # Apply same fix for Operator view
+            df = df.fillna("")
+            df = df.replace({pd.NA: "", None: ""})
+            datetime_cols = df.select_dtypes(include=['datetime64']).columns
+            for col in datetime_cols:
+                df[col] = df[col].astype(str).replace('NaT', '')
+            df = df.astype(str)
+            
         except Exception as e:
             st.error(f"Cannot load your data: {e}")
             return
@@ -2815,6 +2827,7 @@ def render_user_management_tab():
     else:
         st.warning(f"⚠️ Role `{role}` has no access to this section.")
         st.stop()
+         
  
 
 def render_ocr_tab():
