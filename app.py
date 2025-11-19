@@ -2209,6 +2209,67 @@ def render_data_editor_tab():
             placeholder="เช่น service_type=FTTx , mm=สิงหาคม2025",
             key="search_input_field"
         )
+
+        # ===== EXTRA FILTERS FOR TABLE: Asset =====
+        if selected_table == "Asset":
+        
+            st.markdown("#### 📅 Filter by Month / Year")
+        
+            # --- Load min/max ---
+            try:
+                minmax = db.execute_query("""
+                    SELECT 
+                        MIN(CAST(year AS UNSIGNED)) AS min_year,
+                        MAX(CAST(year AS UNSIGNED)) AS max_year,
+                        MIN(CAST(month AS UNSIGNED)) AS min_month,
+                        MAX(CAST(month AS UNSIGNED)) AS max_month
+                    FROM Asset
+                    WHERE year REGEXP '^[0-9]+$' AND month REGEXP '^[0-9]+$';
+                """)
+            except:
+                minmax = None
+        
+            if minmax is not None and not minmax.empty:
+                row = minmax.iloc[0]
+                min_year = int(row["min_year"] or 2020)
+                max_year = int(row["max_year"] or min_year)
+                min_month = int(row["min_month"] or 1)
+                max_month = int(row["max_month"] or 12)
+            else:
+                min_year, max_year = 2020, 2025
+                min_month, max_month = 1, 12
+        
+            col_m, col_y = st.columns(2)
+            with col_m:
+                selected_month = st.selectbox(
+                    "Month",
+                    options=list(range(1, 13)),
+                    index=max_month - 1,
+                    key="asset_month"
+                )
+            with col_y:
+                selected_year = st.selectbox(
+                    "Year",
+                    options=list(range(min_year, max_year + 1)),
+                    index=list(range(min_year, max_year + 1)).index(max_year),
+                    key="asset_year"
+                )
+        
+            # --- Append month/year into search_input automatically ---
+            auto_filter = f"month={selected_month}, year={selected_year}"
+        
+            # อัปเดต search_input ใน session_state ให้ Search ใช้ค่าถูกต้อง
+            if st.session_state.get("search_input_field"):
+                new_value = f"{st.session_state['search_input_field']}, {auto_filter}"
+            else:
+                new_value = auto_filter
+        
+            st.session_state["search_input_field"] = new_value
+            search_input = new_value
+
+
+
+        
         match_mode = st.radio("Match Mode", ["AND", "OR"], horizontal=True, index=1)
         row_limit_label = st.selectbox("Show rows", ["10", "100", "1000", "10000", "All"], index=0)
         row_limit = None if row_limit_label == "All" else int(row_limit_label)
