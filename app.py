@@ -2256,7 +2256,8 @@ def render_data_editor_tab():
                     index=list(range(min_year, max_year + 1)).index(max_year),
                     key="asset_year"
                 )
-    
+     
+
             # --------------------------------------
             # ⭐ Filter ดำเนินการ (Status)
             # --------------------------------------
@@ -2264,19 +2265,24 @@ def render_data_editor_tab():
                 status_rows = db.execute_query("""
                     SELECT DISTINCT `ดำเนินการ` AS status_value
                     FROM Asset
-                    WHERE `ดำเนินการ` IS NOT NULL AND `ดำเนินการ` <> ''
+                    WHERE `ดำเนินการ` IS NOT NULL 
+                      AND `ดำเนินการ` <> ''
                     ORDER BY `ดำเนินการ`
                 """)
-                status_options = ["All"] + [row["status_value"] for row in status_rows]
-            except:
+                if status_rows is None or len(status_rows) == 0:
+                    status_options = ["All"]
+                else:
+                    status_options = ["All"] + [row["status_value"] for row in status_rows]
+            except Exception as _:
                 status_options = ["All"]
     
             asset_status = st.selectbox(
                 "Filter by Status (ดำเนินการ)",
                 options=status_options,
-                index=0,    # Default = All
-                key="asset_status"
+                index=0,
+                key="asset_status_filter"     # ⭐ เปลี่ยน key ใหม่ กันชนแท็บอื่น
             )
+
     
         # ——————————————————
         match_mode = st.radio("Match Mode", ["AND", "OR"], horizontal=True, index=1)
