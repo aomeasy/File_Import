@@ -2200,7 +2200,7 @@ def render_data_editor_tab():
     left, right = st.columns([1.2, 3])
 
 
-   
+    
 
     # ==========================================
     # 🔍 LEFT: SEARCH PANEL
@@ -2208,17 +2208,13 @@ def render_data_editor_tab():
     with left:
         st.markdown("#### 🔍 Smart Search")
     
-        # textbox ค้นหา
         search_input = st.text_input(
             "Enter keywords or conditions",
             placeholder="เช่น service_type=FTTx , mm=สิงหาคม2025",
             key="view_search_input"
         )
     
-        # ===== FILTER เฉพาะ TABLE: Asset =====
-        asset_month = None
-        asset_year = None
-    
+        # ===== FILTER เฉพาะ TABLE Asset =====
         if selected_table == "Asset":
             st.markdown("#### 📅 Filter by Month / Year")
     
@@ -2261,6 +2257,27 @@ def render_data_editor_tab():
                     key="asset_year"
                 )
     
+            # --------------------------------------
+            # ⭐ Filter ดำเนินการ (Status)
+            # --------------------------------------
+            try:
+                status_rows = db.execute_query("""
+                    SELECT DISTINCT `ดำเนินการ` AS status_value
+                    FROM Asset
+                    WHERE `ดำเนินการ` IS NOT NULL AND `ดำเนินการ` <> ''
+                    ORDER BY `ดำเนินการ`
+                """)
+                status_options = ["All"] + [row["status_value"] for row in status_rows]
+            except:
+                status_options = ["All"]
+    
+            asset_status = st.selectbox(
+                "Filter by Status (ดำเนินการ)",
+                options=status_options,
+                index=0,    # Default = All
+                key="asset_status"
+            )
+    
         # ——————————————————
         match_mode = st.radio("Match Mode", ["AND", "OR"], horizontal=True, index=1)
     
@@ -2270,9 +2287,8 @@ def render_data_editor_tab():
         if st.button("🔄 Refresh Data", use_container_width=True):
             st.cache_data.clear()
             st.experimental_rerun()
-    
-    
-    
+ 
+
     # ==========================================
     # 📊 RIGHT: DATA DISPLAY
     # ==========================================
@@ -2315,25 +2331,31 @@ def render_data_editor_tab():
                     conditions.append("`year` LIKE %s")
                     params.append(f"%{asset_year}%")
     
+                    # ⭐ Filter by ดำเนินการ (เฉพาะ explicit)
+                    if asset_status != "All":
+                        conditions.append("`ดำเนินการ` = %s")
+                        params.append(asset_status)
+    
                 if conditions:
                     query += " WHERE " + joiner.join(conditions)
     
             # --------------------------------------------------
             # CASE 1B: plain keyword search เช่น “ขาย”
             # --------------------------------------------------
-     
-
-
             else:
                 like_clauses = f" {match_mode} ".join([f"`{col}` LIKE %s" for col in columns])
                 query += f" WHERE ({like_clauses})"
                 params = [f"%{search_input}%"] * len(columns)
-            
+    
                 if selected_table == "Asset":
                     query += " AND `month` LIKE %s AND `year` LIKE %s"
                     params.append(f"%{asset_month}%")
                     params.append(f"%{asset_year}%")
-
+    
+                    # ⭐ Filter by ดำเนินการ (plain search)
+                    if asset_status != "All":
+                        query += " AND `ดำเนินการ` = %s"
+                        params.append(asset_status)
     
         # ======================================================
         # CASE 2: ไม่มี search input → default filter
@@ -2342,6 +2364,11 @@ def render_data_editor_tab():
             if selected_table == "Asset":
                 query += " WHERE `month` LIKE %s AND `year` LIKE %s"
                 params = [f"%{asset_month}%", f"%{asset_year}%"]
+    
+                # ⭐ Filter by ดำเนินการ (no search input)
+                if asset_status != "All":
+                    query += " AND `ดำเนินการ` = %s"
+                    params.append(asset_status)
     
         # limit rows
         if row_limit:
@@ -2367,6 +2394,7 @@ def render_data_editor_tab():
                 st.error(f"Query error: {e}")
                 return
 
+        
 
         st.success(f"✅ Found {len(df)} records from `{selected_table}`")
 
