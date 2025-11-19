@@ -2699,7 +2699,6 @@ def render_user_management_tab():
 
     role = user_perm["role"]
     username = user_perm.get("username", "(unknown)")
-
     db = st.session_state.db_manager
 
     # ===== Role-based Display =====
@@ -2711,6 +2710,28 @@ def render_user_management_tab():
         except Exception as e:
             st.error(f"Cannot load users: {e}")
             return
+
+        # ====== FIX: PREVENT REACT ERROR #185 ======
+        # --- Convert NULL/NaN to empty string ---
+        df = df.fillna("")
+
+        # --- Convert datetime to string (React cannot render datetime64) ---
+        if "created_at" in df.columns:
+            df["created_at"] = df["created_at"].astype(str)
+        if "updated_at" in df.columns:
+            df["updated_at"] = df["updated_at"].astype(str)
+
+        # --- Ensure id is Int64, not float ---
+        if "id" in df.columns:
+            df["id"] = pd.to_numeric(df["id"], errors="coerce").astype("Int64")
+
+        # --- Convert text-like fields to string ---
+        text_cols = ["allowed_tables", "allowed_procedures", "allowed_edit_tables", "username", "role"]
+        for col in text_cols:
+            if col in df.columns:
+                df[col] = df[col].astype(str)
+
+        # ====== END FIX ======
 
         st.markdown("### 📋 Current Users (Editable)")
         edited_df = st.data_editor(
@@ -2732,7 +2753,7 @@ def render_user_management_tab():
                         VALUES (%s,%s,%s,%s,%s,%s,NOW(),NOW())
                     """
                     params = (
-                        int(row["id"]) if not pd.isna(row["id"]) else None,
+                        int(row["id"]) if str(row["id"]).isdigit() else None,
                         row["username"],
                         row["role"],
                         row.get("allowed_tables", None),
@@ -2740,8 +2761,10 @@ def render_user_management_tab():
                         row.get("allowed_edit_tables", None)
                     )
                     db.execute_nonquery(query, params)
+
                 st.success("✅ User permissions updated successfully!")
                 st.session_state.user_permissions = load_user_permissions(db)
+
             except Exception as e:
                 st.error(f"❌ Failed to update users: {e}")
 
@@ -2775,9 +2798,7 @@ def render_user_management_tab():
         st.warning(f"👷 Authorized as **Operator** — view-only mode ({username})")
 
         try:
-            df = db.execute_query(
-                "SELECT * FROM user_permissions WHERE username = %s", (username,)
-            )
+            df = db.execute_query("SELECT * FROM user_permissions WHERE username = %s", (username,))
         except Exception as e:
             st.error(f"Cannot load your data: {e}")
             return
@@ -2788,8 +2809,8 @@ def render_user_management_tab():
 
     else:
         st.warning(f"⚠️ Role `{role}` has no access to this section.")
-        st.stop() 
-
+        st.stop()
+ 
 
 def render_ocr_tab():
     """
