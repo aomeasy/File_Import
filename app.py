@@ -2200,6 +2200,8 @@ def render_data_editor_tab():
     left, right = st.columns([1.2, 3])
 
 
+   
+
     # ==========================================
     # 🔍 LEFT: SEARCH PANEL
     # ==========================================
@@ -2220,7 +2222,6 @@ def render_data_editor_tab():
         if selected_table == "Asset":
             st.markdown("#### 📅 Filter by Month / Year")
     
-            # --- load min/max จาก DB ---
             try:
                 minmax = db.execute_query("""
                     SELECT 
@@ -2261,8 +2262,6 @@ def render_data_editor_tab():
                 )
     
         # ——————————————————
-        #   ตัวเลือกอื่น ๆ
-        # ——————————————————
         match_mode = st.radio("Match Mode", ["AND", "OR"], horizontal=True, index=1)
     
         row_limit_label = st.selectbox("Show rows", ["10", "100", "1000", "10000", "All"], index=0)
@@ -2271,6 +2270,7 @@ def render_data_editor_tab():
         if st.button("🔄 Refresh Data", use_container_width=True):
             st.cache_data.clear()
             st.experimental_rerun()
+    
     
     
     # ==========================================
@@ -2282,10 +2282,17 @@ def render_data_editor_tab():
         query = f"SELECT * FROM `{selected_table}`"
         params = []
     
+        # ======================================================
+        # CASE 1: มี search input
+        # ======================================================
         if search_input.strip():
+    
             parts = [p.strip() for p in re.split('[,;]', search_input) if p.strip()]
             has_explicit = any('=' in p for p in parts)
     
+            # --------------------------------------------------
+            # CASE 1A: explicit condition เช่น month=5, type=FTTx
+            # --------------------------------------------------
             if has_explicit:
                 conditions = []
                 joiner = f" {match_mode} "
@@ -2300,7 +2307,7 @@ def render_data_editor_tab():
                         conditions.append(f"`{col_real}` LIKE %s")
                         params.append(f"%{value_}%")
     
-                # ⭐⭐ เพิ่ม Filter เดือน/ปี ที่นี่ ⭐⭐
+                # ⭐ เพิ่ม Asset month/year ⭐
                 if selected_table == "Asset":
                     conditions.append("`month` LIKE %s")
                     params.append(f"%{asset_month}%")
@@ -2311,19 +2318,24 @@ def render_data_editor_tab():
                 if conditions:
                     query += " WHERE " + joiner.join(conditions)
     
+            # --------------------------------------------------
+            # CASE 1B: plain keyword search เช่น “ขาย”
+            # --------------------------------------------------
             else:
                 like_clauses = f" {match_mode} ".join([f"`{col}` LIKE %s" for col in columns])
                 query += f" WHERE {like_clauses}"
                 params = [f"%{search_input}%"] * len(columns)
     
-                # ⭐⭐ เพิ่ม month/year แบบ AND ⭐⭐
+                # ⭐ เพิ่ม Asset month/year ⭐
                 if selected_table == "Asset":
-                    query += f" AND `month` LIKE %s AND `year` LIKE %s"
+                    query += " AND `month` LIKE %s AND `year` LIKE %s"
                     params.append(f"%{asset_month}%")
                     params.append(f"%{asset_year}%")
     
+        # ======================================================
+        # CASE 2: ไม่มี search input → default filter
+        # ======================================================
         else:
-            # ไม่มี search → แต่เป็น Asset → ยังต้อง filter เดือน/ปี
             if selected_table == "Asset":
                 query += " WHERE `month` LIKE %s AND `year` LIKE %s"
                 params = [f"%{asset_month}%", f"%{asset_year}%"]
@@ -2331,60 +2343,27 @@ def render_data_editor_tab():
         # limit rows
         if row_limit:
             query += f" LIMIT {row_limit}"
- 
-
-    # ==========================================
-    # 📊 RIGHT: DATA DISPLAY
-    # ==========================================
-    with right:
-        # ---- Build SQL ----
-        query = f"SELECT * FROM `{selected_table}`"
-        params = []
-
-        if search_input.strip():
-            parts = [p.strip() for p in re.split('[,;]', search_input) if p.strip()]
-            has_explicit_condition = any('=' in p for p in parts)
-
-            if has_explicit_condition:
-                conditions = []
-                joiner = f" {match_mode} "
-                for cond in parts:
-                    if '=' in cond:
-                        key, value = [x.strip() for x in cond.split('=', 1)]
-                        if key.lower() in columns_lower:
-                            real_col = columns[columns_lower.index(key.lower())]
-                            conditions.append(f"`{real_col}` LIKE %s")
-                            params.append(f"%{value}%")
-                        else:
-                            st.warning(f"⚠️ Column `{key}` not found — ignored.")
-                if conditions:
-                    query += " WHERE " + joiner.join(conditions)
-            else:
-                like_clauses = f" {match_mode} ".join([f"`{col}` LIKE %s" for col in columns])
-                query += f" WHERE {like_clauses}"
-                params = [f"%{search_input}%"] * len(columns)
-
-        if row_limit:
-            query += f" LIMIT {row_limit}"
-
+    
+        # ============
+        # SHOW SQL
+        # ============
         with st.expander("🧠 SQL Query Used", expanded=False):
-            formatted_query = query
+            formatted = query
             for p in params:
-                formatted_query = formatted_query.replace("%s", f"'{p}'", 1)
-            st.code(formatted_query, language="sql")
-
-        # ---- Load Data ----
+                formatted = formatted.replace("%s", f"'{p}'", 1)
+            st.code(formatted, language="sql")
+    
+        # ============
+        # EXECUTE SQL
+        # ============
         with st.spinner("🔎 Searching database..."):
             try:
                 df = db.execute_query(query, tuple(params))
-                df = df.astype(str)  # ✅ บังคับให้ทุกคอลัมน์เป็น string ก่อนแสดงผล
+                df = df.astype(str)
             except Exception as e:
                 st.error(f"Query error: {e}")
                 return
 
-        if df is None or df.empty:
-            st.warning("📭 No records found.")
-            return
 
         st.success(f"✅ Found {len(df)} records from `{selected_table}`")
 
