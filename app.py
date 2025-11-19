@@ -2725,11 +2725,16 @@ def render_user_management_tab():
         if "id" in df.columns:
             df["id"] = pd.to_numeric(df["id"], errors="coerce").astype("Int64")
 
-        # --- Convert text-like fields to string ---
-        text_cols = ["allowed_tables", "allowed_procedures", "allowed_edit_tables", "username", "role"]
-        for col in text_cols:
-            if col in df.columns:
-                df[col] = df[col].astype(str)
+ 
+
+        # Convert id
+        if "id" in df.columns:
+            df["id"] = pd.to_numeric(df["id"], errors="coerce").astype("Int64")
+        
+        # Force all other columns to clean string
+        for col in df.columns:
+            if col != "id":
+                df[col] = df[col].astype(object).astype(str)
 
         # ====== END FIX ======
 
