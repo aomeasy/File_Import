@@ -2321,16 +2321,19 @@ def render_data_editor_tab():
             # --------------------------------------------------
             # CASE 1B: plain keyword search เช่น “ขาย”
             # --------------------------------------------------
+     
+
+
             else:
                 like_clauses = f" {match_mode} ".join([f"`{col}` LIKE %s" for col in columns])
-                query += f" WHERE {like_clauses}"
+                query += f" WHERE ({like_clauses})"
                 params = [f"%{search_input}%"] * len(columns)
-    
-                # ⭐ เพิ่ม Asset month/year ⭐
+            
                 if selected_table == "Asset":
                     query += " AND `month` LIKE %s AND `year` LIKE %s"
                     params.append(f"%{asset_month}%")
                     params.append(f"%{asset_year}%")
+
     
         # ======================================================
         # CASE 2: ไม่มี search input → default filter
