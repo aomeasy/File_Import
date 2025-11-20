@@ -359,7 +359,6 @@ def progress_value_bump(step=5):
         st.session_state['proc_progress_value'] = 20
     st.session_state['proc_progress_value'] = min(100, st.session_state['proc_progress_value'] + step)
     return st.session_state['proc_progress_value']
- 
 
 # ---------- NEW: common renderer for execution result ----------
 def render_exec_result(proc_name: str, result: dict):
@@ -389,33 +388,40 @@ def render_exec_result(proc_name: str, result: dict):
                 df_result = pd.DataFrame(res)
                 st.dataframe(df_result, use_container_width=True)
                 
+                # ✅ สร้าง unique key ที่คงที่ (ไม่เปลี่ยนแปลงเมื่อ rerun)
+                download_key_name = f'download_key_{proc_name}_{idx}'
+                if download_key_name not in st.session_state:
+                    st.session_state[download_key_name] = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+                
+                timestamp_key = st.session_state[download_key_name]
+                
                 # ✅ ตรวจสอบว่ามีฟิลด์ 'รายงาน' หรือไม่ และใช้เป็นชื่อไฟล์
+                base_filename = f"{proc_name}_result_{idx+1}"  # ค่าเริ่มต้น
+                
                 if 'รายงาน' in df_result.columns and not df_result.empty:
-                    # ใช้ค่าแถวแรกของฟิลด์ 'รายงาน' เป็นชื่อไฟล์
-                    report_name = str(df_result['รายงาน'].iloc[0]).strip()
-                    # ทำความสะอาดชื่อไฟล์ (เอาตัวอักษรพิเศษออก)
-                    import re
-                    report_name = re.sub(r'[<>:"/\\|?*]', '_', report_name)
-                    base_filename = report_name
-                else:
-                    base_filename = f"{proc_name}_result_{idx+1}"
+                    try:
+                        # ใช้ค่าแถวแรกของฟิลด์ 'รายงาน' เป็นชื่อไฟล์
+                        report_name = str(df_result['รายงาน'].iloc[0]).strip()
+                        if report_name and report_name.lower() not in ['none', 'nan', '']:
+                            # ทำความสะอาดชื่อไฟล์ (เอาตัวอักษรพิเศษออก)
+                            import re
+                            report_name = re.sub(r'[<>:"/\\|?*]', '_', report_name)
+                            base_filename = report_name
+                    except Exception as e:
+                        # ถ้าเกิด error ใช้ชื่อเริ่มต้น
+                        pass
                 
                 # ✅ เพิ่มปุ่ม Download ทั้ง CSV และ Excel แบบเรียงข้างกัน
                 col1, col2 = st.columns(2)
                 
-                # ✅ สร้าง unique key ที่ไม่เปลี่ยนแปลงเมื่อ download
-                timestamp_key = st.session_state.get(f'download_key_{proc_name}_{idx}', datetime.now().strftime('%Y%m%d_%H%M%S'))
-                if f'download_key_{proc_name}_{idx}' not in st.session_state:
-                    st.session_state[f'download_key_{proc_name}_{idx}'] = timestamp_key
-                
                 with col1:
                     csv_data = df_result.to_csv(index=False).encode('utf-8-sig')
                     st.download_button(
-                        "📄 Download CSV",
-                        csv_data,
-                        f"{base_filename}.csv",
-                        "text/csv",
-                        key=f"download_csv_{proc_name}_{idx}_{timestamp_key}",
+                        label="📄 Download CSV",
+                        data=csv_data,
+                        file_name=f"{base_filename}.csv",
+                        mime="text/csv",
+                        key=f"btn_csv_{timestamp_key}",
                         use_container_width=True
                     )
                 
@@ -425,14 +431,15 @@ def render_exec_result(proc_name: str, result: dict):
                     excel_buffer = BytesIO()
                     with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                         df_result.to_excel(writer, index=False, sheet_name='Result')
+                    excel_buffer.seek(0)
                     excel_data = excel_buffer.getvalue()
                     
                     st.download_button(
-                        "📊 Download Excel",
-                        excel_data,
-                        f"{base_filename}.xlsx",
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key=f"download_excel_{proc_name}_{idx}_{timestamp_key}",
+                        label="📊 Download Excel",
+                        data=excel_data,
+                        file_name=f"{base_filename}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key=f"btn_excel_{timestamp_key}",
                         use_container_width=True
                     )
         
@@ -455,6 +462,7 @@ def render_exec_result(proc_name: str, result: dict):
         else:
             st.error(result.get('error', 'Unknown error'))
         st.session_state.execution_history.append({'procedure': proc_name,'status': 'failed','timestamp': datetime.now()})
+ 
  
 # ---------- NEW: favorites helpers ----------
 def add_favorite(name: str):
