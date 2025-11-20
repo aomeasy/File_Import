@@ -361,9 +361,6 @@ def progress_value_bump(step=5):
     return st.session_state['proc_progress_value']
 
  
-
- 
-
 # ---------- NEW: common renderer for execution result ----------
 def render_exec_result(proc_name: str, result: dict):
     if result.get('success'):
@@ -392,19 +389,27 @@ def render_exec_result(proc_name: str, result: dict):
                 df_result = pd.DataFrame(res)
                 st.dataframe(df_result, use_container_width=True)
                 
-                # ✅ หาชื่อไฟล์
-                base_filename = f"{proc_name}_result_{idx+1}"
+                # ✅ หาชื่อไฟล์จาก **ฟิลด์แรกของแถวแรก**
+                base_filename = f"{proc_name}_result_{idx+1}"  # ค่าเริ่มต้น
                 
-                if 'รายงาน' in df_result.columns and len(df_result) > 0:
+                if len(df_result) > 0 and len(df_result.columns) > 0:
                     try:
-                        report_name = str(df_result['รายงาน'].iloc[0]).strip()
-                        if report_name and report_name not in ['None', 'nan', '', 'NaN']:
+                        # ✅ เอาค่าจาก column แรก (ฟิลด์แรก) ของ row แรก
+                        first_column_name = df_result.columns[0]
+                        first_value = str(df_result.iloc[0, 0]).strip()
+                        
+                        # ตรวจสอบว่าค่าไม่ว่างและไม่ใช่ None/NaN
+                        if first_value and first_value not in ['None', 'nan', '', 'NaN', 'null']:
                             import re
-                            report_name = re.sub(r'[<>:"/\\|?*\[\]]', '_', report_name)
-                            base_filename = report_name
-                            st.info(f"📁 ชื่อไฟล์: **{base_filename}**")
+                            # ทำความสะอาดชื่อไฟล์
+                            clean_name = re.sub(r'[<>:"/\\|?*\[\]\r\n\t]', '_', first_value)
+                            base_filename = clean_name
+                            st.success(f"📁 ชื่อไฟล์จากฟิลด์ '{first_column_name}': **{base_filename}**")
+                        else:
+                            st.info(f"📁 ใช้ชื่อไฟล์เริ่มต้น: **{base_filename}**")
                     except Exception as e:
-                        st.warning(f"⚠️ ไม่สามารถอ่านชื่อจากฟิลด์ 'รายงาน': {e}")
+                        st.warning(f"⚠️ ไม่สามารถอ่านค่าจากฟิลด์แรก: {e}")
+                        st.info(f"📁 ใช้ชื่อไฟล์เริ่มต้น: **{base_filename}**")
                 
                 # ✅ สร้าง unique key สำหรับ download buttons
                 unique_id = f"{proc_name}_{idx}_{id(result)}"
@@ -482,7 +487,7 @@ def render_exec_result(proc_name: str, result: dict):
                 'status': 'failed',
                 'timestamp': datetime.now()
             })
- 
+  
 # ---------- NEW: favorites helpers ----------
 def add_favorite(name: str):
     favs = set(st.session_state.get('favorites', []))
