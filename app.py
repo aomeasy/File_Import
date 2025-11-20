@@ -2408,7 +2408,7 @@ def render_data_editor_tab():
                 return
 
         
-
+        st.markdown("---")
         st.success(f"✅ Found {len(df)} records from `{selected_table}`")
 
         # ==========================================
