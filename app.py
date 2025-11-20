@@ -2406,9 +2406,7 @@ def render_data_editor_tab():
             except Exception as e:
                 st.error(f"Query error: {e}")
                 return
-
-        
-        st.markdown("---")
+ 
         st.success(f"✅ Found {len(df)} records from `{selected_table}`")
 
         # ==========================================
