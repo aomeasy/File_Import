@@ -360,6 +360,7 @@ def progress_value_bump(step=5):
     st.session_state['proc_progress_value'] = min(100, st.session_state['proc_progress_value'] + step)
     return st.session_state['proc_progress_value']
 
+
 # ---------- NEW: common renderer for execution result ----------
 def render_exec_result(proc_name: str, result: dict):
     if result.get('success'):
@@ -387,14 +388,38 @@ def render_exec_result(proc_name: str, result: dict):
                 st.write(f"**Result Set {idx + 1}:**")
                 df_result = pd.DataFrame(res)
                 st.dataframe(df_result, use_container_width=True)
-                csv_data = df_result.to_csv(index=False)
-                st.download_button(
-                    "📥 Download CSV",
-                    csv_data,
-                    f"{proc_name}_result_{idx+1}.csv",
-                    "text/csv",
-                    key=f"download_csv_{proc_name}_{idx}"
-                )
+                
+                # ✅ เพิ่มปุ่ม Download ทั้ง CSV และ Excel แบบเรียงข้างกัน
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    csv_data = df_result.to_csv(index=False).encode('utf-8-sig')
+                    st.download_button(
+                        "📄 Download CSV",
+                        csv_data,
+                        f"{proc_name}_result_{idx+1}.csv",
+                        "text/csv",
+                        key=f"download_csv_{proc_name}_{idx}",
+                        use_container_width=True
+                    )
+                
+                with col2:
+                    # ✅ สร้าง Excel file
+                    from io import BytesIO
+                    excel_buffer = BytesIO()
+                    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                        df_result.to_excel(writer, index=False, sheet_name='Result')
+                    excel_data = excel_buffer.getvalue()
+                    
+                    st.download_button(
+                        "📊 Download Excel",
+                        excel_data,
+                        f"{proc_name}_result_{idx+1}.xlsx",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key=f"download_excel_{proc_name}_{idx}",
+                        use_container_width=True
+                    )
+        
         if result.get('rows_affected'):
             st.info(f"Rows affected: {result.get('rows_affected')}")
         if result.get('warnings'):
@@ -414,6 +439,7 @@ def render_exec_result(proc_name: str, result: dict):
         else:
             st.error(result.get('error', 'Unknown error'))
         st.session_state.execution_history.append({'procedure': proc_name,'status': 'failed','timestamp': datetime.now()})
+         
 
 # ---------- NEW: favorites helpers ----------
 def add_favorite(name: str):
