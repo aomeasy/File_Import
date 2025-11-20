@@ -2256,7 +2256,6 @@ def render_data_editor_tab():
                     index=list(range(min_year, max_year + 1)).index(max_year),
                     key="asset_year"
                 )
-     
 
             # --------------------------------------
             # ⭐ Filter ดำเนินการ (Status)
@@ -2269,20 +2268,24 @@ def render_data_editor_tab():
                       AND `ดำเนินการ` <> ''
                     ORDER BY `ดำเนินการ`
                 """)
-                if status_rows is None or len(status_rows) == 0:
-                    status_options = ["All"]
+                
+                # ⭐ แก้ไข: เช็คว่ามีข้อมูลหรือไม่อย่างถูกต้อง
+                if status_rows is not None and not status_rows.empty and len(status_rows) > 0:
+                    # ⭐ ดึงค่าจาก DataFrame column 'status_value'
+                    status_options = ["All"] + status_rows["status_value"].tolist()
                 else:
-                    status_options = ["All"] + [row["status_value"] for row in status_rows]
-            except Exception as _:
+                    status_options = ["All"]
+                    
+            except Exception as e:
+                st.warning(f"ไม่สามารถดึงข้อมูล Status: {e}")
                 status_options = ["All"]
-    
+            
             asset_status = st.selectbox(
                 "Filter by Status (ดำเนินการ)",
                 options=status_options,
                 index=0,
-                key="asset_status_filter"     # ⭐ เปลี่ยน key ใหม่ กันชนแท็บอื่น
-            )
-
+                key="asset_status_filter"
+       
     
         # ——————————————————
         match_mode = st.radio("Match Mode", ["AND", "OR"], horizontal=True, index=1)
