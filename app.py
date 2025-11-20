@@ -384,70 +384,71 @@ def render_exec_result(proc_name: str, result: dict):
                 unsafe_allow_html=True
             )
        
-                    
     if result.get('results'):
-            for idx, res in enumerate(result['results'], start=1):  # ✅ เริ่มนับจาก 1
-                df_result = pd.DataFrame(res)
+        for idx, res in enumerate(result['results'], start=1):  # ✅ เริ่มนับจาก 1
+            df_result = pd.DataFrame(res)
+            
+            # ✅ หาชื่อหัวข้อจากฟิลด์แรกของแถวแรก
+            result_title = f"Result Set {idx}"  # ค่าเริ่มต้น
+            base_filename = f"{proc_name}_result_{idx}"  # ชื่อไฟล์เริ่มต้น
+            
+            if len(df_result) > 0 and len(df_result.columns) > 0:
+                try:
+                    first_column_name = df_result.columns[0]
+                    first_value = str(df_result.iloc[0, 0]).strip()
+                    
+                    if first_value and first_value not in ['None', 'nan', '', 'NaN', 'null']:
+                        import re
+                        clean_name = re.sub(r'[<>:"/\\|?*\[\]\r\n\t]', '_', first_value)
+                        base_filename = clean_name
+                        # ✅ ใช้ชื่อฟิลด์และค่าเป็นหัวข้อ
+                        result_title = f"{first_column_name}: {first_value}"
+                except:
+                    pass
+            
+            # ✅ แสดงหัวข้อที่ได้
+            st.write(f"**{result_title}**")
+            
+            # ✅ Reset index ให้เริ่มจาก 1
+            df_display = df_result.copy()
+            df_display.index = range(1, len(df_display) + 1)
+            
+            st.dataframe(df_display, use_container_width=True)
+            
+            # ... ส่วน download buttons (ใช้ df_result สำหรับ export)
+            unique_id = f"{proc_name}_{idx}_{id(result)}"
+            
+            csv_data = df_result.to_csv(index=False).encode('utf-8-sig')
+            
+            from io import BytesIO
+            excel_buffer = BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                df_result.to_excel(writer, index=False, sheet_name='Result')
+            excel_data = excel_buffer.getvalue()
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.download_button(
+                    label="📄 Download CSV",
+                    data=csv_data,
+                    file_name=f"{base_filename}.csv",
+                    mime="text/csv",
+                    key=f"csv_{unique_id}",
+                    use_container_width=True
+                )
+            
+            with col2:
+                st.download_button(
+                    label="📊 Download Excel",
+                    data=excel_data,
+                    file_name=f"{base_filename}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"excel_{unique_id}",
+                    use_container_width=True
+                )
                 
-                # ✅ หาชื่อหัวข้อจากฟิลด์แรกของแถวแรก
-                result_title = f"Result Set {idx}"  # ค่าเริ่มต้น
-                base_filename = f"{proc_name}_result_{idx}"  # ชื่อไฟล์เริ่มต้น
-                
-                if len(df_result) > 0 and len(df_result.columns) > 0:
-                    try:
-                        first_column_name = df_result.columns[0]
-                        first_value = str(df_result.iloc[0, 0]).strip()
-                        
-                        if first_value and first_value not in ['None', 'nan', '', 'NaN', 'null']:
-                            import re
-                            clean_name = re.sub(r'[<>:"/\\|?*\[\]\r\n\t]', '_', first_value)
-                            base_filename = clean_name
-                            # ✅ ใช้ชื่อฟิลด์และค่าเป็นหัวข้อ
-                            result_title = f"{first_column_name}: {first_value}"
-                    except:
-                        pass
-                
-                # ✅ แสดงหัวข้อที่ได้
-                st.write(f"**{result_title}**")
-                
-                # ✅ Reset index ให้เริ่มจาก 1
-                df_display = df_result.copy()
-                df_display.index = range(1, len(df_display) + 1)
-                
-                st.dataframe(df_display, use_container_width=True)
-                
-                # ... ส่วน download buttons (ใช้ df_result สำหรับ export)
-                unique_id = f"{proc_name}_{idx}_{id(result)}"
-                
-                csv_data = df_result.to_csv(index=False).encode('utf-8-sig')
-                
-                from io import BytesIO
-                excel_buffer = BytesIO()
-                with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                    df_result.to_excel(writer, index=False, sheet_name='Result')
-                excel_data = excel_buffer.getvalue()
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.download_button(
-                        label="📄 Download CSV",
-                        data=csv_data,
-                        file_name=f"{base_filename}.csv",
-                        mime="text/csv",
-                        key=f"csv_{unique_id}",
-                        use_container_width=True
-                    )
-                
-                with col2:
-                    st.download_button(
-                        label="📊 Download Excel",
-                        data=excel_data,
-                        file_name=f"{base_filename}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key=f"excel_{unique_id}",
-                        use_container_width=True
-                    )
+     
         
         if result.get('rows_affected'):
             st.info(f"Rows affected: {result.get('rows_affected')}")
