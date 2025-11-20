@@ -2171,7 +2171,7 @@ import pandas as pd
 import mysql.connector
 
 
-
+ 
 def render_data_editor_tab():
     from datetime import datetime
     import re
@@ -2181,45 +2181,45 @@ def render_data_editor_tab():
         st.session_state.db_manager = DatabaseManager()
     db = st.session_state.db_manager
 
-# === TABLE SELECTION PANEL ===
-st.markdown("### 📂 Select Target Table")
-try:
-    tables_info = get_cached_tables_info()
-    tables = [t['TABLE_NAME'] for t in tables_info] if tables_info else []
+    # === TABLE SELECTION PANEL ===
+    st.markdown("### 📂 Select Target Table")
+    try:
+        tables_info = get_cached_tables_info()
+        tables = [t['TABLE_NAME'] for t in tables_info] if tables_info else []
 
-    HIDDEN_TABLES = ["user_permissions", "sn"]
-    tables = [t for t in tables if t not in HIDDEN_TABLES]
-except Exception as e:
-    st.error(f"Cannot get tables: {e}")
-    tables = []
+        HIDDEN_TABLES = ["user_permissions", "sn"]
+        tables = [t for t in tables if t not in HIDDEN_TABLES]
+    except Exception as e:
+        st.error(f"Cannot get tables: {e}")
+        tables = []
 
-selected_table = st.selectbox("Select a table to view/edit", [""] + tables, key="table_selector")
-if not selected_table:
-    st.info("👆 Please select a table to start.")
-    return
+    selected_table = st.selectbox("Select a table to view/edit", [""] + tables, key="table_selector")
+    if not selected_table:
+        st.info("👆 Please select a table to start.")
+        return
 
-columns = [col['COLUMN_NAME'] for col in get_cached_table_columns(selected_table)]
-columns_lower = [c.lower() for c in columns]
+    columns = [col['COLUMN_NAME'] for col in get_cached_table_columns(selected_table)]
+    columns_lower = [c.lower() for c in columns]
 
-st.markdown("---")
-left, right = st.columns([1.2, 3])
+    st.markdown("---")
+    left, right = st.columns([1.2, 3])
 
     # ==========================================
     # 🔍 LEFT: SEARCH PANEL
     # ==========================================
     with left:
         st.markdown("#### 🔍 Smart Search")
-    
+        
         search_input = st.text_input(
             "Enter keywords or conditions",
             placeholder="เช่น service_type=FTTx , mm=สิงหาคม2025",
             key="view_search_input"
         )
-    
+        
         # ===== FILTER เฉพาะ TABLE Asset =====
         if selected_table == "Asset":
             st.markdown("#### 📅 Filter by Month / Year")
-    
+            
             try:
                 minmax = db.execute_query("""
                     SELECT 
@@ -2232,7 +2232,7 @@ left, right = st.columns([1.2, 3])
                 """)
             except:
                 minmax = None
-    
+            
             if minmax is not None and not minmax.empty:
                 row = minmax.iloc[0]
                 min_year = int(row["min_year"] or 2020)
@@ -2242,7 +2242,7 @@ left, right = st.columns([1.2, 3])
             else:
                 min_year, max_year = 2020, 2025
                 min_month, max_month = 1, 12
-    
+            
             col_m, col_y = st.columns(2)
             with col_m:
                 asset_month = st.selectbox(
@@ -2258,10 +2258,8 @@ left, right = st.columns([1.2, 3])
                     index=list(range(min_year, max_year + 1)).index(max_year),
                     key="asset_year"
                 )
-    
-            # --------------------------------------
-            # ⭐ Filter ดำเนินการ (Status)
-            # --------------------------------------
+            
+            # Filter ดำเนินการ (Status)
             try:
                 status_rows = db.execute_query("""
                     SELECT DISTINCT `ดำเนินการ` AS status_value
@@ -2270,7 +2268,7 @@ left, right = st.columns([1.2, 3])
                       AND `ดำเนินการ` <> ''
                     ORDER BY `ดำเนินการ`
                 """)
-    
+                
                 if status_rows is not None and not status_rows.empty and len(status_rows) > 0:
                     status_options = ["All"] + status_rows["status_value"].tolist()
                 else:
@@ -2287,69 +2285,71 @@ left, right = st.columns([1.2, 3])
                 key="asset_status_filter"
             )
         else:
-            # ⭐ ถ้าไม่ใช่ table Asset ให้ set ค่า default
+            # ถ้าไม่ใช่ table Asset ให้ set ค่า default
             asset_status = "All"
-    
-        # ——————————————————
+            asset_month = None
+            asset_year = None
+        
+        # Match Mode
         match_mode = st.radio("Match Mode", ["AND", "OR"], horizontal=True, index=1)
-    
-        row_limit_label = st.selectbox("Show rows", ["10", "100", "1000", "10000", "All"], index=0)
+        
+        row_limit_label = st.selectbox("Show rows", ["10", "50", "100", "500", "1000", "All"], index=0)
         row_limit = None if row_limit_label == "All" else int(row_limit_label)
-    
+        
         if st.button("🔄 Refresh Data", use_container_width=True):
             st.cache_data.clear()
-            st.experimental_rerun()
-    
+            st.rerun()
+
     # ==========================================
-    # 📊 RIGHT: SQL QUERY BUILD
+    # 📊 RIGHT: SQL QUERY BUILD & RESULTS
     # ==========================================
     with right:
-    
+        
         # ---- Build SQL ----
         query = f"SELECT * FROM `{selected_table}`"
         params = []
-    
+        
         # ======================================================
         # CASE 1: มี search input
         # ======================================================
         if search_input.strip():
-    
+            
             parts = [p.strip() for p in re.split('[,;]', search_input) if p.strip()]
             has_explicit = any('=' in p for p in parts)
-    
+            
             # --------------------------------------------------
             # CASE 1A: explicit condition เช่น month=5, type=FTTx
             # --------------------------------------------------
             if has_explicit:
                 conditions = []
                 joiner = f" {match_mode} "
-    
+                
                 for cond in parts:
                     if '=' not in cond:
                         continue
                     key_, value_ = [x.strip() for x in cond.split("=", 1)]
-    
+                    
                     if key_.lower() in columns_lower:
                         col_real = columns[columns_lower.index(key_.lower())]
                         conditions.append(f"`{col_real}` LIKE %s")
                         params.append(f"%{value_}%")
-    
-                # ⭐ เพิ่ม Asset month/year ⭐
+                
+                # เพิ่ม Asset month/year
                 if selected_table == "Asset":
                     conditions.append("`month` LIKE %s")
                     params.append(f"%{asset_month}%")
-    
+                    
                     conditions.append("`year` LIKE %s")
                     params.append(f"%{asset_year}%")
-    
-                    # ⭐ Filter by ดำเนินการ (เฉพาะ explicit)
+                    
+                    # Filter by ดำเนินการ (เฉพาะ explicit)
                     if asset_status != "All":
                         conditions.append("`ดำเนินการ` = %s")
                         params.append(asset_status)
-    
+                
                 if conditions:
                     query += " WHERE " + joiner.join(conditions)
-    
+            
             # --------------------------------------------------
             # CASE 1B: plain keyword search เช่น "ขาย"
             # --------------------------------------------------
@@ -2357,17 +2357,17 @@ left, right = st.columns([1.2, 3])
                 like_clauses = f" {match_mode} ".join([f"`{col}` LIKE %s" for col in columns])
                 query += f" WHERE ({like_clauses})"
                 params = [f"%{search_input}%"] * len(columns)
-    
+                
                 if selected_table == "Asset":
                     query += " AND `month` LIKE %s AND `year` LIKE %s"
                     params.append(f"%{asset_month}%")
                     params.append(f"%{asset_year}%")
-    
-                    # ⭐ Filter by ดำเนินการ (plain search)
+                    
+                    # Filter by ดำเนินการ (plain search)
                     if asset_status != "All":
                         query += " AND `ดำเนินการ` = %s"
                         params.append(asset_status)
-    
+        
         # ======================================================
         # CASE 2: ไม่มี search input → default filter
         # ======================================================
@@ -2375,16 +2375,16 @@ left, right = st.columns([1.2, 3])
             if selected_table == "Asset":
                 query += " WHERE `month` LIKE %s AND `year` LIKE %s"
                 params = [f"%{asset_month}%", f"%{asset_year}%"]
-    
-                # ⭐ Filter by ดำเนินการ (no search input)
+                
+                # Filter by ดำเนินการ (no search input)
                 if asset_status != "All":
                     query += " AND `ดำเนินการ` = %s"
                     params.append(asset_status)
-    
+        
         # limit rows
         if row_limit:
             query += f" LIMIT {row_limit}"
-    
+        
         # ============
         # SHOW SQL
         # ============
@@ -2393,7 +2393,7 @@ left, right = st.columns([1.2, 3])
             for p in params:
                 formatted = formatted.replace("%s", f"'{p}'", 1)
             st.code(formatted, language="sql")
-    
+        
         # ============
         # EXECUTE SQL
         # ============
@@ -2404,14 +2404,14 @@ left, right = st.columns([1.2, 3])
             except Exception as e:
                 st.error(f"Query error: {e}")
                 return
-    
+        
         st.success(f"✅ Found {len(df)} records from `{selected_table}`")
-    
-    # ⭐⭐⭐ ปิด column layout ตรงนี้ - จากนี้ไปจะแสดงเต็มหน้าจอ ⭐⭐⭐
+
+    # ⭐ ปิด column layout - จากนี้ไปจะแสดงเต็มหน้าจอ
     st.markdown("---")
     
     # ==========================================
-    # 🔐 Authorization (แสดงเต็มหน้าจอ)
+    # 🔐 Authorization
     # ==========================================
     st.markdown("#### 🔐 Authorization (optional)")
     
@@ -2422,7 +2422,7 @@ left, right = st.columns([1.2, 3])
         key="auth_key_editor"
     )
     
-    user_perm = get_user_permission(secret_key)
+    user_perm = get_user_permission(secret_key) if secret_key.strip() else None
     if not user_perm:
         st.info("👁 Showing only first 10 rows (Guest access).")
         username, user_role, is_authorized, can_edit = "Guest", "Guest", False, False
@@ -2465,17 +2465,17 @@ left, right = st.columns([1.2, 3])
     # ==========================================
     # 💾 Detect Changes (only if authorized)
     # ==========================================
-    if not edited_df.equals(display_df):
+    if edited_df is not None and not edited_df.equals(display_df):
         if not is_authorized:
             st.warning("🔒 Editing disabled — enter valid key for edit privileges.", icon="🔑")
         else:
             st.info("📝 Detected unsaved changes!")
-    
-            pk_col = next((c for c in ['id', 'ID', 'Ticketno','Ticket No', 'ticket_no', 'no', 'No'] if c in columns), None)
+            
+            pk_col = next((c for c in ['id', 'ID', 'Ticketno', 'Ticket No', 'ticket_no', 'no', 'No'] if c in columns), None)
             if not pk_col:
                 st.error("⚠️ Cannot find primary key column.")
                 return
-    
+            
             update_queries, update_params, affected_keys = [], [], []
             for i, row in edited_df.iterrows():
                 if i < len(display_df) and not row.equals(display_df.iloc[i]):
@@ -2485,15 +2485,15 @@ left, right = st.columns([1.2, 3])
                     update_queries.append(update_query)
                     update_params.append(vals)
                     affected_keys.append(row[pk_col])
-    
+            
             # ✅ SQL Preview ก่อนบันทึก
             with st.expander("🧩 SQL Preview (before saving)", expanded=True):
                 for i, q in enumerate(update_queries):
                     formatted_sql = q.replace("%s", "'{}'").format(*[str(v) for v in update_params[i]])
                     st.code(formatted_sql, language="sql")
-    
+            
             confirm = st.checkbox("✅ Confirm update queries before saving", key="confirm_update")
-    
+            
             if st.button("💾 Save Changes", type="primary", use_container_width=True, disabled=not confirm):
                 try:
                     with st.spinner("💾 Applying changes..."):
@@ -2504,21 +2504,21 @@ left, right = st.columns([1.2, 3])
                         conn.commit()
                         cursor.close()
                         conn.close()
-    
+                    
                     # ✅ Log Activity
                     try:
                         log_conn = db.get_connection()
                         log_cursor = log_conn.cursor()
-    
+                        
                         executed_sql = "\n".join([
                             q.replace("%s", "'{}'").format(*[str(v) for v in vals])
                             for q, vals in zip(update_queries, update_params)
                         ])
                         if len(executed_sql) > 2000:
                             executed_sql = executed_sql[:2000] + " ... (truncated)"
-                    
+                        
                         details_text = f"rows={len(affected_keys)}\n{executed_sql}"
-                    
+                        
                         log_cursor.execute("""
                             INSERT INTO activity_log (username, action, target, ip_address, details)
                             VALUES (%s, %s, %s, %s, %s)
@@ -2529,17 +2529,17 @@ left, right = st.columns([1.2, 3])
                             st.session_state.get('client_ip', 'unknown'),
                             details_text
                         ))
-    
+                        
                         log_conn.commit()
                         log_cursor.close()
                         log_conn.close()
                     except Exception as log_err:
                         st.warning(f"⚠️ Failed to write log: {log_err}")
-    
+                    
                     st.success("✅ Data updated successfully.")
                     st.toast("💾 Changes saved!", icon="✅")
-    
-                    # ✅ เงื่อนไขเฉพาะกรณี table LK_Broadband_daily
+                    
+                    # เงื่อนไขเฉพาะกรณี table LK_Broadband_daily
                     if selected_table == "LK_Broadband_daily":
                         st.markdown("""
                         <div style="margin-top:10px; padding:10px; border-left:4px solid #f39c12; background-color:#fffbea;">
@@ -2548,7 +2548,7 @@ left, right = st.columns([1.2, 3])
                             เปิดลิงก์เพื่อรีเฟรชข้อมูลใน Dashboard</a>
                         </div>
                         """, unsafe_allow_html=True)
-    
+                
                 except Exception as e:
                     st.error(f"❌ Update failed: {e}")
     
@@ -2583,10 +2583,8 @@ left, right = st.columns([1.2, 3])
     # ==========================================
     # 📅 Footer
     # ==========================================
- 
     st.markdown("---")
     st.caption(f"📅 Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    
 ###########################################end 
 
 
