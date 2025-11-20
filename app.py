@@ -360,6 +360,8 @@ def progress_value_bump(step=5):
     st.session_state['proc_progress_value'] = min(100, st.session_state['proc_progress_value'] + step)
     return st.session_state['proc_progress_value']
 
+ 
+
 # ---------- NEW: common renderer for execution result ----------
 def render_exec_result(proc_name: str, result: dict):
     if result.get('success'):
@@ -388,45 +390,28 @@ def render_exec_result(proc_name: str, result: dict):
                 df_result = pd.DataFrame(res)
                 st.dataframe(df_result, use_container_width=True)
                 
-                # ✅ สร้าง unique key ที่คงที่ (ไม่เปลี่ยนแปลงเมื่อ rerun)
-                download_key_name = f'download_key_{proc_name}_{idx}'
-                if download_key_name not in st.session_state:
-                    st.session_state[download_key_name] = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+                # ✅ สร้าง session key สำหรับเก็บข้อมูล download
+                download_data_key = f'download_data_{proc_name}_{idx}'
                 
-                timestamp_key = st.session_state[download_key_name]
-                
-                # ✅ ตรวจสอบว่ามีฟิลด์ 'รายงาน' หรือไม่ และใช้เป็นชื่อไฟล์
-                base_filename = f"{proc_name}_result_{idx+1}"  # ค่าเริ่มต้น
-                
-                if 'รายงาน' in df_result.columns and not df_result.empty:
-                    try:
-                        # ใช้ค่าแถวแรกของฟิลด์ 'รายงาน' เป็นชื่อไฟล์
-                        report_name = str(df_result['รายงาน'].iloc[0]).strip()
-                        if report_name and report_name.lower() not in ['none', 'nan', '']:
-                            # ทำความสะอาดชื่อไฟล์ (เอาตัวอักษรพิเศษออก)
-                            import re
-                            report_name = re.sub(r'[<>:"/\\|?*]', '_', report_name)
-                            base_filename = report_name
-                    except Exception as e:
-                        # ถ้าเกิด error ใช้ชื่อเริ่มต้น
-                        pass
-                
-                # ✅ เพิ่มปุ่ม Download ทั้ง CSV และ Excel แบบเรียงข้างกัน
-                col1, col2 = st.columns(2)
-                
-                with col1:
+                # ✅ เก็บข้อมูลใน session_state ครั้งเดียว
+                if download_data_key not in st.session_state:
+                    # ตรวจสอบว่ามีฟิลด์ 'รายงาน' หรือไม่
+                    base_filename = f"{proc_name}_result_{idx+1}"
+                    
+                    if 'รายงาน' in df_result.columns and not df_result.empty:
+                        try:
+                            report_name = str(df_result['รายงาน'].iloc[0]).strip()
+                            if report_name and report_name.lower() not in ['none', 'nan', '']:
+                                import re
+                                report_name = re.sub(r'[<>:"/\\|?*]', '_', report_name)
+                                base_filename = report_name
+                        except:
+                            pass
+                    
+                    # สร้างข้อมูล CSV
                     csv_data = df_result.to_csv(index=False).encode('utf-8-sig')
-                    st.download_button(
-                        label="📄 Download CSV",
-                        data=csv_data,
-                        file_name=f"{base_filename}.csv",
-                        mime="text/csv",
-                        key=f"btn_csv_{timestamp_key}",
-                        use_container_width=True
-                    )
-                
-                with col2:
-                    # ✅ สร้าง Excel file
+                    
+                    # สร้างข้อมูล Excel
                     from io import BytesIO
                     excel_buffer = BytesIO()
                     with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
@@ -434,12 +419,37 @@ def render_exec_result(proc_name: str, result: dict):
                     excel_buffer.seek(0)
                     excel_data = excel_buffer.getvalue()
                     
+                    # เก็บข้อมูลทั้งหมดใน session_state
+                    st.session_state[download_data_key] = {
+                        'filename': base_filename,
+                        'csv_data': csv_data,
+                        'excel_data': excel_data,
+                        'timestamp': datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+                    }
+                
+                # ✅ ดึงข้อมูลจาก session_state
+                download_info = st.session_state[download_data_key]
+                
+                # ✅ แสดงปุ่ม Download
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.download_button(
+                        label="📄 Download CSV",
+                        data=download_info['csv_data'],
+                        file_name=f"{download_info['filename']}.csv",
+                        mime="text/csv",
+                        key=f"btn_csv_{download_info['timestamp']}",
+                        use_container_width=True
+                    )
+                
+                with col2:
                     st.download_button(
                         label="📊 Download Excel",
-                        data=excel_data,
-                        file_name=f"{base_filename}.xlsx",
+                        data=download_info['excel_data'],
+                        file_name=f"{download_info['filename']}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key=f"btn_excel_{timestamp_key}",
+                        key=f"btn_excel_{download_info['timestamp']}",
                         use_container_width=True
                     )
         
@@ -449,7 +459,17 @@ def render_exec_result(proc_name: str, result: dict):
             with st.expander("⚠️ Warnings"):
                 for warning in result['warnings']:
                     st.warning(f"{warning[0]}: {warning[2]}")
-        st.session_state.execution_history.append({'procedure': proc_name,'status': 'success','timestamp': datetime.now()})
+        
+        # ✅ บันทึก history เฉพาะครั้งแรก
+        history_key = f"history_saved_{proc_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        if history_key not in st.session_state:
+            st.session_state.execution_history.append({
+                'procedure': proc_name,
+                'status': 'success',
+                'timestamp': datetime.now()
+            })
+            st.session_state[history_key] = True
+            
     else:
         st.error("❌ Execution failed")
         if result.get('error_details'):
@@ -461,8 +481,16 @@ def render_exec_result(proc_name: str, result: dict):
                 st.caption(f"SQL State: {details['sqlstate']}")
         else:
             st.error(result.get('error', 'Unknown error'))
-        st.session_state.execution_history.append({'procedure': proc_name,'status': 'failed','timestamp': datetime.now()})
- 
+        
+        # ✅ บันทึก history เฉพาะครั้งแรก
+        history_key = f"history_saved_{proc_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        if history_key not in st.session_state:
+            st.session_state.execution_history.append({
+                'procedure': proc_name,
+                'status': 'failed',
+                'timestamp': datetime.now()
+            })
+            st.session_state[history_key] = True
  
 # ---------- NEW: favorites helpers ----------
 def add_favorite(name: str):
@@ -1950,20 +1978,26 @@ def render_procedures_tab():
                 else:
                     st.caption("Only authorized users can execute this procedure.")
             
+           
             # ===== EVENT HANDLING =====
             event_run = st.session_state.get('PROC_RUN_EVENT')
-            if event_run:
+            if event_run and event_run.get('name') == proc_name:  # ✅ เช็คให้ตรงกับ proc_name
                 # ✅ ล็อกปุ่มไว้ตลอดระหว่าง run
                 st.session_state['proc_running'] = True
                 st.session_state['proc_progress_value'] = 20
-            
-                result = execute_procedure_with_progress(event_run['name'], event_run.get('params'))
-                render_exec_result(event_run['name'], result)
-            
-                # ✅ ปลดล็อกปุ่มหลังรันเสร็จ
-                st.session_state['proc_running'] = False
-                st.session_state['PROC_RUN_EVENT'] = None
- 
+                
+                # ✅ สร้าง unique result key สำหรับเก็บผลลัพธ์
+                result_key = f"proc_result_{proc_name}"
+                
+                # ✅ ถ้ายังไม่มีผลลัพธ์ใน session ให้รันใหม่
+                if result_key not in st.session_state:
+                    result = execute_procedure_with_progress(event_run['name'], event_run.get('params'))
+                    st.session_state[result_key] = result  # เก็บผลลัพธ์ไว้
+                    st.session_state['proc_running'] = False
+                    st.session_state['PROC_RUN_EVENT'] = None
+                
+                # ✅ แสดงผลลัพธ์ที่เก็บไว้
+                render_exec_result(event_run['name'], st.session_state[result_key])
      
     # ===== RIGHT: STATS =====
     st.divider()
