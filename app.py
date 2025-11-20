@@ -2268,7 +2268,10 @@ def render_data_editor_tab():
                       AND `ดำเนินการ` <> ''
                     ORDER BY `ดำเนินการ`
                 """)
-                
+                    # 🔍 Debug: ดูว่าได้อะไรมา
+                st.write("Debug - Type:", type(status_rows))
+                st.write("Debug - Data:", status_rows)
+    
                 # ⭐ แก้ไข: เช็คว่ามีข้อมูลหรือไม่อย่างถูกต้อง
                 if status_rows is not None and not status_rows.empty and len(status_rows) > 0:
                     # ⭐ ดึงค่าจาก DataFrame column 'status_value'
@@ -2285,6 +2288,7 @@ def render_data_editor_tab():
                 options=status_options,
                 index=0,
                 key="asset_status_filter"
+            )
        
     
         # ——————————————————
