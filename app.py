@@ -359,6 +359,7 @@ def progress_value_bump(step=5):
         st.session_state['proc_progress_value'] = 20
     st.session_state['proc_progress_value'] = min(100, st.session_state['proc_progress_value'] + step)
     return st.session_state['proc_progress_value']
+ 
 
 # ---------- NEW: common renderer for execution result ----------
 def render_exec_result(proc_name: str, result: dict):
@@ -454,7 +455,6 @@ def render_exec_result(proc_name: str, result: dict):
         else:
             st.error(result.get('error', 'Unknown error'))
         st.session_state.execution_history.append({'procedure': proc_name,'status': 'failed','timestamp': datetime.now()})
-
  
 # ---------- NEW: favorites helpers ----------
 def add_favorite(name: str):
