@@ -2559,6 +2559,8 @@ def render_data_editor_tab():
     # ==========================================
     # 💾 Detect Changes (only if authorized)
     # ==========================================
+
+
     if edited_df is not None and not edited_df.equals(display_df):
         if not is_authorized:
             st.warning("🔒 Editing disabled — enter valid key for edit privileges.", icon="🔑")
@@ -2573,20 +2575,40 @@ def render_data_editor_tab():
             update_queries, update_params, affected_keys = [], [], []
             for i, row in edited_df.iterrows():
                 if i < len(display_df) and not row.equals(display_df.iloc[i]):
+                    # ====== SET clause เหมือนเดิม ======
                     set_clause = ", ".join([f"`{c}`=%s" for c in columns if c != pk_col])
-                    update_query = f"UPDATE `{selected_table}` SET {set_clause} WHERE `{pk_col}`=%s"
-                    vals = [row[c] for c in columns if c != pk_col] + [row[pk_col]]
+    
+                    # ====== NEW: WHERE ให้สอดคล้องกับ SELECT ======
+                    where_clause = f"`{pk_col}`=%s"
+                    where_values = [row[pk_col]]
+    
+                    # ✅ กรณี TABLE Asset ให้ตามเงื่อนไข month/year/ดำเนินการ แบบเดียวกับตอน SELECT
+                    if selected_table == "Asset":
+                        # ตอน SELECT ใช้ month/year แบบ LIKE
+                        where_clause += " AND `month` LIKE %s AND `year` LIKE %s"
+                        where_values.append(f"%{asset_month}%")
+                        where_values.append(f"%{asset_year}%")
+    
+                        # ถ้ามี filter ตามสถานะการดำเนินการ
+                        if asset_status != "All":
+                            where_clause += " AND `ดำเนินการ` = %s"
+                            where_values.append(asset_status)
+    
+                    # ประกอบเป็น UPDATE สมบูรณ์
+                    update_query = f"UPDATE `{selected_table}` SET {set_clause} WHERE {where_clause}"
+                    vals = [row[c] for c in columns if c != pk_col] + where_values
+    
                     update_queries.append(update_query)
                     update_params.append(vals)
                     affected_keys.append(row[pk_col])
             
-            # ✅ SQL Preview ก่อนบันทึก
-            with st.expander("🧩 SQL Preview (before saving)", expanded=True):
+            # ✅ SQL Preview ก่อนบันทึก (เหมือนเดิม)
+            with st.expander("🧩 SQL Query (before saving)", expanded=True):
                 for i, q in enumerate(update_queries):
                     formatted_sql = q.replace("%s", "'{}'").format(*[str(v) for v in update_params[i]])
                     st.code(formatted_sql, language="sql")
             
-            confirm = st.checkbox("✅ Confirm update queries before saving", key="confirm_update")
+            confirm = st.checkbox("✅ Confirm update queries before saving", key="confirm_update") 
             
             if st.button("💾 Save Changes", type="primary", use_container_width=True, disabled=not confirm):
                 try:
