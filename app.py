@@ -957,46 +957,46 @@ def render_import_tab():
 
 
         # ===== Show Preview Button (แก้ไข: แสดง 5 record ล่าสุดตาม timestamp) =====
-        st.subheader(f"👀 Preview: {selected_table}")
-        if st.button("🔄 Show Preview", type="secondary"):
-            try:
-                with st.spinner("Loading preview..."):
-                    db = st.session_state.get('db_manager') or DatabaseManager()
-                    conn = db.get_connection()
-                    cursor = conn.cursor()
-                    
-                    # ตรวจหาคอลัมน์ timestamp
-                    cursor.execute("""
-                        SELECT COLUMN_NAME 
-                        FROM INFORMATION_SCHEMA.COLUMNS 
-                        WHERE TABLE_SCHEMA = DATABASE() 
-                        AND TABLE_NAME = %s
-                        AND COLUMN_NAME IN ('timestamp', 'last_update', 'updated_at', 'update_time')
-                        ORDER BY COLUMN_NAME
-                        LIMIT 1;
-                    """, (selected_table,))
-                    
-                    timestamp_col = cursor.fetchone()
-                    
-                    if timestamp_col:
-                        # มี timestamp column -> เรียงตาม timestamp
-                        ts_name = timestamp_col[0]
-                        query = f"SELECT * FROM {selected_table} ORDER BY {ts_name} DESC LIMIT 5"
-                    else:
-                        # ไม่มี timestamp -> ใช้วิธีเดิม
-                        query = f"SELECT * FROM {selected_table} ORDER BY 1 DESC LIMIT 5"
-                    
-                    preview_data = pd.read_sql(query, conn)
-                    cursor.close()
-                    conn.close()
-                
-                if not preview_data.empty:
-                    st.dataframe(preview_data, use_container_width=True, hide_index=True)
-                    st.success(f"📊 Showing last 5 rows from {len(preview_data.columns)} columns")
-                else:
-                    st.warning("📭 Table is empty or preview unavailable")
-            except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
+#        st.subheader(f"👀 Preview: {selected_table}")
+#        if st.button("🔄 Show Preview", type="secondary"):
+#            try:
+#                with st.spinner("Loading preview..."):
+#                    db = st.session_state.get('db_manager') or DatabaseManager()
+#                    conn = db.get_connection()
+#                    cursor = conn.cursor()
+#                    
+#                    # ตรวจหาคอลัมน์ timestamp
+#                    cursor.execute("""
+#                        SELECT COLUMN_NAME 
+#                        FROM INFORMATION_SCHEMA.COLUMNS 
+#                        WHERE TABLE_SCHEMA = DATABASE() 
+#                        AND TABLE_NAME = %s
+#                        AND COLUMN_NAME IN ('timestamp', 'last_update', 'updated_at', 'update_time')
+#                        ORDER BY COLUMN_NAME
+#                        LIMIT 1;
+#                    """, (selected_table,))
+#                    
+#                    timestamp_col = cursor.fetchone()
+#                    
+#                    if timestamp_col:
+#                        # มี timestamp column -> เรียงตาม timestamp
+#                        ts_name = timestamp_col[0]
+#                        query = f"SELECT * FROM {selected_table} ORDER BY {ts_name} DESC LIMIT 5"
+#                    else:
+#                        # ไม่มี timestamp -> ใช้วิธีเดิม
+#                        query = f"SELECT * FROM {selected_table} ORDER BY 1 DESC LIMIT 5"
+#                    
+#                    preview_data = pd.read_sql(query, conn)
+#                    cursor.close()
+#                    conn.close()
+#                
+#                if not preview_data.empty:
+#                    st.dataframe(preview_data, use_container_width=True, hide_index=True)
+#                    st.success(f"📊 Showing last 5 rows from {len(preview_data.columns)} columns")
+#                else:
+#                    st.warning("📭 Table is empty or preview unavailable")
+#            except Exception as e:
+#                st.error(f"❌ Error: {str(e)}")
 
         # ===== Upload File (รองรับหลายไฟล์) =====
         st.subheader("📤 Upload File")
