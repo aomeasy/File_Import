@@ -2518,8 +2518,8 @@ def render_data_editor_tab():
     
     user_perm = get_user_permission(secret_key) if secret_key.strip() else None
     if not user_perm:
-        st.info("👁 Showing only first 10 rows (Guest access).")
-        username, user_role, is_authorized, can_edit = "Guest", "Guest", False, False
+        st.error("🚫 Access denied.")
+        username, user_role, is_authorized, can_edit = "Guest", "Guest", False, False 
     else:
         username = secret_key.strip()
         user_role = user_perm["role"]
@@ -2533,10 +2533,13 @@ def render_data_editor_tab():
             can_edit = False
     
     # --- ควบคุมสิทธิ์การแก้ไข ---
+
     if not is_authorized:
-        display_df = df.head(10)
+        st.error("🚫 คุณไม่มีสิทธิ์เข้าถึงข้อมูล")
+        return   # ⛔ หยุดทำงาน ไม่แสดง DataFrame เลย
     else:
         display_df = df
+ 
     
     # --- Editor (แสดงเต็มหน้าจอ) ---
     st.markdown("### 🧮 Data Viewer & Editor")
