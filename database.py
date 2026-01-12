@@ -96,7 +96,7 @@ class DatabaseManager:
                         UPDATE_TIME
                     FROM INFORMATION_SCHEMA.TABLES 
                     WHERE TABLE_SCHEMA = %s 
-                    AND TABLE_TYPE = 'BASE TABLE'
+                    AND TABLE_TYPE IN ('BASE TABLE', 'VIEW')
                     ORDER BY TABLE_NAME
                 """
                 cursor.execute(query, (self.connection_config['database'],))
