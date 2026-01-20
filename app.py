@@ -3378,6 +3378,25 @@ def render_ocr_form(result, filename):
     st.markdown("### 📝 ข้อมูลเอกสาร")
     
     key_fields = result.get("key_fields", {})
+    full_text = result.get("text", "")
+    
+    # ✅ แสดงข้อความเต็มก่อน form
+    with st.expander("📜 ข้อความทั้งหมดจาก OCR", expanded=False):
+        st.text_area(
+            "Full Text",
+            value=full_text,
+            height=200,
+            disabled=True,
+            label_visibility="collapsed",
+            key="ocr_full_text_display"
+        )
+    
+    # ✅ ปุ่มคัดลอกอยู่นอก form
+    if st.button("📋 คัดลอกข้อความทั้งหมด", key="copy_full_text"):
+        st.code(full_text, language=None)
+        st.success("✅ คัดลอกข้อความไปยัง clipboard แล้ว!")
+    
+    st.markdown("---")
     
     # Form Layout
     with st.form("ocr_save_form", clear_on_submit=True):
@@ -3427,22 +3446,7 @@ def render_ocr_form(result, filename):
             placeholder="สรุปเนื้อหาสำคัญของเอกสาร"
         )
         
-        with st.expander("📜 ข้อความทั้งหมดจาก OCR", expanded=False):
-            full_text = result.get("text", "")
-            st.text_area(
-                "Full Text",
-                value=full_text,
-                height=200,
-                disabled=True,
-                label_visibility="collapsed"
-            )
-            
-            # ปุ่มคัดลอก
-            if st.button("📋 คัดลอกข้อความทั้งหมด", key="copy_full_text"):
-                st.code(full_text, language=None)
-                st.success("✅ คัดลอกข้อความไปยัง clipboard แล้ว!")
-        
-        # Submit Buttons
+        # Submit Buttons (ใช้ form_submit_button เท่านั้น)
         st.markdown("---")
         col1, col2 = st.columns([3, 1])
         
@@ -3454,21 +3458,21 @@ def render_ocr_form(result, filename):
             )
         
         with col2:
-            st.form_submit_button(
+            reset = st.form_submit_button(
                 "🔄 รีเซ็ต", 
                 use_container_width=True
             )
         
+        # Handle submission
         if submit:
             if not doc_no or not subject:
                 st.error("❌ กรุณากรอก **เลขที่หนังสือ** และ **เรื่อง**")
             else:
                 save_ocr_document(
                     doc_no, doc_date, subject, recipient, content,
-                    result.get("text", ""), result.get("confidence", 0),
+                    full_text, result.get("confidence", 0),
                     filename, priority, tags
                 )
-
 
 def render_management_section():
     """
