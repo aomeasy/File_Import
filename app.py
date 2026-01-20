@@ -12,7 +12,13 @@ from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO  # ✅ เพิ่มเพื่อใช้รีเซ็ต pointer และอ่านเป็น bytes
 import chardet 
 
-
+# Configure page
+st.set_page_config(
+    page_title="Database Management Hub",
+    page_icon="🚀",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 #try:
 #    from ocr_module import EnhancedThaiDocumentOCR
 #    OCR_AVAILABLE = True
@@ -43,13 +49,7 @@ except ImportError as e:
     st.error(f"Cannot import FileProcessor: {e}")
     st.stop()
 
-# Configure page
-st.set_page_config(
-    page_title="Database Management Hub",
-    page_icon="🚀",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+
  
 
 st.markdown("""
