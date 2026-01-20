@@ -15,6 +15,7 @@ opencv-python-headless
 pillow
 PyPDF2
 PyMuPDF
+google-generativeai
 pythainlp
 chardet
 regex
