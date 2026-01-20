@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Enhanced Thai OCR with PDF Support
-รองรับทั้ง PDF และไฟล์ภาพ
+Enhanced Thai OCR with Gemini API
+ใช้ Google Gemini Vision API สำหรับ OCR ภาษาไทย
 """
 
-import cv2
-import numpy as np
-import pytesseract
-from PIL import Image
-import re
 import os
+import re
+import base64
+from pathlib import Path
+import google.generativeai as genai
 
 # สำหรับ PDF
 try:
@@ -23,8 +22,26 @@ except ImportError:
     print("   pip install PyPDF2 PyMuPDF")
 
 
-class EnhancedThaiDocumentOCR:
-    def __init__(self):
+class GeminiThaiDocumentOCR:
+    def __init__(self, api_key=None):
+        """
+        Initialize Gemini OCR
+        
+        Parameters:
+        -----------
+        api_key : str, optional
+            Google API key. ถ้าไม่ระบุจะอ่านจาก environment variable GOOGLE_API_KEY
+        """
+        self.api_key = api_key or os.getenv('GOOGLE_API_KEY')
+        if not self.api_key:
+            raise ValueError(
+                "ต้องระบุ API key ผ่าน parameter หรือตั้งค่า environment variable GOOGLE_API_KEY\n"
+                "รับ API key ได้ที่: https://makersuite.google.com/app/apikey"
+            )
+        
+        genai.configure(api_key=self.api_key)
+        self.model = genai.GenerativeModel('gemini-1.5-flash')
+        
         self.thai_digits = {
             '0': '๐', '1': '๑', '2': '๒', '3': '๓', '4': '๔',
             '5': '๕', '6': '๖', '7': '๗', '8': '๘', '9': '๙'
@@ -102,90 +119,75 @@ class EnhancedThaiDocumentOCR:
             return []
 
     # ============================================================
-    # 🔹 Preprocess ภาพคุณภาพต่ำ
+    # 🔹 OCR ด้วย Gemini Vision API
     # ============================================================
-    def preprocess_for_low_quality(self, image_path):
-        img = cv2.imread(image_path)
-        if img is None:
-            raise ValueError(f"Cannot read image: {image_path}")
+    def ocr_with_gemini(self, image_path):
+        """
+        ใช้ Gemini Vision API อ่านข้อความจากภาพ
+        
+        Parameters:
+        -----------
+        image_path : str
+            path ของไฟล์ภาพ
+            
+        Returns:
+        --------
+        dict : {'text': str, 'confidence': float}
+        """
+        try:
+            print(f"📸 Processing with Gemini API: {os.path.basename(image_path)}")
+            
+            # อ่านและ encode ภาพเป็น base64
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
+            
+            # สร้าง prompt สำหรับ OCR ภาษาไทย
+            prompt = """คุณเป็น OCR expert สำหรับเอกสารราชการภาษาไทย
 
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        height, width = gray.shape
-        if height < 3500:
-            scale = 3500 / height
-            gray = cv2.resize(gray, (int(width * scale), int(height * scale)), interpolation=cv2.INTER_LANCZOS4)
+กรุณาอ่านข้อความทั้งหมดในภาพนี้อย่างละเอียดและถูกต้องที่สุด:
 
-        bilateral = cv2.bilateralFilter(gray, 9, 75, 75)
-        denoised = cv2.fastNlMeansDenoising(bilateral, None, 20, 7, 21)
-        kernel_sharpen = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
-        sharpened = cv2.filter2D(denoised, -1, kernel_sharpen)
-        clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
-        enhanced = clahe.apply(sharpened)
-        gaussian = cv2.GaussianBlur(enhanced, (0, 0), 2.0)
-        unsharp = cv2.addWeighted(enhanced, 1.5, gaussian, -0.5, 0)
-        binary = cv2.adaptiveThreshold(unsharp, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                       cv2.THRESH_BINARY, 21, 2)
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
-        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
-        return binary
+**คำแนะนำสำคัญ:**
+1. อ่านข้อความภาษาไทยทุกตัวอักษรให้ถูกต้อง รวมทั้งสระ วรรณยุกต์
+2. รักษาโครงสร้างเอกสารเดิม (บรรทัดใหม่, ช่องว่าง, การจัดวาง)
+3. ระวังคำที่มักอ่านผิด เช่น คำที่มี "ำ" (คำ, กำ, สำ)
+4. ระวังตัวย่อหน่วยงาน เช่น "ชจญ.นป." "ผส.สสบป." "บนป."
+5. เลขที่หนังสือมักขึ้นต้นด้วย "เอ็นที" หรือ "ศธ" หรือ "นท"
+6. วันที่มักเป็นเดือนภาษาไทย เช่น "15 มกราคม 2568"
 
-    # ============================================================
-    # 🔹 Preprocess สำหรับภาพ PDF คุณภาพสูง
-    # ============================================================
-    def preprocess_for_high_quality(self, image_path):
-        img = cv2.imread(image_path)
-        if img is None:
-            raise ValueError(f"Cannot read image: {image_path}")
+**ส่งคืนเฉพาะข้อความที่อ่านได้ โดยไม่ต้องมีคำอธิบายเพิ่มเติม**"""
 
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        height, width = gray.shape
-        if height < 2500:
-            scale = 2500 / height
-            gray = cv2.resize(gray, (int(width * scale), int(height * scale)), interpolation=cv2.INTER_CUBIC)
-        denoised = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
-        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
-        enhanced = clahe.apply(denoised)
-        binary = cv2.adaptiveThreshold(enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                       cv2.THRESH_BINARY, 15, 4)
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 1))
-        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-        return binary
-
-    # ============================================================
-    # 🔹 OCR หลาย config แล้วเลือกผลดีที่สุด
-    # ============================================================
-    def ocr_with_multiple_configs(self, image):
-        configs = [
-            '--oem 1 --psm 6 -l tha',
-            '--oem 1 --psm 4 -l tha',
-            '--oem 1 --psm 3 -l tha',
-            '--oem 3 --psm 6 -l tha',
-            '--oem 1 --psm 11 -l tha',
-        ]
-
-        results = []
-        for config in configs:
-            try:
-                text = pytesseract.image_to_string(image, config=config)
-                data = pytesseract.image_to_data(image, config=config, output_type=pytesseract.Output.DICT)
-                confs = [int(c) for c in data['conf'] if str(c) != '-1']
-                avg_conf = sum(confs) / len(confs) if confs else 0
-                thai_chars = len(re.findall(r'[ก-ฮะ-์]', text))
-                results.append({'text': text, 'confidence': avg_conf, 'thai_chars': thai_chars, 'config': config})
-            except Exception:
-                pass
-
-        if results:
-            return max(results, key=lambda x: x['confidence'] * 0.7 + x['thai_chars'] * 0.3)
-        return None
+            # เรียกใช้ Gemini API
+            response = self.model.generate_content([
+                prompt,
+                {
+                    'mime_type': 'image/png' if image_path.lower().endswith('.png') else 'image/jpeg',
+                    'data': image_data
+                }
+            ])
+            
+            text = response.text.strip()
+            
+            # ประมาณ confidence จากความยาวข้อความภาษาไทย
+            thai_chars = len(re.findall(r'[ก-ฮะ-์]', text))
+            confidence = min(95.0, 70.0 + (thai_chars / 10))  # ยิ่งมีอักษรไทยมาก confidence ยิ่งสูง
+            
+            print(f"  ✓ Extracted {len(text)} characters ({thai_chars} Thai chars)")
+            
+            return {
+                'text': text,
+                'confidence': confidence
+            }
+            
+        except Exception as e:
+            print(f"  ✗ Gemini API Error: {e}")
+            return None
 
     # ============================================================
     # 🔹 Post-processing แก้คำผิดบ่อย
     # ============================================================
-
     def post_process_thai_document(self, text):
         result = text
+        
         common_errors = {
             'คทะ': 'คณะ', 'ทท': 'นัก', 'กท': 'กำ', 'สำทท': 'สำนัก',
             'เรทอง': 'เรื่อง', 'วทที่': 'วันที่', 'เลขที': 'เลขที่',
@@ -200,19 +202,17 @@ class EnhancedThaiDocumentOCR:
             'คาเสนอ': 'คำเสนอ', 'คาแปล': 'คำแปล',
         }
     
-        # 🔹 แก้คำผิดทั่วไป
+        # แก้คำผิดทั่วไป
         for wrong, correct in common_errors.items():
             result = result.replace(wrong, correct)
     
-        # 🔹 ล้างช่องว่างเกิน
+        # ล้างช่องว่างเกิน
         result = re.sub(r'([ก-ฮ])\s+([ะ-ู])', r'\1\2', result)
         result = re.sub(r'([ั-ู])\s+([ก-ฮ])', r'\1\2', result)
         result = re.sub(r' +', ' ', result)
         result = re.sub(r'\n\s*\n\s*\n+', '\n\n', result)
     
-        # ============================================================
-        # 🔹 เพิ่มส่วนแก้คำย่อหน่วยงาน NT ที่ OCR อ่านผิดบ่อย
-        # ============================================================
+        # แก้คำย่อหน่วยงาน
         unit_corrections = {
             "ชาญ.ในป.": "ชจญ.นป.",
             "ชาน.นป.": "ชจญ.นป.",
@@ -223,7 +223,6 @@ class EnhancedThaiDocumentOCR:
             "ผส.บลน.": "ผส.บนป.",
             "บลนป.": "บนป.", 
             "ชาน.ในป.": "ชจญ.นป.",
-            "ผส.บลน.": "ผส.บนป.",
             "ผส.สบในป.": "ผส.สบนป.", 
         }
     
@@ -232,63 +231,27 @@ class EnhancedThaiDocumentOCR:
     
         return result.strip()
 
-     
-
     # ============================================================
-    # 🔹 แก้คำผิดภาษาไทยอัตโนมัติ (ใช้ PyThaiNLP)
+    # 🔹 ดึงข้อมูลสำคัญจากเอกสาร
     # ============================================================
-    def correct_thai_spelling(self, text):
-        try:
-            from pythainlp import spell
-            from pythainlp.tokenize import word_tokenize
-        except ImportError:
-            print("⚠️ ต้องติดตั้ง PyThaiNLP ก่อน: pip install pythainlp")
-            return text
-
-        words = word_tokenize(text, engine="newmm")
-        corrected = []
-        for w in words:
-            if not re.match(r'^[ก-๙]+$', w):
-                corrected.append(w)
-                continue
-            suggestion = spell(w)
-            if suggestion and suggestion[0] != w:
-                corrected.append(suggestion[0])
-            else:
-                corrected.append(w)
-        return ''.join(corrected).strip()
-
-
-
-
-
     def extract_key_fields(self, text):
-        """
-        ดึงข้อมูลสำคัญจากเอกสารราชการภาษาไทย
-        """
+        """ดึงข้อมูลสำคัญจากเอกสารราชการภาษาไทย"""
         fields = {}
     
-        # ============================================================
-        # 🔹 เลขที่หนังสือ — รองรับหลายรูปแบบ (มีหรือไม่มีคำว่า "เลขที่")
-        # ============================================================
+        # เลขที่หนังสือ
         match = re.search(
             r'(?:บ\s*)?(?:เ[อน][็น]ที|เอ็นที|ศธ|นท|งป|คส|นพ|ผส)\S*\/\S*(?:\s*วันที่\s*\d{1,2}\s*[ก-๙]+\s*\d{4})?',
             text
         )
         if match:
             number_text = match.group(0).strip()
-            number_text = re.sub(r'^บ\s*', '', number_text)  # ตัดคำว่า "บ" ด้านหน้าออก
-    
-            # เพิ่ม "เอ็นที" ถ้ายังไม่มี
+            number_text = re.sub(r'^บ\s*', '', number_text)
             if not number_text.startswith("เอ็นที"):
-                number_text = re.sub(r'^(เ[อน][็น]ที)', 'เอ็นที', number_text)  # normalize ตัวสะกด
+                number_text = re.sub(r'^(เ[อน][็น]ที)', 'เอ็นที', number_text)
                 if not number_text.startswith("เอ็นที"):
                     number_text = f"เอ็นที{number_text}"
-    
             fields["เลขที่หนังสือ"] = number_text
-    
         else:
-            # fallback: ถ้ามีคำว่า "เลขที่"
             match = re.search(r'เลขที่[:\s]*([^\n]+)', text)
             if match:
                 num = match.group(1).strip()
@@ -296,55 +259,57 @@ class EnhancedThaiDocumentOCR:
                     num = f"เอ็นที{num}"
                 fields['เลขที่หนังสือ'] = num
     
-        # ============================================================
-        # 🔹 วันที่หนังสือ
-        # ============================================================
+        # วันที่หนังสือ
         match = re.search(r'วันที่[:\s]*([^\n]+)', text)
         if match:
             fields['วันที่หนังสือ'] = match.group(1).strip()
     
-        # ============================================================
-        # 🔹 เรื่อง
-        # ============================================================
+        # เรื่อง
         match = re.search(r'เรื่อง[:\s]*([^\n]+(?:\n(?!\s*เรียน)[^\n]+)*)', text)
         if match:
             fields['เรื่อง'] = match.group(1).strip()
     
-        # ============================================================
-        # 🔹 เรียน / ผู้รับ
-        # ============================================================
+        # เรียน
         match = re.search(r'เรียน[:\s]*([^\n]+)', text)
         if match:
             fields['เรียน'] = match.group(1).strip()
     
-        # ============================================================
-        # 🔹 เนื้อหา (3–5 บรรทัดหลังคำว่า “เรียน”)
-        # ============================================================
+        # เนื้อหา (5 บรรทัดแรก)
         body_match = re.search(r'เรียน[:\s]*[^\n]+\n(.*)', text, re.DOTALL)
         if body_match:
             body_lines = body_match.group(1).strip().splitlines()
-            preview = "\n".join(body_lines[:5])  # แสดงเฉพาะ 5 บรรทัดแรก
-            preview = re.sub(r'\s{2,}', ' ', preview)  # ล้างช่องว่างซ้ำ
+            preview = "\n".join(body_lines[:5])
+            preview = re.sub(r'\s{2,}', ' ', preview)
             fields['เนื้อหา'] = preview.strip()
     
         return fields
- 
-
- 
 
     # ============================================================
     # 🔹 Pipeline หลัก
     # ============================================================
-    def process_document(self, file_path, save_debug=True, from_pdf=False):
+    def process_document(self, file_path):
+        """
+        ประมวลผลเอกสาร (รองรับทั้ง PDF และภาพ)
+        
+        Parameters:
+        -----------
+        file_path : str
+            path ของไฟล์ต้นฉบับ
+            
+        Returns:
+        --------
+        dict : ผลลัพธ์ OCR พร้อมข้อมูลสำคัญ
+        """
         print(f"\n{'='*60}\nProcessing: {file_path}\n{'='*60}\n")
         is_pdf = file_path.lower().endswith('.pdf')
 
-        # 🔸 PDF mode
+        # PDF mode
         if is_pdf and PDF_SUPPORT:
+            # ลองดึง text layer ก่อน
             if self.check_pdf_has_text(file_path):
                 text = self.extract_text_from_pdf(file_path)
                 if text:
-                    cleaned = self.correct_thai_spelling(self.post_process_thai_document(text))
+                    cleaned = self.post_process_thai_document(text)
                     return {
                         'text': cleaned,
                         'key_fields': self.extract_key_fields(cleaned),
@@ -352,64 +317,87 @@ class EnhancedThaiDocumentOCR:
                         'confidence': 100.0
                     }
 
-            # 🔸 ไม่มี text layer
+            # ไม่มี text layer -> แปลงเป็นภาพ
             print("✓ No text layer found - converting to images for OCR...")
             imgs = self.pdf_to_images(file_path, dpi=300)
-            results = [self._process_image(img, save_debug, True) for img in imgs if img]
-            valid = [r for r in results if r]
-            if not valid: return None
-            combined = '\n\n--- หน้าใหม่ ---\n\n'.join(r['text'] for r in valid)
-            avg_conf = sum(r['confidence'] for r in valid) / len(valid)
+            results = []
+            
+            for img in imgs:
+                if img:
+                    result = self.ocr_with_gemini(img)
+                    if result:
+                        results.append(result)
+            
+            if not results:
+                return None
+                
+            # รวมผลจากทุกหน้า
+            combined = '\n\n--- หน้าใหม่ ---\n\n'.join(r['text'] for r in results)
+            avg_conf = sum(r['confidence'] for r in results) / len(results)
             cleaned = self.post_process_thai_document(combined)
+            
             return {
                 'text': cleaned,
                 'key_fields': self.extract_key_fields(cleaned),
-                'method': 'PDF OCR',
+                'method': 'PDF OCR (Gemini)',
                 'confidence': avg_conf,
-                'pages': len(valid)
+                'pages': len(results)
             }
 
-        # 🔹 Image mode
-        return self._process_image(file_path, save_debug, from_pdf)
-
-    # ============================================================
-    # 🔹 Process ภาพเดี่ยว
-    # ============================================================
-    def _process_image(self, image_path, save_debug, high_quality=False):
-        processed = self.preprocess_for_high_quality(image_path) if high_quality else self.preprocess_for_low_quality(image_path)
-        if save_debug:
-            cv2.imwrite(image_path.replace('.', '_debug.'), processed)
-        result = self.ocr_with_multiple_configs(processed)
-        if not result: return None
-        cleaned = self.correct_thai_spelling(self.post_process_thai_document(result['text']))
+        # Image mode
+        result = self.ocr_with_gemini(file_path)
+        if not result:
+            return None
+            
+        cleaned = self.post_process_thai_document(result['text'])
         return {
             'text': cleaned,
             'key_fields': self.extract_key_fields(cleaned),
+            'method': 'Image OCR (Gemini)',
             'confidence': result['confidence']
         }
 
 
 # ============================================================
-# 🔸 ทดสอบ standalone
+# 🔸 ตัวอย่างการใช้งาน
 # ============================================================
 if __name__ == "__main__":
-    ocr = EnhancedThaiDocumentOCR()
-    test_file = "document.pdf"
+    # ตั้งค่า API key (เลือกวิธีใดวิธีหนึ่ง)
+    
+    # วิธีที่ 1: ส่งผ่าน parameter
+    # ocr = GeminiThaiDocumentOCR(api_key="YOUR_API_KEY_HERE")
+    
+    # วิธีที่ 2: ตั้งค่า environment variable (แนะนำ)
+    # export GOOGLE_API_KEY="your_api_key_here"
+    ocr = GeminiThaiDocumentOCR()
+    
+    # ทดสอบกับไฟล์
+    test_file = "document.pdf"  # หรือ "document.png"
+    
     try:
-        result = ocr.process_document(test_file, save_debug=True)
+        result = ocr.process_document(test_file)
+        
         if result:
-            print("\n=== OCR SUCCESS ===")
+            print("\n" + "="*60)
+            print("=== OCR SUCCESS ===")
+            print("="*60)
             print(f"Method: {result.get('method')}")
             print(f"Confidence: {result['confidence']:.2f}%")
-            print("Key Fields:", result['key_fields'])
-            print("\nText:\n", result['text'][:800], "...")
+            
+            if 'pages' in result:
+                print(f"Pages: {result['pages']}")
+            
+            print("\n--- Key Fields ---")
+            for key, value in result['key_fields'].items():
+                print(f"{key}: {value}")
+            
+            print("\n--- Full Text (Preview) ---")
+            preview_text = result['text'][:1000]
+            print(preview_text)
+            if len(result['text']) > 1000:
+                print(f"\n... (total {len(result['text'])} characters)")
+                
     except Exception as e:
-        print(f"Error: {e}")
-
-
-
-
-
-
-
-
+        print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
