@@ -28,7 +28,7 @@ st.set_page_config(
 
 # ✅ Import Gemini OCR module (ใช้ไฟล์ที่แก้ไขแล้ว)
 try:
-    from ocr_module_gemini import GeminiThaiDocumentOCR
+    from ocr_module import GeminiThaiDocumentOCR
     OCR_AVAILABLE = True
 except Exception as e:
     OCR_AVAILABLE = False
