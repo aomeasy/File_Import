@@ -126,15 +126,15 @@ class GeminiThaiDocumentOCR:
 
 
     def ocr_with_gemini(self, image_path):
-    """ใช้ Gemini Vision API อ่านข้อความจากภาพ"""
-    try:
-        print(f"📸 Processing with Gemini API: {os.path.basename(image_path)}")
-        
-        with open(image_path, 'rb') as f:
-            image_data = f.read()
-        
-        # ✅ ปรับ prompt ให้ระบุชัดเจนเรื่องสระ "ำ"
-        prompt = """คุณเป็น OCR expert สำหรับเอกสารราชการภาษาไทย
+        """ใช้ Gemini Vision API อ่านข้อความจากภาพ"""
+        try:
+            print(f"📸 Processing with Gemini API: {os.path.basename(image_path)}")
+            
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
+            
+            # ✅ ปรับ prompt ให้ระบุชัดเจนเรื่องสระ "ำ"
+            prompt = """คุณเป็น OCR expert สำหรับเอกสารราชการภาษาไทย
 
 กรุณาอ่านข้อความทั้งหมดในภาพนี้อย่างละเอียดและถูกต้องที่สุด:
 
@@ -154,33 +154,33 @@ class GeminiThaiDocumentOCR:
 
 **ส่งคืนเฉพาะข้อความที่อ่านได้ โดยไม่ต้องมีคำอธิบายเพิ่มเติม**"""
         
-        # เรียกใช้ Gemini API
-        response = self.model.generate_content([
-            prompt,
-            {
-                'mime_type': 'image/png' if image_path.lower().endswith('.png') else 'image/jpeg',
-                'data': image_data
+            # เรียกใช้ Gemini API
+            response = self.model.generate_content([
+                prompt,
+                {
+                    'mime_type': 'image/png' if image_path.lower().endswith('.png') else 'image/jpeg',
+                    'data': image_data
+                }
+            ])
+            
+            text = response.text.strip()
+            
+            # ✅ เพิ่ม post-processing ทันที
+            text = self.post_process_thai_document(text)
+            
+            thai_chars = len(re.findall(r'[ก-ฮะ-์]', text))
+            confidence = min(95.0, 70.0 + (thai_chars / 10))
+            
+            print(f"  ✓ Extracted {len(text)} characters ({thai_chars} Thai chars)")
+            
+            return {
+                'text': text,
+                'confidence': confidence
             }
-        ])
-        
-        text = response.text.strip()
-        
-        # ✅ เพิ่ม post-processing ทันที
-        text = self.post_process_thai_document(text)
-        
-        thai_chars = len(re.findall(r'[ก-ฮะ-์]', text))
-        confidence = min(95.0, 70.0 + (thai_chars / 10))
-        
-        print(f"  ✓ Extracted {len(text)} characters ({thai_chars} Thai chars)")
-        
-        return {
-            'text': text,
-            'confidence': confidence
-        }
-        
-    except Exception as e:
-        print(f"  ✗ Gemini API Error: {e}")
-        return None
+            
+        except Exception as e:
+            print(f"  ✗ Gemini API Error: {e}")
+            return None
         
      
 
@@ -465,4 +465,5 @@ if __name__ == "__main__":
         print(f"❌ Error: {e}")
         import traceback
         traceback.print_exc()
+
 
