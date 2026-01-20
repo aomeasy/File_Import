@@ -13,12 +13,21 @@ from io import BytesIO  # ✅ เพิ่มเพื่อใช้รีเ�
 import chardet 
 
 
+#try:
+#    from ocr_module import EnhancedThaiDocumentOCR
+#    OCR_AVAILABLE = True
+#except Exception as e:
+#    OCR_AVAILABLE = False
+#    st.warning(f"⚠️ OCR module could not be loaded: {e}")
+
+# ✅ Import Gemini OCR module (ใช้ไฟล์ที่แก้ไขแล้ว)
 try:
-    from ocr_module import EnhancedThaiDocumentOCR
+    from ocr_module_gemini import GeminiThaiDocumentOCR
     OCR_AVAILABLE = True
 except Exception as e:
     OCR_AVAILABLE = False
     st.warning(f"⚠️ OCR module could not be loaded: {e}")
+
 
                 
 # Import modules with error handling
@@ -3098,93 +3107,216 @@ def render_user_management_tab():
 
 def render_ocr_tab():
     """
-    Modern OCR Document Reader with Dashboard-style Interface
+    🆕 Modern OCR with Gemini API Integration
     """
     
-    # ตรวจสอบ OCR module
+    # ==========================================
+    # 🔐 API KEY CONFIGURATION
+    # ==========================================
+    st.markdown("### 🔑 Gemini API Configuration")
+    
+    # ตรวจสอบว่ามี API key ใน session_state หรือไม่
+    if 'gemini_api_key' not in st.session_state:
+        st.session_state.gemini_api_key = os.getenv('GOOGLE_API_KEY', '')
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        api_key = st.text_input(
+            "Google Gemini API Key",
+            value=st.session_state.gemini_api_key,
+            type="password",
+            placeholder="ใส่ API key หรือตั้งค่าใน environment variable GOOGLE_API_KEY",
+            help="รับ API key ฟรีที่: https://makersuite.google.com/app/apikey"
+        )
+        st.session_state.gemini_api_key = api_key
+    
+    with col2:
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        if st.button("💾 Save Key", use_container_width=True):
+            if api_key.strip():
+                st.success("✅ API Key saved!")
+            else:
+                st.warning("⚠️ Please enter API key")
+    
+    # ตรวจสอบว่ามี API key หรือไม่
+    if not api_key.strip():
+        st.error("❌ กรุณาใส่ Gemini API Key ก่อนใช้งาน")
+        st.info("💡 รับ API key ฟรีได้ที่: https://makersuite.google.com/app/apikey")
+        st.stop()
+    
+    # ตรวจสอบว่า module โหลดสำเร็จหรือไม่
     if not OCR_AVAILABLE:
-        st.error("⚠️ ระบบ OCR ยังไม่พร้อมใช้งาน กรุณาตรวจสอบการติดตั้งโมดูล ocr_module.py")
-        return
-
-    # === HEADER WITH STATS CARDS ===
-    st.markdown("""
-        <style>
-        .stat-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 1.5rem;
-            border-radius: 12px;
-            color: white;
-            margin-bottom: 1rem;
-        }
-        .stat-card-green {
-            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-        }
-        .stat-card-orange {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        }
-        .stat-card-blue {
-            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-        }
-        .stat-card h3 {
-            margin: 0;
-            font-size: 2rem;
-            font-weight: bold;
-        }
-        .stat-card p {
-            margin: 0;
-            font-size: 1rem;
-            opacity: 0.9;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
-    # Dashboard Cards
-    col1, col2, col3, col4 = st.columns(4)
+        st.error("⚠️ ระบบ OCR ยังไม่พร้อมใช้งาน กรุณาตรวจสอบการติดตั้งโมดูล")
+        st.stop()
+    
+    st.divider()
+    
+    # ==========================================
+    # 📊 DASHBOARD STATS
+    # ==========================================
+    st.markdown("### 📊 OCR Dashboard")
     
     stats = get_dashboard_stats()
     
+    col1, col2, col3, col4 = st.columns(4)
+    
     with col1:
-        st.markdown(f"""
-            <div class="stat-card">
-                <p>📄 งานทั้งหมด</p>
-                <h3>{stats['total']}</h3>
-            </div>
-        """, unsafe_allow_html=True)
+        st.metric("📄 งานทั้งหมด", stats['total'])
     
     with col2:
-        st.markdown(f"""
-            <div class="stat-card stat-card-orange">
-                <p>⏳ รอดำเนินการ</p>
-                <h3>{stats['pending']}</h3>
-            </div>
-        """, unsafe_allow_html=True)
+        st.metric("⏳ รอดำเนินการ", stats['pending'], delta=f"+{stats['today']}")
     
     with col3:
-        st.markdown(f"""
-            <div class="stat-card stat-card-green">
-                <p>✅ เสร็จแล้ว</p>
-                <h3>{stats['completed']}</h3>
-            </div>
-        """, unsafe_allow_html=True)
+        st.metric("✅ เสร็จแล้ว", stats['completed'])
     
     with col4:
-        st.markdown(f"""
-            <div class="stat-card stat-card-blue">
-                <p>📊 วันนี้</p>
-                <h3>{stats['today']}</h3>
-            </div>
-        """, unsafe_allow_html=True)
-
+        avg_conf = stats.get('avg_confidence', 0)
+        st.metric("🎯 ความแม่นยำเฉลี่ย", f"{avg_conf:.1f}%")
+    
     st.divider()
-
-    # === TAB NAVIGATION ===
+    
+    # ==========================================
+    # 📑 TAB NAVIGATION
+    # ==========================================
     tab1, tab2 = st.tabs(["📤 อัพโหลดเอกสาร", "📋 จัดการเอกสาร"])
     
     with tab1:
-        render_upload_section()
+        render_upload_section_gemini(api_key)
     
     with tab2:
         render_management_section()
+
+
+def render_upload_section_gemini(api_key):
+    """
+    ✨ ส่วนอัพโหลดและ OCR ด้วย Gemini API
+    """
+    
+    st.markdown("### 📤 อัพโหลดเอกสารใหม่")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        uploaded = st.file_uploader(
+            "เลือกไฟล์เอกสาร",
+            type=["pdf", "png", "jpg", "jpeg"],
+            help="รองรับไฟล์ PDF, PNG, JPG (ขนาดไม่เกิน 10MB)",
+            label_visibility="collapsed",
+            key="ocr_file_uploader"
+        )
+    
+    with col2:
+        st.markdown("""
+        <div style="background-color:#e3f2fd;padding:12px;border-radius:8px;border-left:4px solid #2196f3;">
+            <strong>💡 Tips:</strong><br>
+            • ไฟล์ที่คมชัดให้ผลดีกว่า<br>
+            • Gemini อ่านภาษาไทยได้แม่นยำ<br>
+            • รองรับเอกสารหลายหน้า
+        </div>
+        """, unsafe_allow_html=True)
+    
+    if uploaded:
+        # ==========================================
+        # 🔍 OCR PROCESSING
+        # ==========================================
+        st.markdown("---")
+        st.markdown("### 🔍 ประมวลผล OCR")
+        
+        # แสดง progress bar
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        try:
+            # Step 1: Initialize
+            status_text.text("📝 กำลังเตรียมข้อมูล...")
+            progress_bar.progress(10)
+            time.sleep(0.3)
+            
+            # Step 2: Save temp file
+            import tempfile
+            file_ext = os.path.splitext(uploaded.name)[1].lower() or ".pdf"
+            
+            status_text.text("💾 กำลังบันทึกไฟล์ชั่วคราว...")
+            progress_bar.progress(20)
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
+                tmp.write(uploaded.read())
+                temp_path = tmp.name
+            
+            # Step 3: Initialize Gemini OCR
+            status_text.text("🤖 กำลังเชื่อมต่อ Gemini API...")
+            progress_bar.progress(30)
+            
+            ocr = GeminiThaiDocumentOCR(api_key=api_key)
+            
+            # Step 4: Process OCR
+            status_text.text("🔍 กำลังอ่านข้อความจากเอกสาร...")
+            progress_bar.progress(50)
+            
+            result = ocr.process_document(temp_path)
+            
+            progress_bar.progress(90)
+            
+            # Step 5: Cleanup
+            os.remove(temp_path)
+            progress_bar.progress(100)
+            status_text.text("✅ ประมวลผลเสร็จสิ้น!")
+            
+            time.sleep(0.5)
+            progress_bar.empty()
+            status_text.empty()
+            
+            # ==========================================
+            # 📊 SHOW RESULTS
+            # ==========================================
+            if not result:
+                st.warning("⚠️ ไม่สามารถอ่านข้อมูลจากไฟล์นี้ได้")
+                return
+            
+            confidence = result.get('confidence', 0.0)
+            
+            # แสดงสถานะความแม่นยำ
+            if confidence >= 90:
+                st.success(f"✅ OCR สำเร็จ! ความแม่นยำสูงมาก: **{confidence:.1f}%**")
+            elif confidence >= 70:
+                st.success(f"✅ OCR สำเร็จ! ความแม่นยำดี: **{confidence:.1f}%**")
+            elif confidence >= 50:
+                st.warning(f"⚠️ OCR สำเร็จ แต่ความแม่นยำปานกลาง: **{confidence:.1f}%**")
+            else:
+                st.error(f"❌ ความแม่นยำต่ำ: **{confidence:.1f}%** - กรุณาตรวจสอบข้อมูล")
+            
+            # แสดงข้อมูลเพิ่มเติม
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                method = result.get('method', 'Unknown')
+                st.info(f"📝 วิธีการ: **{method}**")
+            
+            with col2:
+                pages = result.get('pages', 1)
+                st.info(f"📄 จำนวนหน้า: **{pages}**")
+            
+            with col3:
+                text_length = len(result.get('text', ''))
+                st.info(f"📊 ตัวอักษร: **{text_length:,}**")
+            
+            # แสดงฟอร์มบันทึก
+            st.markdown("---")
+            render_ocr_form(result, uploaded.name)
+            
+        except Exception as e:
+            progress_bar.empty()
+            status_text.empty()
+            
+            st.error(f"❌ เกิดข้อผิดพลาด: {str(e)}")
+            
+            # แสดงรายละเอียดข้อผิดพลาด (debug mode)
+            with st.expander("🔍 รายละเอียดข้อผิดพลาด"):
+                st.code(str(e))
+                import traceback
+                st.code(traceback.format_exc())
+
 
 
 def render_upload_section():
@@ -3239,9 +3371,10 @@ def render_upload_section():
 
 
 def render_ocr_form(result, filename):
-    """ฟอร์มบันทึกข้อมูล OCR แบบ Modern"""
+    """
+    📝 ฟอร์มบันทึกข้อมูล OCR
+    """
     
-    st.markdown("---")
     st.markdown("### 📝 ข้อมูลเอกสาร")
     
     key_fields = result.get("key_fields", {})
@@ -3254,12 +3387,12 @@ def render_ocr_form(result, filename):
             doc_no = st.text_input(
                 "📄 เลขที่หนังสือ *",
                 value=key_fields.get("เลขที่หนังสือ", ""),
-                placeholder="เช่น ศธ 0201/1234"
+                placeholder="เช่น เอ็นที 0201/1234"
             )
             
             doc_date = st.date_input(
                 "📅 วันที่หนังสือ *",
-                value=parse_thai_date(key_fields.get("วันที่", ""))
+                value=parse_thai_date(key_fields.get("วันที่หนังสือ", ""))
             )
             
             subject = st.text_area(
@@ -3294,23 +3427,37 @@ def render_ocr_form(result, filename):
             placeholder="สรุปเนื้อหาสำคัญของเอกสาร"
         )
         
-        with st.expander("📜 ข้อความทั้งหมดจาก OCR"):
+        with st.expander("📜 ข้อความทั้งหมดจาก OCR", expanded=False):
+            full_text = result.get("text", "")
             st.text_area(
                 "Full Text",
-                value=result.get("text", ""),
+                value=full_text,
                 height=200,
                 disabled=True,
                 label_visibility="collapsed"
             )
+            
+            # ปุ่มคัดลอก
+            if st.button("📋 คัดลอกข้อความทั้งหมด", key="copy_full_text"):
+                st.code(full_text, language=None)
+                st.success("✅ คัดลอกข้อความไปยัง clipboard แล้ว!")
         
         # Submit Buttons
-        col1, col2, col3 = st.columns([2, 1, 1])
+        st.markdown("---")
+        col1, col2 = st.columns([3, 1])
         
         with col1:
-            submit = st.form_submit_button("💾 บันทึกเอกสาร", type="primary", use_container_width=True)
+            submit = st.form_submit_button(
+                "💾 บันทึกเอกสาร", 
+                type="primary", 
+                use_container_width=True
+            )
         
         with col2:
-            st.form_submit_button("🔄 รีเซ็ต", use_container_width=True)
+            st.form_submit_button(
+                "🔄 รีเซ็ต", 
+                use_container_width=True
+            )
         
         if submit:
             if not doc_no or not subject:
@@ -3324,7 +3471,9 @@ def render_ocr_form(result, filename):
 
 
 def render_management_section():
-    """ส่วนจัดการเอกสาร แบบ Dashboard"""
+    """
+    📋 ส่วนจัดการเอกสาร
+    """
     
     st.markdown("### 📋 ตารางเอกสารทั้งหมด")
     
@@ -3347,29 +3496,21 @@ def render_management_section():
     
     with col3:
         if st.button("🔄 รีเฟรช", use_container_width=True):
+            st.cache_data.clear()
             st.rerun()
     
     with col4:
         if st.button("📥 Export", use_container_width=True):
             export_documents(search_term, status_filter)
-
+    
     st.markdown("---")
-
+    
     # Load and Display Documents
     try:
         df = load_documents(search_term, status_filter)
         
         if not df.empty:
-            # Custom styling for dataframe
-            st.markdown("""
-                <style>
-                .dataframe {
-                    font-size: 14px;
-                }
-                </style>
-            """, unsafe_allow_html=True)
-            
-            # Display table with custom config
+            # Display table
             st.dataframe(
                 df,
                 use_container_width=True,
@@ -3382,13 +3523,19 @@ def render_management_section():
                     "recipient": st.column_config.TextColumn("ผู้รับ", width="medium"),
                     "priority": st.column_config.TextColumn("ความสำคัญ", width="small"),
                     "status": st.column_config.TextColumn("สถานะ", width="medium"),
-                    "confidence": st.column_config.TextColumn("OCR %", width="small"),
+                    "confidence": st.column_config.ProgressColumn(
+                        "OCR %",
+                        format="%.1f%%",
+                        min_value=0,
+                        max_value=100,
+                        width="small"
+                    ),
                     "created_at": st.column_config.TextColumn("สร้างเมื่อ", width="medium"),
                 },
                 hide_index=True
             )
             
-            st.markdown(f"**แสดง {len(df)} รายการ**")
+            st.caption(f"📊 **แสดง {len(df):,} รายการ**")
             
             # Document Actions
             st.markdown("---")
@@ -3402,7 +3549,7 @@ def render_management_section():
 
 
 def render_quick_actions(df):
-    """Quick Actions สำหรับจัดการเอกสาร"""
+    """🛠️ Quick Actions สำหรับจัดการเอกสาร"""
     
     st.markdown("### 🛠️ จัดการเอกสาร")
     
@@ -3429,7 +3576,6 @@ def render_quick_actions(df):
         render_close_form(selected_id)
     elif action == "🗑️ ลบ":
         render_delete_form(selected_id)
-
 
 def render_edit_form(doc_id):
     """ฟอร์มแก้ไขเอกสาร"""
@@ -3535,6 +3681,7 @@ def render_delete_form(doc_id):
 def get_dashboard_stats():
     """ดึงสถิติสำหรับ Dashboard"""
     try:
+        from database import DatabaseManager
         db_manager = DatabaseManager()
         conn = db_manager.get_connection()
         cursor = conn.cursor()
@@ -3551,6 +3698,9 @@ def get_dashboard_stats():
         cursor.execute("SELECT COUNT(*) FROM ocr WHERE DATE(created_at) = CURDATE()")
         today = cursor.fetchone()[0]
         
+        cursor.execute("SELECT AVG(ocr_confidence) FROM ocr WHERE ocr_confidence > 0")
+        avg_conf = cursor.fetchone()[0] or 0
+        
         cursor.close()
         conn.close()
         
@@ -3558,14 +3708,22 @@ def get_dashboard_stats():
             'total': total,
             'pending': pending,
             'completed': completed,
-            'today': today
+            'today': today,
+            'avg_confidence': float(avg_conf)
         }
     except:
-        return {'total': 0, 'pending': 0, 'completed': 0, 'today': 0}
+        return {
+            'total': 0,
+            'pending': 0,
+            'completed': 0,
+            'today': 0,
+            'avg_confidence': 0.0
+        }0}
 
 
 def load_documents(search_term, status_filter):
     """โหลดเอกสารจากฐานข้อมูล"""
+    from database import DatabaseManager
     db_manager = DatabaseManager()
     conn = db_manager.get_connection()
     
@@ -3601,12 +3759,9 @@ def load_documents(search_term, status_filter):
     conn.close()
     
     if not df.empty:
-        # Format data
         df['doc_date'] = df['doc_date'].astype(str)
-        df['confidence'] = df['confidence'].apply(lambda x: f"{x}%")
         df['priority'] = df['priority'].fillna('ปกติ')
         
-        # Status mapping with icons
         status_map = {
             'on_process': '⏳ รอดำเนินการ',
             'closed': '✅ เสร็จแล้ว'
@@ -3614,6 +3769,7 @@ def load_documents(search_term, status_filter):
         df['status'] = df['status'].map(status_map)
     
     return df
+
 
 
 def get_document_by_id(doc_id):
@@ -3654,6 +3810,7 @@ def save_ocr_document(doc_no, doc_date, subject, recipient, content,
                       full_text, confidence, filename, priority, tags):
     """บันทึกเอกสาร OCR"""
     try:
+        from database import DatabaseManager
         db_manager = DatabaseManager()
         conn = db_manager.get_connection()
         cursor = conn.cursor()
@@ -3683,7 +3840,6 @@ def save_ocr_document(doc_no, doc_date, subject, recipient, content,
         
     except Exception as e:
         st.error(f"❌ ไม่สามารถบันทึกได้: {str(e)}")
-
 
 def update_document(doc_id, doc_no, doc_date, subject, recipient, content, priority, tags):
     """อัพเดทเอกสาร"""
