@@ -3718,7 +3718,7 @@ def get_dashboard_stats():
             'completed': 0,
             'today': 0,
             'avg_confidence': 0.0
-        }0}
+        }
 
 
 def load_documents(search_term, status_filter):
