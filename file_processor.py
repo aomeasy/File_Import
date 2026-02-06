@@ -59,13 +59,41 @@ class FileProcessor:
                     # Reset file pointer
                     uploaded_file.seek(0)
                     
+                    # ⭐ MODIFIED: เพิ่มการข้ามบรรทัดว่าง
                     # Try to read with current encoding
                     df = pd.read_csv(
                         uploaded_file,
                         encoding=encoding,
                         na_values=['', 'NULL', 'null', 'N/A', 'n/a', 'NA', 'na'],
-                        keep_default_na=True
+                        keep_default_na=True,
+                        skip_blank_lines=True,  # ⭐ NEW: ข้ามบรรทัดว่าง
+                        skipinitialspace=True   # ⭐ NEW: ข้ามช่องว่างหน้าข้อมูล
                     )
+                    
+                    # ⭐ NEW: ถ้า header (บรรทัดแรก) ว่างเปล่า ให้หาบรรทัดที่มีข้อมูลมาเป็น header
+                    if len(df.columns) > 0:
+                        # ตรวจสอบว่า column names ว่างหรือไม่
+                        if all(str(col).strip() == '' or str(col).startswith('Unnamed') for col in df.columns):
+                            # อ่านใหม่โดยหาแถวที่มีข้อมูลจริงๆ
+                            uploaded_file.seek(0)
+                            temp_df = pd.read_csv(uploaded_file, header=None, encoding=encoding, nrows=20)
+                            first_data_row = 0
+                            
+                            for idx, row in temp_df.iterrows():
+                                if row.notna().any() and row.astype(str).str.strip().str.len().sum() > 0:
+                                    first_data_row = idx
+                                    break
+                            
+                            # อ่านใหม่โดยใช้แถวที่มีข้อมูลเป็น header
+                            uploaded_file.seek(0)
+                            df = pd.read_csv(
+                                uploaded_file,
+                                encoding=encoding,
+                                header=first_data_row,
+                                na_values=['', 'NULL', 'null', 'N/A', 'n/a', 'NA', 'na'],
+                                keep_default_na=True,
+                                skip_blank_lines=True
+                            )
                     
                     # Validate data
                     if df.empty:
@@ -113,6 +141,27 @@ class FileProcessor:
                     sheet_name=0,
                     na_values=['', 'NULL', 'null', 'N/A', 'n/a', 'NA', 'na']
                 )
+                
+                # ⭐ NEW: ถ้า header (บรรทัดแรก) ว่างเปล่า ให้หาบรรทัดที่มีข้อมูลมาเป็น header
+                if len(df.columns) > 0:
+                    if all(str(col).strip() == '' or str(col).startswith('Unnamed') for col in df.columns):
+                        uploaded_file.seek(0)
+                        temp_df = pd.read_excel(uploaded_file, sheet_name=0, header=None, nrows=20)
+                        first_data_row = 0
+                        
+                        for idx, row in temp_df.iterrows():
+                            if row.notna().any() and row.astype(str).str.strip().str.len().sum() > 0:
+                                first_data_row = idx
+                                break
+                        
+                        uploaded_file.seek(0)
+                        df = pd.read_excel(
+                            uploaded_file,
+                            sheet_name=0,
+                            header=first_data_row,
+                            na_values=['', 'NULL', 'null', 'N/A', 'n/a', 'NA', 'na']
+                        )
+                
                 st.success(f"✅ Excel file loaded successfully (Sheet: {sheet_names[0]})")
             else:
                 # Multiple sheets - let user choose
@@ -127,6 +176,27 @@ class FileProcessor:
                     sheet_name=selected_sheet,
                     na_values=['', 'NULL', 'null', 'N/A', 'n/a', 'NA', 'na']
                 )
+                
+                # ⭐ NEW: ถ้า header (บรรทัดแรก) ว่างเปล่า ให้หาบรรทัดที่มีข้อมูลมาเป็น header
+                if len(df.columns) > 0:
+                    if all(str(col).strip() == '' or str(col).startswith('Unnamed') for col in df.columns):
+                        uploaded_file.seek(0)
+                        temp_df = pd.read_excel(uploaded_file, sheet_name=selected_sheet, header=None, nrows=20)
+                        first_data_row = 0
+                        
+                        for idx, row in temp_df.iterrows():
+                            if row.notna().any() and row.astype(str).str.strip().str.len().sum() > 0:
+                                first_data_row = idx
+                                break
+                        
+                        uploaded_file.seek(0)
+                        df = pd.read_excel(
+                            uploaded_file,
+                            sheet_name=selected_sheet,
+                            header=first_data_row,
+                            na_values=['', 'NULL', 'null', 'N/A', 'n/a', 'NA', 'na']
+                        )
+                
                 st.success(f"✅ Excel sheet '{selected_sheet}' loaded successfully")
             
             # Validate data
@@ -243,6 +313,26 @@ class FileProcessor:
                     na_values=['', 'NULL', 'null', 'N/A', 'n/a', 'NA', 'na']
                 )
                 
+                # ⭐ NEW: ถ้า header (บรรทัดแรก) ว่างเปล่า ให้หาบรรทัดที่มีข้อมูลมาเป็น header
+                if len(df.columns) > 0:
+                    if all(str(col).strip() == '' or str(col).startswith('Unnamed') for col in df.columns):
+                        uploaded_file.seek(0)
+                        temp_df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=None, nrows=20)
+                        first_data_row = 0
+                        
+                        for idx, row in temp_df.iterrows():
+                            if row.notna().any() and row.astype(str).str.strip().str.len().sum() > 0:
+                                first_data_row = idx
+                                break
+                        
+                        uploaded_file.seek(0)
+                        df = pd.read_excel(
+                            uploaded_file,
+                            sheet_name=sheet_name,
+                            header=first_data_row,
+                            na_values=['', 'NULL', 'null', 'N/A', 'n/a', 'NA', 'na']
+                        )
+                
                 if not df.empty:
                     # เพิ่มคอลัมน์ระบุว่ามาจาก sheet ไหน
                     df['_source_sheet'] = sheet_name
@@ -252,8 +342,8 @@ class FileProcessor:
                 st.warning("ไม่พบข้อมูลในทุก sheets")
                 return None
             
-            # รวม DataFrames ทั้งหมด
-            merged_df = pd.concat(all_dfs, ignore_index=True)
+            # ⭐ MODIFIED: รวม DataFrames ทั้งหมด โดยใช้ outer join เพื่อรองรับ header ไม่ตรงกัน
+            merged_df = pd.concat(all_dfs, ignore_index=True, join='outer', sort=False)
             merged_df.columns = merged_df.columns.str.strip()
             
             st.success(f"✅ รวม {len(excel_file.sheet_names)} sheets สำเร็จ ({len(merged_df):,} แถว)")
