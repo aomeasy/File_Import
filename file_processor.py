@@ -215,6 +215,55 @@ class FileProcessor:
                 unique_columns.append(col)
         
         return unique_columns
+
+
+
+
+    # ⭐ เพิ่ม method ใหม่ใน class FileProcessor (ประมาณบรรทัด 200+)
+
+    def merge_all_sheets(self, uploaded_file) -> Optional[pd.DataFrame]:
+        """
+        Merge all sheets from an Excel file into one DataFrame
+        
+        Args:
+            uploaded_file: Streamlit UploadedFile object
+            
+        Returns:
+            pandas.DataFrame with all sheets combined or None if fails
+        """
+        try:
+            uploaded_file.seek(0)
+            excel_file = pd.ExcelFile(uploaded_file)
+            
+            all_dfs = []
+            for sheet_name in excel_file.sheet_names:
+                df = pd.read_excel(
+                    uploaded_file,
+                    sheet_name=sheet_name,
+                    na_values=['', 'NULL', 'null', 'N/A', 'n/a', 'NA', 'na']
+                )
+                
+                if not df.empty:
+                    # เพิ่มคอลัมน์ระบุว่ามาจาก sheet ไหน
+                    df['_source_sheet'] = sheet_name
+                    all_dfs.append(df)
+            
+            if not all_dfs:
+                st.warning("ไม่พบข้อมูลในทุก sheets")
+                return None
+            
+            # รวม DataFrames ทั้งหมด
+            merged_df = pd.concat(all_dfs, ignore_index=True)
+            merged_df.columns = merged_df.columns.str.strip()
+            
+            st.success(f"✅ รวม {len(excel_file.sheet_names)} sheets สำเร็จ ({len(merged_df):,} แถว)")
+            
+            return self._validate_and_clean_dataframe(merged_df)
+            
+        except Exception as e:
+            st.error(f"Error merging sheets: {str(e)}")
+            return None
+            
     
     def _get_file_extension(self, filename: str) -> str:
         """Get file extension from filename"""
