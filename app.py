@@ -654,49 +654,133 @@ class FileMerger:
         if filename.lower().endswith('.csv'): return 'csv'
         elif filename.lower().endswith(('.xlsx', '.xls')): return 'excel'
         return 'unknown'
+ 
 
     def analyze_headers(self, processed_data, selected_sheets, selected_files):
-        all_headers = set(); file_headers = {}; has_mismatch = False
+        """
+        วิเคราะห์ headers จากทุกไฟล์ที่เลือก
+        รองรับโหมดรวม sheet
+        """
+        all_headers = set()
+        file_headers = {}
+        has_mismatch = False
+        
         for filename, file_info in processed_data.items():
-            if selected_files.get(filename, True):
-                sheet_name = selected_sheets.get(filename, file_info['sheets'][0])
+            if not selected_files.get(filename, True):
+                continue
+            
+            sheet_name = selected_sheets.get(filename, file_info['sheets'][0])
+            
+            # ⭐ กรณีรวมทุก sheet
+            if sheet_name == "ALL_SHEETS":
+                for s in file_info['sheets']:
+                    if s in file_info['data']:
+                        headers = file_info['data'][s].columns.tolist()
+                        all_headers.update(headers)
+                        file_headers[f"{filename} ({s})"] = headers
+            else:
+                # กรณีเลือก 1 sheet (เดิม)
                 if sheet_name in file_info['data']:
-                    df = file_info['data'][sheet_name]
-                    headers = list(df.columns)
-                    file_headers[filename] = headers
+                    headers = file_info['data'][sheet_name].columns.tolist()
                     all_headers.update(headers)
+                    file_headers[filename] = headers
+        
+        # ✅ FIX: ต้อง return ค่า (คุณลืม return)
+        # ตรวจสอบว่ามี header ไม่ตรงกันหรือไม่
         if len(file_headers) > 1:
-            reference_headers = set(next(iter(file_headers.values())))
-            for _, headers in file_headers.items():
-                if set(headers) != reference_headers:
-                    has_mismatch = True; break
-        return list(all_headers), has_mismatch, file_headers
-
-    def merge_files(self, processed_data, selected_sheets, selected_files, header_mapping=None, excluded_headers=None):
-        merged_dfs = []
+            header_sets = [set(h) for h in file_headers.values()]
+            first_set = header_sets[0]
+            has_mismatch = not all(s == first_set for s in header_sets)
+        
+        return all_headers, has_mismatch, file_headers
+    
+    
+    def merge_files(self, processed_data, selected_sheets, selected_files, 
+                    sheet_mode=None, uploaded_files_cache=None,  # ✅ FIX: เพิ่ม parameters เหล่านี้
+                    header_mapping=None, excluded_headers=None):
+        """
+        รวมไฟล์ทั้งหมด รองรับโหมดรวม sheet
+        """
+        dataframes = []  # ✅ FIX: คุณลืมประกาศตัวแปรนี้
+        processor = FileProcessor()  # ✅ FIX: ประกาศข้างนอก loop จะดีกว่า
+        
         for filename, file_info in processed_data.items():
-            if selected_files.get(filename, True):
-                sheet_name = selected_sheets.get(filename, file_info['sheets'][0])
+            if not selected_files.get(filename, True):
+                continue
+            
+            sheet_name = selected_sheets.get(filename, file_info['sheets'][0])
+            
+            # ⭐ กรณีรวมทุก sheet
+            if sheet_name == "ALL_SHEETS":
+                # ✅ FIX: ดึง uploaded file จาก cache
+                if uploaded_files_cache and filename in uploaded_files_cache:
+                    uploaded_file = uploaded_files_cache[filename]
+                    merged_sheet_df = processor.merge_all_sheets(uploaded_file)
+                    
+                    if merged_sheet_df is not None:
+                        # ✅ เพิ่มคอลัมน์ระบุไฟล์ต้นทาง
+                        merged_sheet_df['_source_file'] = filename
+                        
+                        # ✅ FIX: ต้องตรวจสอบและใช้ header_mapping ถ้ามี (logic เดิมของคุณ)
+                        if header_mapping:
+                            merged_sheet_df = merged_sheet_df.rename(columns=header_mapping)
+                        
+                        if excluded_headers:
+                            merged_sheet_df = merged_sheet_df.drop(
+                                columns=[col for col in excluded_headers if col in merged_sheet_df.columns],
+                                errors='ignore'
+                            )
+                        
+                        dataframes.append(merged_sheet_df)
+                else:
+                    # ถ้าไม่มี cache ให้ใช้ข้อมูลที่ประมวลผลไว้แล้ว
+                    # รวม sheets จาก file_info['data']
+                    sheet_dfs = []
+                    for s in file_info['sheets']:
+                        if s in file_info['data']:
+                            df = file_info['data'][s].copy()
+                            df['_source_sheet'] = s  # ✅ เพิ่มคอลัมน์ระบุ sheet
+                            sheet_dfs.append(df)
+                    
+                    if sheet_dfs:
+                        combined_df = pd.concat(sheet_dfs, ignore_index=True)
+                        combined_df['_source_file'] = filename
+                        
+                        if header_mapping:
+                            combined_df = combined_df.rename(columns=header_mapping)
+                        
+                        if excluded_headers:
+                            combined_df = combined_df.drop(
+                                columns=[col for col in excluded_headers if col in combined_df.columns],
+                                errors='ignore'
+                            )
+                        
+                        dataframes.append(combined_df)
+            else:
+                # กรณีเลือก 1 sheet (เดิม)
                 if sheet_name in file_info['data']:
                     df = file_info['data'][sheet_name].copy()
-                    if excluded_headers and filename in excluded_headers:
-                        columns_to_keep = [c for c in df.columns if c not in excluded_headers[filename]]
-                        df = df[columns_to_keep]
-                    if header_mapping and filename in header_mapping:
-                        df.rename(columns=header_mapping[filename], inplace=True)
                     df['_source_file'] = filename
-                    merged_dfs.append(df)
-
-
-        if merged_dfs:
-            merged_df = pd.concat(merged_dfs, ignore_index=True, sort=False)
+                    
+                    # ✅ FIX: ต้องใช้ header_mapping และ excluded_headers (logic เดิมของคุณ)
+                    if header_mapping:
+                        df = df.rename(columns=header_mapping)
+                    
+                    if excluded_headers:
+                        df = df.drop(
+                            columns=[col for col in excluded_headers if col in df.columns],
+                            errors='ignore'
+                        )
+                    
+                    dataframes.append(df)
         
-            # ✅ บังคับทุก column ให้เป็น string ป้องกันจุดทศนิยม / ศูนย์หาย
-            merged_df = merged_df.applymap(lambda x: str(x).strip() if pd.notna(x) else "")
+        # ✅ FIX: รวม dataframes ทั้งหมดและ return
+        if not dataframes:
+            st.warning("ไม่มีข้อมูลที่จะรวม")
+            return pd.DataFrame()
         
-            return merged_df
-        
-        return pd.DataFrame()
+        merged_df = pd.concat(dataframes, ignore_index=True)
+        return merged_df
 
 st.markdown("""
 <style>
@@ -2040,9 +2124,12 @@ def render_procedures_tab():
         st.toast("Cleared cached procedures & session list")
 
 # ===== TAB 3: FILE MERGER =====
+ 
 def render_merger_tab():
     st.header("📁 File Merger")
     st.write("รวมไฟล์ CSV และ Excel หลายไฟล์เข้าด้วยกัน")
+    
+    # ===== Session State Initialization =====
     if 'merger' not in st.session_state:
         st.session_state.merger = FileMerger()
     if 'merger_processed_data' not in st.session_state:
@@ -2051,10 +2138,23 @@ def render_merger_tab():
         st.session_state.merger_merged_df = None
     if 'merger_selected_files' not in st.session_state:
         st.session_state.merger_selected_files = {}
+    # ⭐ NEW: เพิ่ม session state สำหรับโหมดรวม sheet
+    if 'merger_sheet_mode' not in st.session_state:
+        st.session_state.merger_sheet_mode = {}  # {filename: 'single' | 'all'}
+    if 'merger_uploaded_files_cache' not in st.session_state:
+        st.session_state.merger_uploaded_files_cache = {}  # เก็บ uploaded files
+    
     merger = st.session_state.merger
 
+    # ===== File Upload Section =====
     st.subheader("📤 อัปโหลดไฟล์")
-    uploaded_files = st.file_uploader("เลือกไฟล์ CSV หรือ Excel", type=['csv', 'xlsx', 'xls'], accept_multiple_files=True, help="รองรับไฟล์ CSV และ Excel หลายไฟล์", key="merger_uploader")
+    uploaded_files = st.file_uploader(
+        "เลือกไฟล์ CSV หรือ Excel", 
+        type=['csv', 'xlsx', 'xls'], 
+        accept_multiple_files=True, 
+        help="รองรับไฟล์ CSV และ Excel หลายไฟล์", 
+        key="merger_uploader"
+    )
 
     if uploaded_files:
         if len(uploaded_files) != len(st.session_state.get('merger_last_uploaded', [])):
@@ -2063,40 +2163,49 @@ def render_merger_tab():
                 st.session_state.merger_last_uploaded = uploaded_files
                 st.session_state.merger_merged_df = None
                 st.session_state.merger_selected_files = {f.name: True for f in uploaded_files}
+                # ⭐ NEW: เก็บ uploaded files ไว้ใช้งานภายหลัง
+                st.session_state.merger_uploaded_files_cache = {f.name: f for f in uploaded_files}
 
+    # ===== File Selection Section =====
     if st.session_state.merger_processed_data:
         if len(st.session_state.merger_processed_data) > 1:
             st.subheader("🎯 เลือกไฟล์สำหรับการรวม")
             cols = st.columns(min(len(st.session_state.merger_processed_data), 3))
             for i, (filename, file_info) in enumerate(st.session_state.merger_processed_data.items()):
                 with cols[i % 3]:
-                    selected = st.checkbox(filename, value=st.session_state.merger_selected_files.get(filename, True), key=f"merger_select_{filename}", help=f"ขนาด: {file_info['size']/1024:.1f} KB")
+                    selected = st.checkbox(
+                        filename, 
+                        value=st.session_state.merger_selected_files.get(filename, True), 
+                        key=f"merger_select_{filename}", 
+                        help=f"ขนาด: {file_info['size']/1024:.1f} KB"
+                    )
                     st.session_state.merger_selected_files[filename] = selected
+            
             selected_count = sum(st.session_state.merger_selected_files.values())
             if selected_count == 0:
-                st.error("⚠️ กรุณาเลือกไฟล์อย่างน้อย 1 ไฟล์"); return
+                st.error("⚠️ กรุณาเลือกไฟล์อย่างน้อย 1 ไฟล์")
+                return
         else:
             filename = list(st.session_state.merger_processed_data.keys())[0]
             st.session_state.merger_selected_files = {filename: True}
 
+        # ===== File Details Section =====
         st.subheader("📋 ไฟล์ที่อัปโหลด")
         cols = st.columns([2, 1])
 
         with cols[0]:
             selected_sheets = {}
         
-            # 🚀 เพิ่มลำดับไฟล์แบบ 1,2,3,...
             for idx, (filename, file_info) in enumerate(st.session_state.merger_processed_data.items(), start=1):
                 is_selected = st.session_state.merger_selected_files.get(filename, True)
         
-                # 🎯 แสดงชื่อว่า "ไฟล์ #1: filename"
                 expander_title = f"{'✅' if is_selected else '❌'} ไฟล์ #{idx}: {filename}"
         
-                # 🔽 ซ่อนทั้งหมดเป็น default: expanded=False
                 with st.expander(expander_title, expanded=False):
         
                     col_info, col_sheet = st.columns([2, 1])
         
+                    # ===== File Info Column =====
                     with col_info:
                         st.markdown(
                             f"**ขนาด:** {file_info['size']/1024:.2f} KB"
@@ -2106,60 +2215,140 @@ def render_merger_tab():
                         if 'succeeded_encoding' in file_info:
                             st.caption(f"Encoding: {file_info.get('succeeded_encoding','auto')}")
         
+                    # ===== Sheet Selection Column (⭐ MODIFIED) =====
                     with col_sheet:
                         if len(file_info['sheets']) > 1:
-                            selected_sheet = st.selectbox(
-                                "เลือก Sheet:",
-                                file_info['sheets'],
-                                key=f"merger_sheet_{filename}",
-                                disabled=not is_selected
+                            # ⭐ NEW: เพิ่มตัวเลือกโหมดรวม sheet
+                            merge_mode = st.radio(
+                                "โหมดการเลือก:",
+                                ["📄 เลือก 1 Sheet", "📚 รวมทุก Sheet"],
+                                key=f"merger_mode_{filename}",
+                                disabled=not is_selected,
+                                horizontal=True
                             )
-                            selected_sheets[filename] = selected_sheet
+                            
+                            # บันทึกโหมดใน session
+                            st.session_state.merger_sheet_mode[filename] = 'all' if merge_mode == "📚 รวมทุก Sheet" else 'single'
+                            
+                            if merge_mode == "📄 เลือก 1 Sheet":
+                                # โหมดเดิม: เลือก 1 sheet
+                                selected_sheet = st.selectbox(
+                                    "เลือก Sheet:",
+                                    file_info['sheets'],
+                                    key=f"merger_sheet_{filename}",
+                                    disabled=not is_selected
+                                )
+                                selected_sheets[filename] = selected_sheet
+                            else:
+                                # ⭐ NEW: โหมดรวมทุก sheet
+                                selected_sheets[filename] = "ALL_SHEETS"
+                                st.info(f"✅ จะรวม {len(file_info['sheets'])} sheets")
                         else:
+                            # ไฟล์มี 1 sheet เท่านั้น
                             selected_sheets[filename] = file_info['sheets'][0]
+                            st.session_state.merger_sheet_mode[filename] = 'single'
                             st.info(f"Sheet: {file_info['sheets'][0]}")
         
-                    # 👉 Preview เฉพาะไฟล์ที่เลือกเท่านั้น
+                    # ===== Preview Section (⭐ MODIFIED) =====
                     if is_selected:
                         sheet_name = selected_sheets[filename]
-                        if sheet_name in file_info['data']:
+                        
+                        # ⭐ NEW: กรณีรวมทุก sheet
+                        if sheet_name == "ALL_SHEETS":
+                            total_rows = sum(len(file_info['data'][s]) for s in file_info['sheets'] if s in file_info['data'])
+                            total_cols = len(file_info['data'][file_info['sheets'][0]].columns) if file_info['sheets'] and file_info['sheets'][0] in file_info['data'] else 0
+                            
+                            st.write(f"**Preview (รวม {len(file_info['sheets'])} sheets, {total_rows:,} แถว, {total_cols} คอลัมน์):**")
+                            
+                            # แสดงตัวอย่างแต่ละ sheet
+                            for sheet in file_info['sheets'][:3]:  # แสดงแค่ 3 sheets แรก
+                                if sheet in file_info['data']:
+                                    df = file_info['data'][sheet]
+                                    st.caption(f"📄 {sheet}: {len(df):,} แถว")
+                                    st.dataframe(df.head(2), use_container_width=True)
+                            
+                            if len(file_info['sheets']) > 3:
+                                st.caption(f"... และอีก {len(file_info['sheets']) - 3} sheets")
+                        
+                        # กรณีเลือก 1 sheet (เดิม)
+                        elif sheet_name in file_info['data']:
                             df = file_info['data'][sheet_name]
-                            st.write(f"**Preview ({len(df)} แถว, {len(df.columns)} คอลัมน์):**")
+                            st.write(f"**Preview ({len(df):,} แถว, {len(df.columns)} คอลัมน์):**")
                             st.dataframe(df.head(5), use_container_width=True)
 
- 
+        # ===== Statistics Section (⭐ MODIFIED) =====
         with cols[1]:
-            selected_files_data = {k: v for k, v in st.session_state.merger_processed_data.items() if st.session_state.merger_selected_files.get(k, True)}
+            selected_files_data = {
+                k: v for k, v in st.session_state.merger_processed_data.items() 
+                if st.session_state.merger_selected_files.get(k, True)
+            }
+            
             total_files = len(selected_files_data)
-            total_records = sum([
-                len(file_info['data'][selected_sheets.get(filename, file_info['sheets'][0])]) 
-                for filename, file_info in selected_files_data.items()
-                if selected_sheets.get(filename, file_info['sheets'][0]) in file_info['data']
-            ]) if selected_files_data else 0
-            st.markdown(f"""<div class="metric-card"><h3>📊 สถิติ</h3><p><strong>ไฟล์ที่เลือก:</strong> {total_files}</p><p><strong>จำนวนแถวรวม:</strong> {total_records:,}</p></div>""", unsafe_allow_html=True)
+            
+            # ⭐ MODIFIED: คำนวณแถวรวม รองรับโหมดรวม sheet
+            total_records = 0
+            total_sheets = 0
+            
+            for filename, file_info in selected_files_data.items():
+                sheet_name = selected_sheets.get(filename, file_info['sheets'][0])
+                
+                if sheet_name == "ALL_SHEETS":
+                    # ⭐ NEW: นับทุก sheet
+                    for s in file_info['sheets']:
+                        if s in file_info['data']:
+                            total_records += len(file_info['data'][s])
+                            total_sheets += 1
+                elif sheet_name in file_info['data']:
+                    # นับ 1 sheet (เดิม)
+                    total_records += len(file_info['data'][sheet_name])
+                    total_sheets += 1
+            
+            st.markdown(
+                f"""<div class="metric-card">
+                <h3>📊 สถิติ</h3>
+                <p><strong>ไฟล์ที่เลือก:</strong> {total_files}</p>
+                <p><strong>Sheets รวม:</strong> {total_sheets}</p>
+                <p><strong>จำนวนแถวรวม:</strong> {total_records:,}</p>
+                </div>""", 
+                unsafe_allow_html=True
+            )
 
+        # ===== Header Analysis Section =====
         st.header("🔍 การวิเคราะห์ Headers")
-        all_headers, has_mismatch, file_headers = merger.analyze_headers(st.session_state.merger_processed_data, selected_sheets, st.session_state.merger_selected_files)
+        all_headers, has_mismatch, file_headers = merger.analyze_headers(
+            st.session_state.merger_processed_data, 
+            selected_sheets, 
+            st.session_state.merger_selected_files
+        )
+        
         if has_mismatch and len(file_headers) > 1:
             st.warning("⚠️ พบความไม่สอดคล้องของ Headers")
 
             for filename, headers in file_headers.items():
                 with st.expander(f"Headers ของ {filename}"):
                     st.write(f"**จำนวน:** {len(headers)} headers")
-                    st.write(", ".join(map(str, headers)))  # ✅ Fix: รองรับ header ที่ไม่ใช่ string
+                    st.write(", ".join(map(str, headers)))
       
             st.info("💡 คุณสามารถรวมไฟล์ได้ทันที Headers ที่ไม่ตรงกันจะเป็นค่าว่าง")
         elif len(file_headers) > 1:
             st.success("✅ Headers ทั้งหมดสอดคล้องกัน")
 
+        # ===== Merge Files Section =====
         st.header("⚙️ การรวมไฟล์")
         if st.button("🚀 เริ่มรวมไฟล์", type="primary", use_container_width=True, key="merge_files_btn"):
             with st.spinner("กำลังรวมไฟล์..."):
-                merged_df = merger.merge_files(st.session_state.merger_processed_data, selected_sheets, st.session_state.merger_selected_files)
+                merged_df = merger.merge_files(
+                    st.session_state.merger_processed_data, 
+                    selected_sheets, 
+                    st.session_state.merger_selected_files,
+                    # ⭐ NEW: ส่ง sheet_mode และ uploaded_files_cache เข้าไป
+                    sheet_mode=st.session_state.merger_sheet_mode,
+                    uploaded_files_cache=st.session_state.merger_uploaded_files_cache
+                )
                 st.session_state.merger_merged_df = merged_df
                 st.success(f"✅ รวมไฟล์สำเร็จ! {len(merged_df):,} แถว")
 
-        # ===== ฟังก์ชันตรวจหาข้อมูลซ้ำ =====
+        # ===== Duplicate Analysis Function =====
         def analyze_duplicates(df: pd.DataFrame):
             if df.empty:
                 return pd.DataFrame(), 0
@@ -2167,15 +2356,13 @@ def render_merger_tab():
             dup_df = df[dup_mask].copy()
             return dup_df, dup_mask.sum()
         
-        
-        # ===== ส่วน render_merger_tab (หลังรวมไฟล์เสร็จ) =====
+        # ===== Results Section =====
         if st.session_state.merger_merged_df is not None:
             st.header("📊 ผลลัพธ์การรวมไฟล์")
         
-            # ✅ ดึงข้อมูลจาก session
             merged_df = st.session_state.merger_merged_df.copy()
         
-            # ✅ วิเคราะห์ข้อมูลซ้ำ
+            # วิเคราะห์ข้อมูลซ้ำ
             dup_df, dup_count = analyze_duplicates(merged_df)
         
             if dup_count > 0:
@@ -2196,7 +2383,7 @@ def render_merger_tab():
                 else:
                     st.info("📎 เก็บข้อมูลทั้งหมดไว้โดยไม่ลบซ้ำ")
         
-                # ✅ highlight duplicates เฉพาะตอนที่ยังไม่ลบ
+                # Highlight duplicates
                 if action == "➡️ ข้าม (คงไว้ทั้งหมด)":
                     dup_mask = merged_df.duplicated(keep=False)
         
@@ -2214,30 +2401,44 @@ def render_merger_tab():
                 st.success("✅ ไม่พบข้อมูลซ้ำ")
                 st.dataframe(merged_df.head(100), use_container_width=True)
         
-            # ✅ บันทึกกลับเข้า session
+            # บันทึกกลับเข้า session
             st.session_state.merger_merged_df = merged_df
 
-        
-
-
-
+            # ===== Download Section =====
             st.header("⬇️ ดาวน์โหลด")
-            d1, d2 = st.columns([1,2])
+            d1, d2 = st.columns([1, 2])
+            
             with d1:
-                download_format = st.radio("เลือกรูปแบบไฟล์:", options=["CSV", "Excel (XLSX)"], index=0, key="download_format")
+                download_format = st.radio(
+                    "เลือกรูปแบบไฟล์:", 
+                    options=["CSV", "Excel (XLSX)"], 
+                    index=0, 
+                    key="download_format"
+                )
+            
             with d2:
                 if download_format == "CSV":
                     filename = f"merged_file_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
                     csv_data = merged_df.to_csv(index=False, encoding='utf-8-sig')
                     file_size = len(csv_data.encode('utf-8')) / 1024
                     st.info(f"📄 CSV | ขนาด: {file_size:.2f} KB")
-                    st.download_button(label="📥 ดาวน์โหลดไฟล์ CSV", data=csv_data, file_name=filename, mime="text/csv", type="primary", use_container_width=True, key="download_merged_csv")
+                    st.download_button(
+                        label="📥 ดาวน์โหลดไฟล์ CSV", 
+                        data=csv_data, 
+                        file_name=filename, 
+                        mime="text/csv", 
+                        type="primary", 
+                        use_container_width=True, 
+                        key="download_merged_csv"
+                    )
                 else:
                     filename = f"merged_file_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
                     output = BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
                         merged_df.to_excel(writer, index=False, sheet_name='Merged Data')
                         worksheet = writer.sheets['Merged Data']
+                        
+                        # Auto-adjust column width
                         for column in worksheet.columns:
                             max_length = 0
                             column_letter = column[0].column_letter
@@ -2249,11 +2450,21 @@ def render_merger_tab():
                                     pass
                             adjusted_width = min(max_length + 2, 50)
                             worksheet.column_dimensions[column_letter].width = adjusted_width
+                        
                         worksheet.auto_filter.ref = worksheet.dimensions
+                    
                     excel_data = output.getvalue()
                     file_size = len(excel_data) / 1024
                     st.info(f"📊 Excel | ขนาด: {file_size:.2f} KB")
-                    st.download_button(label="📥 ดาวน์โหลดไฟล์ Excel", data=excel_data, file_name=filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True, key="download_merged_excel")
+                    st.download_button(
+                        label="📥 ดาวน์โหลดไฟล์ Excel", 
+                        data=excel_data, 
+                        file_name=filename, 
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                        type="primary", 
+                        use_container_width=True, 
+                        key="download_merged_excel"
+                    )
     else:
         st.info("👆 กรุณาอัปโหลดไฟล์เพื่อเริ่มต้นใช้งาน")
 
