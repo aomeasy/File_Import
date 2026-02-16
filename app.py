@@ -397,14 +397,14 @@ def render_exec_result(proc_name: str, result: dict):
             # หาชื่อหัวข้อจากค่าฟิลด์แรก
             if len(df_result) > 0 and len(df_result.columns) > 0:
                 try:
-                    first_column_name = df_result.columns[0]
-                    first_value = str(df_result.iloc[0, 0]).strip()
-
-                    if first_value and first_value not in ['None', 'nan', '', 'NaN', 'null']:
-                        import re
-                        clean_name = re.sub(r'[<>:"/\\|?*\[\]\r\n\t]', '_', first_value)
-                        base_filename = clean_name
-                        result_title = f"{first_column_name}: {first_value}"
+               
+                        first_column_name = df_result.columns[0]
+        
+                        # ใช้แค่ชื่อคอลัมน์ ไม่เอาค่าข้อมูล
+                        result_title = first_column_name  # <-- แก้ตรงนี้
+                        
+                        # สำหรับชื่อไฟล์ยังใช้ชื่อ procedure + index
+                        base_filename = f"{proc_name}_result_{idx}"
                 except:
                     pass
 
