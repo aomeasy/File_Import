@@ -665,11 +665,10 @@ def create_chart(df: pd.DataFrame, chart_type: str, x_col: str, y_cols: list, ti
         st.warning(f"⚠️ Cannot create chart: {e}")
         return None
 
- 
 
 def render_auto_chart(df: pd.DataFrame, title: str = "Data Visualization"):
     """
-    วิเคราะห์และแสดงกราฟอัตโนมัติ (ไม่ใช้ expander เพื่อป้องกัน nested error)
+    วิเคราะห์และแสดงกราฟอัตโนมัติพร้อม metric selector
     """
     if df.empty or len(df) == 0:
         return
@@ -681,32 +680,252 @@ def render_auto_chart(df: pd.DataFrame, title: str = "Data Visualization"):
         st.caption(f"ℹ️ ไม่แสดงกราฟ: {reason}")
         return
     
-    # ✅ ใช้ container + divider แทน expander
-    st.markdown("---")  # เส้นแบ่ง
-    st.markdown(f"### 📊 {title} - Auto Chart ({chart_type.upper()})")
-    st.caption(f"💡 {reason}")
+    # ========================================
+    # ✅ Header Section
+    # ========================================
+    st.markdown("---")
+    chart_icons = {
+        'bar': '📊',
+        'line': '📈',
+        'pie': '🥧',
+        'scatter': '🔵'
+    }
+    icon = chart_icons.get(chart_type, '📊')
+    
+    col_header, col_toggle = st.columns([4, 1])
+    with col_header:
+        st.markdown(f"### {icon} {title}")
+    with col_toggle:
+        show_chart_key = f"show_chart_{id(df)}"
+        if show_chart_key not in st.session_state:
+            st.session_state[show_chart_key] = True
+        
+        if st.button("👁️ Toggle", key=f"toggle_{id(df)}", use_container_width=True):
+            st.session_state[show_chart_key] = not st.session_state[show_chart_key]
+    
+    if not st.session_state.get(show_chart_key, True):
+        st.info("👁️ Chart hidden. Click 'Toggle' to show.")
+        return
+    
+    # ========================================
+    # ✅ METRIC SELECTOR (สำหรับกราฟที่มี metrics เยอะ)
+    # ========================================
+    numeric_cols = df.select_dtypes(include=['int64', 'float64', 'int32', 'float32']).columns.tolist()
+    
+    # พยายามแปลง string ที่เป็นตัวเลข
+    for col in df.columns:
+        if col not in numeric_cols:
+            try:
+                df[col] = pd.to_numeric(df[col], errors='ignore')
+                if df[col].dtype in ['int64', 'float64']:
+                    numeric_cols.append(col)
+            except:
+                pass
+    
+    # ✅ ถ้ามี metrics มากกว่า 5 ให้แสดง selector
+    if len(numeric_cols) > 5:
+        st.markdown(f"**💡 Dataset มี {len(numeric_cols)} metrics - เลือก metrics ที่ต้องการแสดง:**")
+        
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            # แบ่งเป็นหมวดหมู่ถ้าเป็นไปได้
+            default_metrics = numeric_cols[:5]  # เลือก 5 อันแรกเป็น default
+            
+            selected_metrics = st.multiselect(
+                "Select Metrics to Display (Max 5 recommended)",
+                options=numeric_cols,
+                default=default_metrics,
+                key=f"metrics_{id(df)}",
+                help="เลือกสูงสุด 5 metrics เพื่อความชัดเจนของกราฟ"
+            )
+        
+        with col2:
+            if st.button("📊 Update Chart", key=f"update_{id(df)}", use_container_width=True, type="primary"):
+                st.rerun()
+        
+        # ตรวจสอบว่าเลือกมากเกินไปหรือไม่
+        if len(selected_metrics) > 5:
+            st.warning("⚠️ เลือก metrics มากเกิน 5 อาจทำให้กราฟดูแออัด")
+        elif len(selected_metrics) == 0:
+            st.error("❌ กรุณาเลือกอย่างน้อย 1 metric")
+            return
+        
+        # อัปเดต y_cols ตามที่เลือก
+        y_cols = selected_metrics
+    
+    # ========================================
+    # ✅ CHART RENDERING
+    # ========================================
+    st.caption(f"💡 **Chart Type:** {chart_type.upper()} - {reason}")
+    st.caption(f"📊 **Displaying {len(y_cols)} metrics** from {len(df)} rows")
+    
+    # จำกัดแถวถ้ามากเกินไป
+    display_df = df.head(50) if len(df) > 50 else df
+    if len(df) > 50:
+        st.warning(f"⚠️ Showing first 50 of {len(df)} rows for chart clarity")
     
     # สร้างกราฟ
-    fig = create_chart(df, chart_type, x_col, y_cols, title)
+    fig = create_chart_with_limit(display_df, chart_type, x_col, y_cols, title)
     
     if fig:
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key=f"chart_{id(df)}")
         
-        # ปุ่ม download กราฟเป็น PNG
-        try:
-            import plotly.io as pio
-            img_bytes = pio.to_image(fig, format="png", width=1200, height=600)
-            st.download_button(
-                label="📥 Download Chart (PNG)",
-                data=img_bytes,
-                file_name=f"{title.replace(' ', '_')}.png",
-                mime="image/png",
-                key=f"download_chart_{id(df)}",
-                use_container_width=False
-            )
-        except Exception as e:
-            st.caption(f"⚠️ Chart download unavailable: {e}")
+        # Download button
+        col_dl, col_info = st.columns([2, 3])
+        with col_dl:
+            try:
+                import plotly.io as pio
+                img_bytes = pio.to_image(fig, format="png", width=1400, height=700, engine="kaleido")
+                
+                st.download_button(
+                    label="📥 Download Chart (PNG)",
+                    data=img_bytes,
+                    file_name=f"{title.replace(' ', '_')}_{chart_type}.png",
+                    mime="image/png",
+                    key=f"download_chart_{id(df)}",
+                    use_container_width=True
+                )
+            except Exception as e:
+                st.caption(f"⚠️ Download unavailable: {str(e)}")
+        
+        with col_info:
+            st.caption(f"📈 Chart updated at: {pd.Timestamp.now().strftime('%H:%M:%S')}")
 
+def create_chart_with_limit(df: pd.DataFrame, chart_type: str, x_col: str, y_cols: list, title: str = "Chart"):
+    """
+    สร้างกราฟด้วย Plotly พร้อมการจัดการ metrics ที่มากเกินไป
+    """
+    import plotly.express as px
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    
+    if chart_type == 'none' or df.empty:
+        return None
+    
+    # จำกัด metrics สูงสุด 5 อัน
+    limited_y_cols = y_cols[:5] if len(y_cols) > 5 else y_cols
+    
+    # จำกัดแถวสูงสุด 50 แถว
+    display_df = df.head(50).copy() if len(df) > 50 else df.copy()
+    
+    try:
+        if chart_type == 'pie':
+            # Pie Chart: ใช้แค่ 1 metric
+            fig = px.pie(
+                display_df, 
+                names=x_col, 
+                values=limited_y_cols[0],
+                title=title,
+                hole=0.3
+            )
+            fig.update_traces(textposition='inside', textinfo='percent+label')
+            
+        elif chart_type == 'line':
+            # ✅ Line Chart แบบปรับปรุง - มี legend toggle
+            fig = go.Figure()
+            
+            # สุ่มสีให้แต่ละเส้น
+            colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+                     '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+            
+            for idx, y_col in enumerate(limited_y_cols):
+                fig.add_trace(go.Scatter(
+                    x=display_df[x_col],
+                    y=display_df[y_col],
+                    mode='lines+markers',
+                    name=y_col,
+                    line=dict(width=2, color=colors[idx % len(colors)]),
+                    marker=dict(size=6),
+                    visible=True if idx < 3 else 'legendonly'  # ✅ แสดงแค่ 3 เส้นแรก
+                ))
+            
+            fig.update_layout(
+                title=title,
+                xaxis_title=x_col,
+                yaxis_title='Value',
+                hovermode='x unified',
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="right",
+                    x=1,
+                    bgcolor="rgba(255,255,255,0.8)"
+                )
+            )
+            
+            # ✅ ปรับแกน X ให้อ่านง่าย
+            fig.update_xaxes(tickangle=-45)
+            
+        elif chart_type == 'bar':
+            # ✅ Bar Chart - แยกเป็น grouped bar
+            fig = go.Figure()
+            
+            colors = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A']
+            
+            for idx, y_col in enumerate(limited_y_cols):
+                fig.add_trace(go.Bar(
+                    x=display_df[x_col],
+                    y=display_df[y_col],
+                    name=y_col,
+                    marker_color=colors[idx % len(colors)],
+                    text=display_df[y_col].round(2),
+                    textposition='outside',
+                    textangle=0
+                ))
+            
+            fig.update_layout(
+                title=title,
+                xaxis_title=x_col,
+                yaxis_title='Value',
+                barmode='group',
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            
+            fig.update_xaxes(tickangle=-45)
+            
+        elif chart_type == 'scatter':
+            fig = px.scatter(
+                display_df,
+                x=x_col,
+                y=limited_y_cols[0],
+                title=title,
+                trendline="ols"
+            )
+        
+        else:
+            return None
+        
+        # ========================================
+        # ✅ Layout ทั่วไป - ปรับให้เหมาะกับข้อมูลภาษาไทย
+        # ========================================
+        fig.update_layout(
+            template="plotly_white",
+            font=dict(
+                family="Sarabun, Arial, sans-serif",  # ✅ รองรับไทย
+                size=12
+            ),
+            title_font_size=16,
+            showlegend=True,
+            height=500,  # ✅ เพิ่มความสูง
+            margin=dict(l=50, r=50, t=80, b=100),  # ✅ เว้นที่ให้ label
+            xaxis=dict(
+                tickfont=dict(size=10),
+                automargin=True
+            ),
+            yaxis=dict(
+                tickfont=dict(size=10),
+                automargin=True
+            )
+        )
+        
+        return fig
+        
+    except Exception as e:
+        st.error(f"❌ Cannot create chart: {e}")
+        return None
+        
 # ---------- NEW: favorites helpers ----------
 def add_favorite(name: str):
     favs = set(st.session_state.get('favorites', []))
