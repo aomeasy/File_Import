@@ -502,17 +502,11 @@ def render_exec_result(proc_name: str, result: dict):
 # ============================================================
 # 📊 AUTO CHART GENERATION FOR PROCEDURE RESULTS
 # ============================================================
+ 
 
 def detect_chart_type(df: pd.DataFrame):
     """
-    วิเคราะห์ DataFrame และแนะนำประเภทกราฟที่เหมาะสม
-    
-    Returns:
-        tuple: (chart_type, x_col, y_cols, reason)
-        - chart_type: 'bar', 'line', 'pie', 'scatter', 'none'
-        - x_col: ชื่อคอลัมน์แกน X (categorical)
-        - y_cols: list ของคอลัมน์ตัวเลขสำหรับแกน Y
-        - reason: เหตุผลที่เลือกกราฟนี้
+    ✅ ปรับปรุงการตรวจจับกราฟให้เหมาะสมกับข้อมูลไทย
     """
     if df.empty or len(df) == 0:
         return 'none', None, [], "No data"
@@ -520,7 +514,6 @@ def detect_chart_type(df: pd.DataFrame):
     # หาคอลัมน์ตัวเลข
     numeric_cols = df.select_dtypes(include=['int64', 'float64', 'int32', 'float32']).columns.tolist()
     
-    # พยายามแปลง string ที่เป็นตัวเลขซ่อนอยู่
     for col in df.columns:
         if col not in numeric_cols:
             try:
@@ -533,44 +526,41 @@ def detect_chart_type(df: pd.DataFrame):
     if len(numeric_cols) == 0:
         return 'none', None, [], "No numeric columns"
     
-    # หาคอลัมน์ categorical (text/date)
     categorical_cols = [col for col in df.columns if col not in numeric_cols]
     
-    # =========================================
-    # เงื่อนไขการเลือกกราฟ
-    # =========================================
+    # ✅ เงื่อนไขใหม่: ถ้ามี metrics เยอะ (>10) ให้เลือก Bar แทน Line
+    if len(numeric_cols) > 10:
+        if categorical_cols:
+            return 'bar', categorical_cols[0], numeric_cols[:5], \
+                   f"Bar: {len(numeric_cols)} metrics - showing top 5 (use selector to change)"
     
-    # 1. Pie Chart: 1 categorical + 1 numeric, แถวไม่เกิน 10
+    # ✅ Pie: เฉพาะข้อมูลน้อย + 1 metric
     if len(categorical_cols) >= 1 and len(numeric_cols) >= 1 and len(df) <= 10:
         return 'pie', categorical_cols[0], [numeric_cols[0]], \
-               f"Pie: {len(df)} categories with 1 value"
+               f"Pie: {len(df)} categories"
     
-    # 2. Line Chart: มี datetime/date หรือชื่อคอลัมน์บอกว่าเป็นเวลา
-    time_keywords = ['date', 'time', 'month', 'year', 'day', 'period', 'วันที่', 'เดือน', 'ปี']
+    # ✅ Line: มีคอลัมน์เวลา
+    time_keywords = ['date', 'time', 'month', 'year', 'day', 'period', 'วันที่', 'เดือน', 'ปี', 'ม.ค.', 'ก.พ.']
     time_cols = [col for col in categorical_cols 
-                 if any(kw in col.lower() for kw in time_keywords)]
+                 if any(kw in str(col).lower() for kw in time_keywords)]
     
     if time_cols:
         return 'line', time_cols[0], numeric_cols[:3], \
-               f"Line: Time series with {len(numeric_cols)} metrics"
+               f"Line: Time series with {min(3, len(numeric_cols))} metrics (click legend to toggle)"
     
-    # 3. Bar Chart (default): categorical + numeric
+    # ✅ Bar: default
     if categorical_cols and numeric_cols:
-        # จำกัดแถวไม่เกิน 50 เพื่อไม่ให้กราฟแออัด
-        if len(df) > 50:
-            return 'bar', categorical_cols[0], numeric_cols[:2], \
-                   f"Bar: Top 50 of {len(df)} rows"
-        return 'bar', categorical_cols[0], numeric_cols[:2], \
-               f"Bar: {len(df)} categories with {len(numeric_cols)} values"
+        max_metrics = 5 if len(numeric_cols) > 5 else len(numeric_cols)
+        return 'bar', categorical_cols[0], numeric_cols[:max_metrics], \
+               f"Bar: {len(df)} rows with {max_metrics} metrics"
     
-    # 4. Scatter: หลายตัวเลขแต่ไม่มี categorical
-    if len(numeric_cols) >= 2 and not categorical_cols:
+    # Scatter
+    if len(numeric_cols) >= 2:
         return 'scatter', numeric_cols[0], numeric_cols[1:2], \
                "Scatter: Numeric correlation"
     
-    return 'none', None, [], "Complex data structure"
-
-
+    return 'none', None, [], "Complex structure"
+    
 def create_chart(df: pd.DataFrame, chart_type: str, x_col: str, y_cols: list, title: str = "Chart"):
     """
     สร้างกราฟด้วย Plotly และ return fig object
