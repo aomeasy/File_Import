@@ -11,6 +11,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO  # ✅ เพิ่มเพื่อใช้รีเซ็ต pointer และอ่านเป็น bytes
 import chardet 
+import plotly.express as px 
 
 
 try:
@@ -413,7 +414,9 @@ def render_exec_result(proc_name: str, result: dict):
             df_display = df_result.copy()
             df_display.index = range(1, len(df_display) + 1)
             st.dataframe(df_display, use_container_width=True)
-
+            
+            render_auto_chart(df_result, title=result_title)
+            
             unique_id = f"{proc_name}_{idx}_{id(result)}"
 
             csv_data = df_result.to_csv(index=False).encode('utf-8-sig')
@@ -495,7 +498,217 @@ def render_exec_result(proc_name: str, result: dict):
             'timestamp': datetime.now()
         })
      
-  
+
+# ============================================================
+# 📊 AUTO CHART GENERATION FOR PROCEDURE RESULTS
+# ============================================================
+
+def detect_chart_type(df: pd.DataFrame):
+    """
+    วิเคราะห์ DataFrame และแนะนำประเภทกราฟที่เหมาะสม
+    
+    Returns:
+        tuple: (chart_type, x_col, y_cols, reason)
+        - chart_type: 'bar', 'line', 'pie', 'scatter', 'none'
+        - x_col: ชื่อคอลัมน์แกน X (categorical)
+        - y_cols: list ของคอลัมน์ตัวเลขสำหรับแกน Y
+        - reason: เหตุผลที่เลือกกราฟนี้
+    """
+    if df.empty or len(df) == 0:
+        return 'none', None, [], "No data"
+    
+    # หาคอลัมน์ตัวเลข
+    numeric_cols = df.select_dtypes(include=['int64', 'float64', 'int32', 'float32']).columns.tolist()
+    
+    # พยายามแปลง string ที่เป็นตัวเลขซ่อนอยู่
+    for col in df.columns:
+        if col not in numeric_cols:
+            try:
+                df[col] = pd.to_numeric(df[col], errors='ignore')
+                if df[col].dtype in ['int64', 'float64']:
+                    numeric_cols.append(col)
+            except:
+                pass
+    
+    if len(numeric_cols) == 0:
+        return 'none', None, [], "No numeric columns"
+    
+    # หาคอลัมน์ categorical (text/date)
+    categorical_cols = [col for col in df.columns if col not in numeric_cols]
+    
+    # =========================================
+    # เงื่อนไขการเลือกกราฟ
+    # =========================================
+    
+    # 1. Pie Chart: 1 categorical + 1 numeric, แถวไม่เกิน 10
+    if len(categorical_cols) >= 1 and len(numeric_cols) >= 1 and len(df) <= 10:
+        return 'pie', categorical_cols[0], [numeric_cols[0]], \
+               f"Pie: {len(df)} categories with 1 value"
+    
+    # 2. Line Chart: มี datetime/date หรือชื่อคอลัมน์บอกว่าเป็นเวลา
+    time_keywords = ['date', 'time', 'month', 'year', 'day', 'period', 'วันที่', 'เดือน', 'ปี']
+    time_cols = [col for col in categorical_cols 
+                 if any(kw in col.lower() for kw in time_keywords)]
+    
+    if time_cols:
+        return 'line', time_cols[0], numeric_cols[:3], \
+               f"Line: Time series with {len(numeric_cols)} metrics"
+    
+    # 3. Bar Chart (default): categorical + numeric
+    if categorical_cols and numeric_cols:
+        # จำกัดแถวไม่เกิน 50 เพื่อไม่ให้กราฟแออัด
+        if len(df) > 50:
+            return 'bar', categorical_cols[0], numeric_cols[:2], \
+                   f"Bar: Top 50 of {len(df)} rows"
+        return 'bar', categorical_cols[0], numeric_cols[:2], \
+               f"Bar: {len(df)} categories with {len(numeric_cols)} values"
+    
+    # 4. Scatter: หลายตัวเลขแต่ไม่มี categorical
+    if len(numeric_cols) >= 2 and not categorical_cols:
+        return 'scatter', numeric_cols[0], numeric_cols[1:2], \
+               "Scatter: Numeric correlation"
+    
+    return 'none', None, [], "Complex data structure"
+
+
+def create_chart(df: pd.DataFrame, chart_type: str, x_col: str, y_cols: list, title: str = "Chart"):
+    """
+    สร้างกราฟด้วย Plotly และ return fig object
+    """
+    import plotly.express as px
+    import plotly.graph_objects as go
+    
+    if chart_type == 'none' or df.empty:
+        return None
+    
+    # จำกัดแถวถ้ามากเกินไป
+    display_df = df.head(50).copy() if len(df) > 50 else df.copy()
+    
+    try:
+        if chart_type == 'pie':
+            fig = px.pie(
+                display_df, 
+                names=x_col, 
+                values=y_cols[0],
+                title=title,
+                hole=0.3  # Donut style
+            )
+            fig.update_traces(textposition='inside', textinfo='percent+label')
+            
+        elif chart_type == 'line':
+            fig = go.Figure()
+            for y_col in y_cols:
+                fig.add_trace(go.Scatter(
+                    x=display_df[x_col],
+                    y=display_df[y_col],
+                    mode='lines+markers',
+                    name=y_col,
+                    line=dict(width=2)
+                ))
+            fig.update_layout(
+                title=title,
+                xaxis_title=x_col,
+                yaxis_title='Value',
+                hovermode='x unified'
+            )
+            
+        elif chart_type == 'bar':
+            if len(y_cols) == 1:
+                fig = px.bar(
+                    display_df,
+                    x=x_col,
+                    y=y_cols[0],
+                    title=title,
+                    text_auto=True
+                )
+            else:
+                fig = go.Figure()
+                for y_col in y_cols:
+                    fig.add_trace(go.Bar(
+                        x=display_df[x_col],
+                        y=display_df[y_col],
+                        name=y_col,
+                        text=display_df[y_col],
+                        textposition='auto'
+                    ))
+                fig.update_layout(
+                    title=title,
+                    xaxis_title=x_col,
+                    yaxis_title='Value',
+                    barmode='group'
+                )
+            
+        elif chart_type == 'scatter':
+            fig = px.scatter(
+                display_df,
+                x=x_col,
+                y=y_cols[0],
+                title=title,
+                trendline="ols"  # เส้นแนวโน้ม
+            )
+        
+        else:
+            return None
+        
+        # ปรับแต่ง layout ทั่วไป
+        fig.update_layout(
+            template="plotly_white",
+            font=dict(family="Sarabun, sans-serif", size=12),
+            title_font_size=16,
+            showlegend=True,
+            height=400
+        )
+        
+        return fig
+        
+    except Exception as e:
+        st.warning(f"⚠️ Cannot create chart: {e}")
+        return None
+
+
+def render_auto_chart(df: pd.DataFrame, title: str = "Data Visualization"):
+    """
+    วิเคราะห์และแสดงกราฟอัตโนมัติ
+    
+    Args:
+        df: DataFrame ที่ต้องการแสดงกราฟ
+        title: หัวข้อกราฟ
+    """
+    if df.empty or len(df) == 0:
+        return
+    
+    # วิเคราะห์ประเภทกราฟ
+    chart_type, x_col, y_cols, reason = detect_chart_type(df)
+    
+    if chart_type == 'none':
+        st.caption(f"ℹ️ ไม่แสดงกราฟ: {reason}")
+        return
+    
+    with st.expander(f"📊 {title} - Auto Chart ({chart_type.upper()})", expanded=True):
+        st.caption(f"💡 {reason}")
+        
+        # สร้างกราฟ
+        fig = create_chart(df, chart_type, x_col, y_cols, title)
+        
+        if fig:
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # ปุ่ม download กราฟเป็น PNG
+            try:
+                import plotly.io as pio
+                img_bytes = pio.to_image(fig, format="png", width=1200, height=600)
+                st.download_button(
+                    label="📥 Download Chart (PNG)",
+                    data=img_bytes,
+                    file_name=f"{title.replace(' ', '_')}.png",
+                    mime="image/png",
+                    key=f"download_chart_{id(df)}"
+                )
+            except Exception as e:
+                st.caption(f"⚠️ Chart download unavailable: {e}")
+
+
+
 # ---------- NEW: favorites helpers ----------
 def add_favorite(name: str):
     favs = set(st.session_state.get('favorites', []))
