@@ -665,14 +665,11 @@ def create_chart(df: pd.DataFrame, chart_type: str, x_col: str, y_cols: list, ti
         st.warning(f"⚠️ Cannot create chart: {e}")
         return None
 
+ 
 
 def render_auto_chart(df: pd.DataFrame, title: str = "Data Visualization"):
     """
-    วิเคราะห์และแสดงกราฟอัตโนมัติ
-    
-    Args:
-        df: DataFrame ที่ต้องการแสดงกราฟ
-        title: หัวข้อกราฟ
+    วิเคราะห์และแสดงกราฟอัตโนมัติ (ไม่ใช้ expander เพื่อป้องกัน nested error)
     """
     if df.empty or len(df) == 0:
         return
@@ -684,30 +681,31 @@ def render_auto_chart(df: pd.DataFrame, title: str = "Data Visualization"):
         st.caption(f"ℹ️ ไม่แสดงกราฟ: {reason}")
         return
     
-    with st.expander(f"📊 {title} - Auto Chart ({chart_type.upper()})", expanded=True):
-        st.caption(f"💡 {reason}")
+    # ✅ ใช้ container + divider แทน expander
+    st.markdown("---")  # เส้นแบ่ง
+    st.markdown(f"### 📊 {title} - Auto Chart ({chart_type.upper()})")
+    st.caption(f"💡 {reason}")
+    
+    # สร้างกราฟ
+    fig = create_chart(df, chart_type, x_col, y_cols, title)
+    
+    if fig:
+        st.plotly_chart(fig, use_container_width=True)
         
-        # สร้างกราฟ
-        fig = create_chart(df, chart_type, x_col, y_cols, title)
-        
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # ปุ่ม download กราฟเป็น PNG
-            try:
-                import plotly.io as pio
-                img_bytes = pio.to_image(fig, format="png", width=1200, height=600)
-                st.download_button(
-                    label="📥 Download Chart (PNG)",
-                    data=img_bytes,
-                    file_name=f"{title.replace(' ', '_')}.png",
-                    mime="image/png",
-                    key=f"download_chart_{id(df)}"
-                )
-            except Exception as e:
-                st.caption(f"⚠️ Chart download unavailable: {e}")
-
-
+        # ปุ่ม download กราฟเป็น PNG
+        try:
+            import plotly.io as pio
+            img_bytes = pio.to_image(fig, format="png", width=1200, height=600)
+            st.download_button(
+                label="📥 Download Chart (PNG)",
+                data=img_bytes,
+                file_name=f"{title.replace(' ', '_')}.png",
+                mime="image/png",
+                key=f"download_chart_{id(df)}",
+                use_container_width=False
+            )
+        except Exception as e:
+            st.caption(f"⚠️ Chart download unavailable: {e}")
 
 # ---------- NEW: favorites helpers ----------
 def add_favorite(name: str):
