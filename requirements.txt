@@ -19,3 +19,4 @@ google-generativeai
 pythainlp
 chardet
 regex
+kaleido>=0.2.1
