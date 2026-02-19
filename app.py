@@ -435,35 +435,18 @@ def render_exec_result(proc_name: str, result: dict):
                     key=f"csv_{unique_id}",
                     use_container_width=True
                 )
- 
-# ---- Download All: Excel 1 file หลาย sheet (แสดงเฉพาะเมื่อมี >1 result set) ----
-            if len(result['results']) > 1:
-                all_excel_buffer = BytesIO()
-                with pd.ExcelWriter(all_excel_buffer, engine='openpyxl') as writer:
-                    for i, res_all in enumerate(result['results'], start=1):
-                        df_all = pd.DataFrame(res_all)
-                        sheet_name = f"Sheet{i}"
-                        # ตั้งชื่อ sheet ตามชื่อคอลัมน์แรก (ถ้ามี) truncate ให้ไม่เกิน 31 ตัว
-                        try:
-                            if len(df_all.columns) > 0:
-                                sheet_name = str(df_all.columns[0])[:31]
-                                # ป้องกัน sheet ชื่อซ้ำ
-                                sheet_name = f"{sheet_name[:28]}_{i}" if i > 1 else sheet_name[:31]
-                        except Exception:
-                            pass
-                        df_all.to_excel(writer, index=False, sheet_name=sheet_name)
-                all_excel_data = all_excel_buffer.getvalue()
-    
+
+            with col2:
                 st.download_button(
-                    label="📦 Download All (Excel - All Sheets)",
-                    data=all_excel_data,
-                    file_name=f"{proc_name}_all_results.xlsx",
+                    label="📊 Download Excel",
+                    data=excel_data,
+                    file_name=f"{base_filename}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key=f"excel_all_{proc_name}_{id(result)}",
+                    key=f"excel_{unique_id}",
                     use_container_width=True
                 )
-    
-            
+
+        if result.get('rows_affected'):
             st.info(f"Rows affected: {result.get('rows_affected')}")
 
         if result.get('warnings'):
