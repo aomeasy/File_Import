@@ -222,8 +222,8 @@ class FileProcessor:
             # Remove completely empty columns
             df = df.dropna(axis=1, how='all')
             
-            # Clean column names - remove special characters and spaces
-            df.columns = df.columns.str.replace(r'[^\w\s]', '', regex=True)
+            # Clean column names - remove special characters and spaces 
+            df.columns = df.columns.str.replace(r'[^\w\s\.\(\)\-]', '', regex=True)  # ← เพิ่ม \.\(\)\-
             df.columns = df.columns.str.replace(r'\s+', '_', regex=True)
             df.columns = df.columns.str.strip('_')
             
@@ -263,7 +263,8 @@ class FileProcessor:
                     numeric_count = numeric_series.notna().sum()
                     
                     if non_null_count > 0 and (numeric_count / non_null_count) > 0.8:
-                        df[col] = numeric_series
+                        
+                        df[col] = df[col].where(numeric_series.isna(), numeric_series)
                         
             return df
             
@@ -310,7 +311,8 @@ class FileProcessor:
                 df = pd.read_excel(
                     uploaded_file,
                     sheet_name=sheet_name,
-                    na_values=['', 'NULL', 'null', 'N/A', 'n/a', 'NA', 'na']
+                    dtype=str,                # ✅ อ่านเป็น string ก่อนเสมอ
+                    keep_default_na=False     # ✅ ป้องกันค่าว่างกลายเป็น NaN
                 )
                 
                 # ⭐ NEW: ถ้า header (บรรทัดแรก) ว่างเปล่า ให้หาบรรทัดที่มีข้อมูลมาเป็น header
