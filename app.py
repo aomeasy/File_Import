@@ -1264,7 +1264,7 @@ def render_import_tab():
                             
                             selected_db_col = st.selectbox(
                                 f"Map {file_col}",
-                                options=["-- Skip --"] + db_column_names,
+                                options=["🔴-- Skip --"] + db_column_names,
                                 index=default_index + 1 if file_col in db_column_names else 0,
                                 key=f"mapping_{file_col}",
                                 label_visibility="collapsed"
