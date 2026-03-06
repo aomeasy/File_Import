@@ -1270,7 +1270,7 @@ def render_import_tab():
                                 label_visibility="collapsed"
                             )
                             
-                            if selected_db_col != "-- Skip --":
+                            if selected_db_col != "🔴-- Skip --":
                                 column_mapping[file_col] = selected_db_col
                 
                 if column_mapping:
