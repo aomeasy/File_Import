@@ -446,6 +446,35 @@ def render_exec_result(proc_name: str, result: dict):
                     use_container_width=True
                 )
 
+# ---------- DOWNLOAD ALL (Excel multi-sheet) ----------
+        if len(result['results']) > 1:
+            from io import BytesIO
+            all_excel_buffer = BytesIO()
+            with pd.ExcelWriter(all_excel_buffer, engine='openpyxl') as writer:
+                for s_idx, s_res in enumerate(result['results'], start=1):
+                    df_sheet = pd.DataFrame(s_res)
+                    sheet_name = f"Result_{s_idx}"
+                    if len(df_sheet.columns) > 0:
+                        try:
+                            sheet_name = str(df_sheet.columns[0])[:31]  # Excel sheet name max 31 chars
+                        except:
+                            pass
+                    df_sheet.to_excel(writer, index=False, sheet_name=sheet_name)
+            all_excel_data = all_excel_buffer.getvalue()
+
+            st.download_button(
+                label="📦 Download All (Excel)",
+                data=all_excel_data,
+                file_name=f"{proc_name}_all_results.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"excel_all_{proc_name}_{id(result)}",
+                use_container_width=True
+            )
+
+# ---------- END DOWNLOAD ALL (Excel multi-sheet) ----------
+
+
+        
         if result.get('rows_affected'):
             st.info(f"Rows affected: {result.get('rows_affected')}")
 
