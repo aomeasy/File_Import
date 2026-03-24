@@ -456,7 +456,8 @@ def render_exec_result(proc_name: str, result: dict):
                     sheet_name = f"Result_{s_idx}"
                     if len(df_sheet.columns) > 0:
                         try:
-                            sheet_name = str(df_sheet.columns[0])[:31]  # Excel sheet name max 31 chars
+                            col_name = str(df_sheet.columns[0])[:20] if len(df_sheet.columns) > 0 else "Result"
+                            sheet_name = f"{s_idx}_{col_name}"[:31]
                         except:
                             pass
                     df_sheet.to_excel(writer, index=False, sheet_name=sheet_name)
