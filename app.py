@@ -2790,7 +2790,7 @@ def render_data_editor_tab():
             elif selected_table == "CrystalReportViewer_datacom_Ply":
                 query += " WHERE `month` = %s AND `year` = %s"
                 params = [asset_month, asset_year]
-             elif selected_table == "R06_datacomPly":
+            elif selected_table == "R06_datacomPly":
                 query += " WHERE `month` = %s AND `Year` = %s"
                 params = [asset_month, asset_year]
                 
