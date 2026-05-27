@@ -2633,11 +2633,49 @@ def render_data_editor_tab():
                 index=0,
                 key="asset_status_filter"
             )
+
+
+
+        elif selected_table == "CrystalReportViewer_datacom_Ply":
+            st.markdown("#### 📅 Filter by Month / Year")
+            
+            try:
+
+                minmax = db.execute_query("""
+                    SELECT DISTINCT month, year
+                    FROM CrystalReportViewer_datacom_Ply
+                    ORDER BY year DESC, month DESC
+                """)
+                 
+            except:
+                minmax = None
+            if minmax is not None and not minmax.empty:
+                month_list = minmax['month'].unique().tolist()
+                year_list = sorted(minmax['year'].unique().tolist(), reverse=True)
+            else:
+                month_list = []
+                year_list = []
+            
+            col_m, col_y = st.columns(2)
+            with col_m:
+                asset_month = st.selectbox("Month", options=month_list, key="crystal_month")
+            with col_y:
+                asset_year = st.selectbox("Year", options=year_list, key="crystal_year")                
+            
+            
+            asset_status = "All"
+
         else:
             # ถ้าไม่ใช่ table Asset ให้ set ค่า default
             asset_status = "All"
             asset_month = None
             asset_year = None
+
+
+
+
+
+        
         
         # Match Mode
         match_mode = st.radio("Match Mode", ["AND", "OR"], horizontal=True, index=1)
@@ -2724,6 +2762,10 @@ def render_data_editor_tab():
             if selected_table == "Asset":
                 query += " WHERE `month` LIKE %s AND `year` LIKE %s"
                 params = [f"%{asset_month}%", f"%{asset_year}%"]
+            elif selected_table == "CrystalReportViewer_datacom_Ply":
+                query += " WHERE `month` = %s AND `year` = %s"
+                params = [asset_month, asset_year]
+         
                 
                 # Filter by ดำเนินการ (no search input)
                 if asset_status != "All":
