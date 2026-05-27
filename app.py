@@ -1296,6 +1296,7 @@ def render_import_tab():
                             elif file_col.lower() in db_column_names_lower:
                                 default_index = db_column_names_lower.index(file_col.lower()) + 1
                                 #st.write(f"DEBUG index: {default_index} | db_col: {db_column_names[default_index-1]}")
+                            st.write(f"DEBUG: file='{file_col}' | default_index={default_index}")
                             
                              
                             
