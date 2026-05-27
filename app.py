@@ -1321,7 +1321,8 @@ def render_import_tab():
                     # แปลงทุก column เป็น string และจัดการ NaN
                     for col in df_to_import.columns:
                         df_to_import[col] = df_to_import[col].apply(
-                            lambda x: None if pd.isna(x) else str(x)
+                            #lambda x: None if pd.isna(x) else str(x)
+                            lambda x: None if (isinstance(x, float) and pd.isna(x)) else str(x)
                         )
                 else:
                     st.warning("⚠️ No columns mapped")
@@ -1430,7 +1431,8 @@ def render_import_tab():
                                 # ✅ เพิ่มตรงนี้: แปลงทุก column เป็น string
                                 for col in df_clean.columns:
                                     df_clean[col] = df_clean[col].apply(
-                                        lambda x: None if pd.isna(x) else str(x)
+                                        #lambda x: None if pd.isna(x) else str(x)
+                                        lambda x: None if (isinstance(x, float) and pd.isna(x)) else str(x)
                                     )
                                 # st.success("✅ Data cleaned successfully")
                                 
