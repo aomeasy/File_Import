@@ -2648,8 +2648,7 @@ def render_data_editor_tab():
                 """)
                  
             except:
-                minmax = None
-                st.write(f"DEBUG: month_list={month_list} | year_list={year_list}")
+                minmax = None 
             if minmax is not None and not minmax.empty:
                 month_list = minmax['Month'].unique().tolist()
                 year_list = sorted(minmax['Year'].unique().tolist(), reverse=True)
@@ -2665,7 +2664,32 @@ def render_data_editor_tab():
             
             
             asset_status = "All"
-
+        elif selected_table == "R06_datacomPly":
+            st.markdown("#### 📅 Filter by Month / Year")
+            
+            try:
+                minmax = db.execute_query("""
+                    SELECT DISTINCT month, Year
+                    FROM R06_datacomPly
+                    ORDER BY Year DESC, month DESC
+                """)
+            except:
+                minmax = None
+        
+            if minmax is not None and not minmax.empty:
+                month_list = minmax['month'].unique().tolist()
+                year_list = sorted(minmax['Year'].unique().tolist(), reverse=True)
+            else:
+                month_list = []
+                year_list = []
+            
+            col_m, col_y = st.columns(2)
+            with col_m:
+                asset_month = st.selectbox("Month", options=month_list, key="r06_month")
+            with col_y:
+                asset_year = st.selectbox("Year", options=year_list, key="r06_year")
+            
+            asset_status = "All"
         else:
             # ถ้าไม่ใช่ table Asset ให้ set ค่า default
             asset_status = "All"
@@ -2766,7 +2790,9 @@ def render_data_editor_tab():
             elif selected_table == "CrystalReportViewer_datacom_Ply":
                 query += " WHERE `month` = %s AND `year` = %s"
                 params = [asset_month, asset_year]
-         
+             elif selected_table == "R06_datacomPly":
+                query += " WHERE `month` = %s AND `Year` = %s"
+                params = [asset_month, asset_year]
                 
                 # Filter by ดำเนินการ (no search input)
                 if asset_status != "All":
