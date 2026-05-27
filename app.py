@@ -1288,13 +1288,14 @@ def render_import_tab():
                         with c1:
                             st.text(file_col)
                         with c2:
-
                             default_index = 0
                             db_column_names_lower = [col.lower() for col in db_column_names]
+                            st.write(f"DEBUG: file='{file_col}' | db_lower={db_column_names_lower}")
                             if file_col in db_column_names:
                                 default_index = db_column_names.index(file_col)
                             elif file_col.lower() in db_column_names_lower:
                                 default_index = db_column_names_lower.index(file_col.lower())
+                            
                              
                             
                             selected_db_col = st.selectbox(
