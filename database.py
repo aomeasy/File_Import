@@ -95,9 +95,11 @@ class DatabaseManager:
                         CREATE_TIME,
                         UPDATE_TIME
                     FROM INFORMATION_SCHEMA.TABLES 
-                    WHERE TABLE_SCHEMA = %s 
-                    AND TABLE_TYPE IN ('BASE TABLE')
-                    OR (TABLE_TYPE = 'VIEW' AND TABLE_NAME IN ('CrystalReportViewer_datacom_Ply', 'R06_datacomPly')))
+                    WHERE TABLE_SCHEMA = %s
+                    AND (
+                        TABLE_TYPE = 'BASE TABLE'
+                        OR (TABLE_TYPE = 'VIEW' AND TABLE_NAME IN ('CrystalReportViewer_datacom_Ply', 'R06_datacomPly'))
+                    )
                     ORDER BY TABLE_NAME
                 """
                 cursor.execute(query, (self.connection_config['database'],))
