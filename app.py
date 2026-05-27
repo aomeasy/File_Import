@@ -1299,7 +1299,7 @@ def render_import_tab():
                                 default_index = db_column_names_lower.index(file_col.lower()) + 1
                                 
                                 #st.write(f"DEBUG index: {default_index} | db_col: {db_column_names[default_index-1]}")
-                            st.write(f"DEBUG: file='{file_col}' | default_index={default_index}")
+                            #st.write(f"DEBUG: file='{file_col}' | default_index={default_index}")
                             
                              
                             
