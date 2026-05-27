@@ -2675,7 +2675,7 @@ def render_data_editor_tab():
                 """)
             except:
                 minmax = None
-        
+                
             if minmax is not None and not minmax.empty:
                 month_list = minmax['month'].unique().tolist()
                 year_list = sorted(minmax['Year'].unique().tolist(), reverse=True)
