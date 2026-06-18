@@ -58,77 +58,88 @@ def _get_db() -> DatabaseManager:
     """Return the shared DatabaseManager from session_state."""
     return st.session_state.get("db_manager") or DatabaseManager()
 
+def _init_mock_data() -> None:
+    """สร้างข้อมูลจำลองครั้งแรกที่เปิดแท็บ (เก็บใน session_state แทน DB)"""
+    if "mock_flows" not in st.session_state:
+        st.session_state.mock_flows = [
+            {
+                "id": 1, "name": "Daily Broadband Report",
+                "description": "สร้างรายงานประจำวัน",
+                "trigger_type": "schedule", "cron_expr": "0 8 * * 1-5",
+                "target_script": "scripts/daily_report.py", "script_args": "",
+                "is_active": 1, "created_at": "2026-06-01 08:00:00",
+            },
+            {
+                "id": 2, "name": "Sync after Import",
+                "description": "อัปเดตข้อมูลหลัง import เสร็จ",
+                "trigger_type": "after_import", "cron_expr": None,
+                "target_script": "scripts/sync_data.py", "script_args": "--mode quick",
+                "is_active": 1, "created_at": "2026-06-05 10:00:00",
+            },
+        ]
+    if "mock_runs" not in st.session_state:
+        st.session_state.mock_runs = [
+            {
+                "id": 1, "flow_id": 1, "triggered_by": "scheduler",
+                "status": "success", "started_at": "2026-06-17 08:00:00",
+                "finished_at": "2026-06-17 08:00:12", "duration_sec": 12.3,
+                "exit_code": 0, "error_msg": "", "log_output": "Report generated OK",
+            },
+            {
+                "id": 2, "flow_id": 2, "triggered_by": "manual",
+                "status": "failed", "started_at": "2026-06-17 09:15:00",
+                "finished_at": "2026-06-17 09:15:05", "duration_sec": 5.1,
+                "exit_code": 1, "error_msg": "FileNotFoundError: data.csv",
+                "log_output": "",
+            },
+        ]
+    st.session_state.setdefault("mock_next_flow_id", 3)
+    st.session_state.setdefault("mock_next_run_id", 3)
 
 def _load_flows() -> pd.DataFrame:
-    """SELECT all flows ordered by name."""
-    db = _get_db()
-    return db.execute_query(
-        "SELECT id, name, description, trigger_type, cron_expr, "
-        "target_script, script_args, is_active, created_at "
-        "FROM auto_flows ORDER BY name"
-    )
-
+    _init_mock_data()
+    df = pd.DataFrame(st.session_state.mock_flows)
+    return df.sort_values("name").reset_index(drop=True)
+     
 
 def _load_recent_runs(limit: int = 30) -> pd.DataFrame:
-    """SELECT recent run history with flow name joined."""
-    db = _get_db()
-    return db.execute_query(
-        """
-        SELECT r.id, f.name AS flow_name, r.triggered_by, r.status,
-               r.started_at, r.finished_at, r.duration_sec,
-               r.exit_code, r.error_msg
-        FROM flow_runs r
-        JOIN auto_flows f ON f.id = r.flow_id
-        ORDER BY r.started_at DESC
-        LIMIT %s
-        """,
-        (str(limit),)          # execute_query wraps params as strings internally
-    )
+    _init_mock_data()
+    df = pd.DataFrame(st.session_state.mock_runs)
+    if df.empty:
+        return df
+    flow_names = {f["id"]: f["name"] for f in st.session_state.mock_flows}
+    df["flow_name"] = df["flow_id"].map(flow_names)
+    return df.sort_values("started_at", ascending=False).head(limit).reset_index(drop=True)
+     
 
-
-def _save_flow(name: str, description: str, trigger_type: str,
-               cron_expr: str, target_script: str, script_args: str,
-               is_active: bool) -> bool:
-    """INSERT a new flow row. Returns True on success."""
-    try:
-        db = _get_db()
-        db.execute_nonquery(
-            """
-            INSERT INTO auto_flows
-                (name, description, trigger_type, cron_expr,
-                 target_script, script_args, is_active)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """,
-            (name, description, trigger_type,
-             cron_expr or None, target_script,
-             script_args or None, int(is_active))
-        )
-        return True
-    except Exception as e:
-        st.error(f"❌ Could not save flow: {e}")
-        return False
-
+def _save_flow(name, description, trigger_type, cron_expr,
+               target_script, script_args, is_active) -> bool:
+    _init_mock_data()
+    new_id = st.session_state.mock_next_flow_id
+    st.session_state.mock_flows.append({
+        "id": new_id, "name": name, "description": description,
+        "trigger_type": trigger_type, "cron_expr": cron_expr or None,
+        "target_script": target_script, "script_args": script_args or None,
+        "is_active": int(is_active),
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    })
+    st.session_state.mock_next_flow_id += 1
+    return True
 
 def _toggle_flow(flow_id: int, new_state: bool) -> None:
-    """Flip is_active for a flow."""
-    try:
-        _get_db().execute_nonquery(
-            "UPDATE auto_flows SET is_active = %s WHERE id = %s",
-            (int(new_state), flow_id)
-        )
-    except Exception as e:
-        st.error(f"❌ Toggle failed: {e}")
-
+    for f in st.session_state.mock_flows:
+        if f["id"] == flow_id:
+            f["is_active"] = int(new_state)
+            break
 
 def _delete_flow(flow_id: int) -> None:
-    """Hard-delete a flow (cascade removes its run history)."""
-    try:
-        _get_db().execute_nonquery(
-            "DELETE FROM auto_flows WHERE id = %s", (flow_id,)
-        )
-    except Exception as e:
-        st.error(f"❌ Delete failed: {e}")
-
+    st.session_state.mock_flows = [
+        f for f in st.session_state.mock_flows if f["id"] != flow_id
+    ]
+    st.session_state.mock_runs = [
+        r for r in st.session_state.mock_runs if r["flow_id"] != flow_id
+    ]
+     
 
 def _insert_run_record(flow_id: int, triggered_by: str) -> int:
     """
@@ -201,21 +212,21 @@ def _run_script_thread(flow_id: int, run_id: int, script_path: str,
         duration = time.time() - start
         _update_run_record(run_id, "failed", -1, "", str(e), duration)
 
-
 def _execute_flow(flow_id: int, script_path: str,
                   script_args: str, triggered_by: str) -> int:
-    """
-    Public entry point: logs + fires background thread.
-    Returns run_id so callers can surface it in the UI.
-    """
-    run_id = _insert_run_record(flow_id, triggered_by)
-    t = threading.Thread(
-        target=_run_script_thread,
-        args=(flow_id, run_id, script_path, script_args),
-        daemon=True
-    )
-    t.start()
+    """Mockup: จำลองผลรัน ไม่เรียก subprocess จริง ไม่เขียน DB"""
+    _init_mock_data()
+    run_id = st.session_state.mock_next_run_id
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    st.session_state.mock_runs.append({
+        "id": run_id, "flow_id": flow_id, "triggered_by": triggered_by,
+        "status": "success", "started_at": now, "finished_at": now,
+        "duration_sec": 1.0, "exit_code": 0, "error_msg": "",
+        "log_output": f"(mock) รัน {script_path} {script_args} สำเร็จ",
+    })
+    st.session_state.mock_next_run_id += 1
     return run_id
+                       
 
 
 # ─────────────────────────────────────────────
@@ -455,17 +466,12 @@ def _render_run_history(runs_df: pd.DataFrame) -> None:
             key="log_viewer_select"
         )
         if st.button("แสดง Log", key="btn_show_log"):
-            db = _get_db()
-            log_df = db.execute_query(
-                "SELECT log_output, error_msg FROM flow_runs WHERE id = %s",
-                (str(chosen_id),)
-            )
-            if log_df is not None and not log_df.empty:
-                log_text = str(log_df.iloc[0]["log_output"] or "(ไม่มี stdout)")
-                err_text = str(log_df.iloc[0]["error_msg"] or "")
-                st.code(log_text, language="text")
-                if err_text:
-                    st.error(f"stderr: {err_text}")
+            run = next((r for r in st.session_state.mock_runs if r["id"] == chosen_id), None)
+            if run:
+                st.code(run.get("log_output") or "(ไม่มี stdout)", language="text")
+                if run.get("error_msg"):
+                    st.error(f"stderr: {run['error_msg']}")
+    
 
 
 # ─────────────────────────────────────────────
@@ -480,10 +486,7 @@ def render_autoflow_tab() -> None:
     st.header("⚡ Auto Flow")
     st.caption("จัดการและรัน .py scripts แบบตั้งเวลาหรือ manual")
 
-    # ── Guard: DB must be available ──────────────────────────────────
-    if "db_manager" not in st.session_state:
-        st.error("❌ ยังไม่ได้เชื่อมต่อฐานข้อมูล")
-        return
+ 
 
     # ── Load data ────────────────────────────────────────────────────
     flows_df = _load_flows()
