@@ -4273,7 +4273,7 @@ def main():
             """, unsafe_allow_html=True)
 
 
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([ 
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8  = st.tabs([ 
             "📁 Import Data", "⚙️ Run Procedures",
             "⚡ Auto Flow",  
             "🧾 View & Edit Data","🔗 File Merger",
