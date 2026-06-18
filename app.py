@@ -4272,21 +4272,21 @@ def main():
             """, unsafe_allow_html=True)
 
 
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([ "📁 Import Data", "⚙️ Run Procedures","🧾 View & Edit Data","🔗 File Merger","🧠 AI OCR","📜 Logs","🔑 Key Management"])
-        with tab1:
-            render_import_tab()
-        with tab2:
-            render_procedures_tab()
-        with tab3:
-            render_data_editor_tab()  # ✅ เพิ่มใหม่
-        with tab4:
-            render_merger_tab() 
-        with tab5:
-            render_ocr_tab()
-        with tab6:
-            render_log_tab()
-        with tab7:
-            render_user_management_tab()
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([ 
+            "📁 Import Data", "⚙️ Run Procedures",
+            "⚡ Auto Flow",  
+            "🧾 View & Edit Data","🔗 File Merger",
+            "🧠 AI OCR","📜 Logs","🔑 Key Management"
+        ])
+        with tab1: render_import_tab()
+        with tab2: render_procedures_tab()
+        with tab3: render_autoflow_tab()          
+        with tab4: render_data_editor_tab()        
+        with tab5: render_merger_tab()             
+        with tab6: render_ocr_tab()                
+        with tab7: render_log_tab()                
+        with tab8: render_user_management_tab()    
+             
     except Exception as e:
         st.error(f"Application error: {e}")
 
